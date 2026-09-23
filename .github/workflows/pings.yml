@@ -1,0 +1,26 @@
+name: Mindful pings
+on:
+  schedule:
+    - cron: '30 3,7,11 * * *'   # 9:00, 13:00, 17:00 India time
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'test = send one ping now'
+        default: test
+        type: choice
+        options: [test, schedule]
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci --omit=dev
+        working-directory: sender
+      - run: node sender/send.mjs
+        env:
+          MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'schedule' }}
+          PUSH_SETUP: ${{ secrets.PUSH_SETUP }}
