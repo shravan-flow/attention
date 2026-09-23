@@ -94,10 +94,10 @@
   function dateOf(n) { var d = startDate(); d.setDate(d.getDate() + n - 1); return d.toLocaleDateString('en', { month: 'short', day: 'numeric' }); }
   function phaseFor(n) { return n <= 5 ? 1 : n <= 12 ? 2 : n <= 20 ? 3 : 4; }
   var Z = {
-    1: { name: 'I · The Clearing', desc: 'Just notice, don’t fix.', first: 1, last: 5 },
-    2: { name: 'II · The Forest', desc: 'Add a single-tasking rule.', first: 6, last: 12 },
-    3: { name: 'III · The Ridge', desc: 'Extend the sit, add a focus sprint.', first: 13, last: 20 },
-    4: { name: 'IV · The Summit', desc: 'Stack it, and start noticing your triggers.', first: 21, last: 30 }
+    1: { name: 'Ring 1 · Notice', desc: 'Just notice, don’t fix.', first: 1, last: 5 },
+    2: { name: 'Ring 2 · Single-task', desc: 'Add a single-tasking rule.', first: 6, last: 12 },
+    3: { name: 'Ring 3 · Sprint', desc: 'Extend the sit, add a focus sprint.', first: 13, last: 20 },
+    4: { name: 'Ring 4 · Stack', desc: 'Stack it, and start noticing your triggers.', first: 21, last: 30 }
   };
   function checkinsOn(n) { return state.checkins.filter(function (c) { return dayNumFor(new Date(c.t)) === n; }); }
   // ---------- daily goal ----------
@@ -141,7 +141,7 @@
     return xp;
   }
   function totalXp() { var t = 0; for (var i = 1; i <= 30; i++) t += dayXp(i); return t; }
-  var LEVELS = [[0, 'Wanderer'], [40, 'Noticer'], [110, 'Returner'], [230, 'Settler'], [400, 'Steady Flame'], [620, 'Pathfinder'], [900, 'Keeper'], [1250, 'Summit Mind']];
+  var LEVELS = [[0, 'Learner'], [40, 'Rookie'], [110, 'Club Racer'], [230, 'Privateer'], [400, 'Works Rider'], [620, 'Podium'], [900, 'Champion'], [1250, 'Legend']];
   function levelFor(xp) {
     var i = 0; while (i + 1 < LEVELS.length && xp >= LEVELS[i + 1][0]) i++;
     var nx = LEVELS[i + 1];
@@ -157,7 +157,7 @@
   var toastT;
   function toast(text) {
     var el = document.getElementById('toast');
-    el.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l2.9 6.9L22 10l-5.5 4.8L18.2 22 12 18.3 5.8 22l1.7-7.2L2 10l7.1-1.1z" fill="#15191A"/></svg><span>' + esc(text) + '</span>';
+    el.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l2.9 6.9L22 10l-5.5 4.8L18.2 22 12 18.3 5.8 22l1.7-7.2L2 10l7.1-1.1z" fill="#FFC23A"/></svg><span>' + esc(text) + '</span>';
     el.hidden = false;
     el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
     clearTimeout(toastT); toastT = setTimeout(function () { el.hidden = true; }, 2000);
@@ -171,46 +171,33 @@
     render();
   }
 
-  // ---------- trail view ----------
-  var PTS = []; for (var k = 0; k < 30; k++) PTS.push([175 + 105 * Math.sin(k * 0.6), 1580 - k * 52]);
-  function curve(n) {
-    var d = 'M' + PTS[0][0].toFixed(1) + ' ' + PTS[0][1];
-    for (var a = 0; a < n - 1; a++) {
-      var p0 = PTS[Math.max(a - 1, 0)], p1 = PTS[a], p2 = PTS[a + 1], p3 = PTS[Math.min(a + 2, 29)];
-      d += ' C' + (p1[0] + (p2[0] - p0[0]) / 6).toFixed(1) + ' ' + (p1[1] + (p2[1] - p0[1]) / 6).toFixed(1) + ' ' +
-        (p2[0] - (p3[0] - p1[0]) / 6).toFixed(1) + ' ' + (p2[1] - (p3[1] - p1[1]) / 6).toFixed(1) + ' ' + p2[0].toFixed(1) + ' ' + p2[1];
-    }
-    return d;
-  }
+  // ---------- race view ----------
+  var SEC = { 1: '#E0312B', 2: '#FF5A1F', 3: '#1D5BD8', 4: '#17A864' };
   var ICON = {
-    sun: 'M12 8a4 4 0 1 0 0 8a4 4 0 1 0 0-8M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4',
-    spark: 'M12 3c1.5 3.5-3 4.5-3 8.5a3 3 0 0 0 6 0c0-1-.6-1.8-1-2.6 2 1 3 3 3 5.1a5 5 0 0 1-10 0C7 9 10.5 7.5 12 3z',
-    torch: 'M12 3c1.2 2-1.6 2.6-1.6 4.6a1.6 1.6 0 0 0 3.2 0M9 10h6l-1.5 3h-3zM10.5 13l1 8h1l1-8',
-    target: 'M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18M12 7.5a4.5 4.5 0 1 0 0 9a4.5 4.5 0 1 0 0-9M12 11.2a.8.8 0 1 0 0 1.6a.8.8 0 1 0 0-1.6',
-    tent: 'M3 20L12 5l9 15zM12 5v15M9.5 20l2.5-5 2.5 5',
-    peak: 'M2 20l7-11 4 6 2.5-3.5L22 20zM9 9V3l4 1.5L9 6',
     flag: 'M5 21V4M5 4h11l-2 4 2 4H5',
-    eye: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zM12 9a3 3 0 1 0 0 6a3 3 0 1 0 0-6'
+    three: 'M8 6h8l-4.5 5a4.5 4.5 0 1 1-3.5 7.5',
+    seven: 'M7 5h10l-6 14',
+    wrench: 'M14.7 6.3a4 4 0 0 0-5.4 5.4L3.5 17.5l3 3 5.8-5.8a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.3-.6-.6-2.3z',
+    gauge: 'M4 17a8 8 0 1 1 16 0M12 17l4.5-5M7 17h.01M17 17h.01',
+    curve: 'M5 20c1-8 6-9 9-9s6-2 6-7M4 20h3',
+    cup: 'M8 4h8v5a4 4 0 0 1-8 0zM8 6H5v1a3 3 0 0 0 3 3M16 6h3v1a3 3 0 0 1-3 3M12 13v4M8.5 20h7',
+    helmet: 'M3.5 16a8.5 8.5 0 0 1 17 0v2h-17zM12 16h8.5M7 11.5h7'
   };
   var FLAME = 'M12 2c2 4-3 5-3 9a3 3 0 1 0 6 0c0-1-1-2-1-3 2 1 3 3 3 5a5 5 0 0 1-10 0c0-5 3-6 5-11z';
-  function hex(fill, stroke) { return '<svg width="100%" height="100%" viewBox="0 0 60 68" aria-hidden="true"><polygon points="30,2 57,17.5 57,50.5 30,66 3,50.5 3,17.5" fill="' + fill + '" stroke="' + stroke + '" stroke-width="2"/></svg>'; }
 
   function renderTrail() {
     var today = todayNum(), sel = ui.sel || today, xp = totalXp(), lv = levelFor(xp), st = streak();
     var pct = lv.next ? Math.round((xp - lv.floor) / (lv.next - lv.floor) * 100) : 100;
     var h = '<div class="stack">';
-    h += '<header class="stack" style="gap:4px"><h1>Thirty days of attention</h1><p class="muted" style="margin:0;font-size:14px">A daily return to one thing. Climb the trail, one sit at a time.</p></header>';
+    h += '<header class="topbar"><span class="wordmark">ATTENTION<i>.</i></span><span class="eyebrow">' + new Date().toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + '</span></header>';
 
-    // today's goal
+    // hero livery card
+    h += '<section class="hero" aria-label="Your progress"><span class="streakpill" aria-label="' + st + ' day streak"><svg class="flame" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="' + FLAME + '" fill="#FFC23A"/></svg>' + st + '</span>' +
+      '<div><span class="lbl">DAY</span><div class="racenum">' + String(today).padStart(2, '0') + '<small>/30</small></div></div>' +
+      '<div class="meta"><div style="flex:1;display:flex;flex-direction:column;gap:6px;min-width:0"><span class="lbl">LV ' + lv.num + '</span><span class="lvl">' + lv.title + '</span>' +
+      '<div class="bar" aria-hidden="true"><i style="width:' + pct + '%"></i></div><span class="sub">' + (lv.next ? xp + ' / ' + lv.next + ' XP → ' + lv.nextTitle : xp + ' XP · Legend') + '</span></div></div></section>';
+
     h += goalCard();
-
-    // HUD
-    h += '<section class="card hud" aria-label="Your progress"><div class="hex">' + hex('#2B2415', '#CB9A45') +
-      '<div class="in"><span class="lv">LV</span><span class="n">' + lv.num + '</span></div></div>' +
-      '<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px"><span style="font-family:var(--serif);font-size:19px;line-height:1.1">' + lv.title + '</span>' +
-      '<div class="bar" aria-hidden="true"><i style="width:' + pct + '%"></i></div>' +
-      '<span class="muted" style="font-size:12px">' + (lv.next ? xp + ' / ' + lv.next + ' XP · ' + (lv.next - xp) + ' to ' + lv.nextTitle : xp + ' XP · top of the mountain') + '</span></div>' +
-      '<div class="streak"><svg class="flame" viewBox="0 0 24 24" width="30" height="30" aria-hidden="true" style="transform:scale(' + Math.min(1 + st * 0.04, 1.4).toFixed(2) + ')"><path d="' + FLAME + '" fill="#CB9A45"/></svg><b>' + st + '</b><small>day streak</small></div></section>';
 
     // quests
     var d = state.days[sel], pn = phaseFor(sel), sitM = pn <= 2 ? 5 : pn === 3 ? 10 : 15, sprM = pn === 3 ? 20 : 25, locked = sel > today;
@@ -221,78 +208,84 @@
     var flags = quests.map(function (q) { return d[q.f]; }).concat([hasNote]);
     var got = flags.filter(Boolean).length, perfect = got === flags.length;
     var cins = checkinsOn(sel).length;
-    var tag = ['Locked', '', 'var(--raised)', 'var(--dim)'];
-    if (perfect) tag = ['Perfect', '', 'var(--ember)', 'var(--ink)'];
-    else if (d.sit) tag = ['Cleared', '', 'var(--sage-soft)', 'var(--sage-hi)'];
-    else if (sel === today) tag = ['Today', '', 'rgba(203,154,69,.18)', 'var(--ember)'];
-    else if (sel < today) tag = ['Missed', '', 'var(--raised)', 'var(--bone2)'];
+    var tag = ['Locked', 'var(--raised)', 'var(--dim)'];
+    if (perfect) tag = ['Perfect', 'var(--bone)', '#fff'];
+    else if (d.sit) tag = ['Cleared', 'var(--green)', '#fff'];
+    else if (sel === today) tag = ['Today', 'var(--red)', '#fff'];
+    else if (sel < today) tag = ['Missed', 'var(--raised)', 'var(--bone2)'];
 
     h += '<section class="card stack" style="gap:12px" aria-label="Quests for day ' + sel + '">' +
-      '<div class="row between" style="align-items:flex-start"><div style="display:flex;flex-direction:column;gap:4px"><span class="eyebrow">' + Z[pn].name + ' · ' + dateOf(sel) + '</span>' +
-      '<h2 style="font-size:26px;line-height:1.1">Day ' + sel + ' quests</h2><p class="italic">' + Z[pn].desc + '</p></div>' +
-      '<span class="chip" style="background:' + tag[2] + ';color:' + tag[3] + '">' + tag[0] + '</span></div>';
-    if (locked) h += '<div class="notice"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><span>This stretch of trail opens on ' + dateOf(sel) + '. Here’s what’s waiting.</span></div>';
+      '<div class="row between" style="align-items:flex-start"><div style="display:flex;flex-direction:column;gap:4px"><span class="eyebrow"><i style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + SEC[pn] + ';margin-right:6px"></i>' + Z[pn].name + ' · ' + dateOf(sel) + '</span>' +
+      '<h1>Day ' + sel + '</h1><p class="italic">' + Z[pn].desc + '</p></div>' +
+      '<span class="chip" style="background:' + tag[1] + ';color:' + tag[2] + '">' + tag[0] + '</span></div>';
+    if (locked) h += '<div class="notice"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><span>This day opens on ' + dateOf(sel) + '. Here’s what’s waiting.</span></div>';
     h += '<div>';
     quests.forEach(function (q) {
       h += '<div class="quest"><label><input class="qchk" type="checkbox" data-q="' + q.f + '"' + (d[q.f] ? ' checked' : '') + (locked ? ' disabled' : '') + '>' +
         '<span style="display:flex;flex-direction:column"><span class="t">' + q.n + '</span><span class="d">' + q.dd + '</span></span></label>' +
-        (q.mins ? '<button type="button" class="btn small" data-begin="' + q.f + '" data-mins="' + q.mins + '"' + (locked ? ' disabled' : '') + ' aria-label="Begin ' + q.n + ' timer">▶ Begin</button>' : '') +
-        '<span class="xp' + (d[q.f] ? ' done' : '') + '">+' + q.xp + ' XP</span></div>';
+        (q.mins ? '<button type="button" class="btn small" data-begin="' + q.f + '" data-mins="' + q.mins + '"' + (locked ? ' disabled' : '') + ' aria-label="Begin ' + q.n + ' timer">▶ Go</button>' : '') +
+        '<span class="xp' + (d[q.f] ? ' done' : '') + '">+' + q.xp + '</span></div>';
     });
-    h += '<div class="quest"><div style="flex:1;display:flex;flex-direction:column"><span class="t">Mindful check-ins</span><span class="d">' + cins + ' of ' + PINGS + ' answered · from your random pings</span></div>' +
-      '<span class="xp' + (cins >= PINGS ? ' done' : '') + '">+5 each</span></div>';
-    h += '<div style="display:flex;flex-direction:column;gap:8px;padding-top:12px;border-top:1px solid var(--line2)"><div class="row between"><label for="journal" style="font-size:13px;color:var(--bone2)">Journal: what pulled your attention away?</label><span class="xp' + (hasNote ? ' done' : '') + '">+5 XP</span></div>' +
+    h += '<div class="quest"><div style="flex:1;display:flex;flex-direction:column"><span class="t">Mindful check-ins</span><span class="d">' + cins + ' of ' + PINGS + ' answered · from your pings</span></div>' +
+      '<span class="xp' + (cins >= PINGS ? ' done' : '') + '">+5 ea</span></div>';
+    h += '<div style="display:flex;flex-direction:column;gap:8px;padding-top:12px;border-top:1.5px solid var(--line2)"><div class="row between"><label for="journal" style="font-size:13px;font-weight:600">Journal: what pulled your attention away?</label><span class="xp' + (hasNote ? ' done' : '') + '">+5</span></div>' +
       '<input class="text" id="journal" type="text" value="' + esc(d.note) + '" placeholder="a thought, a ping, a craving…"' + (locked ? ' disabled' : '') + '></div></div>';
     if (ui.timer && ui.timer.day === sel) {
       var t = ui.timer, m = Math.floor(t.remaining / 60), s = t.remaining % 60;
-      h += '<div class="timer"><div class="ring"><svg viewBox="0 0 64 64" width="64" height="64" aria-hidden="true"><circle cx="32" cy="32" r="27" fill="none" stroke="#262D30" stroke-width="5"/><circle id="tRing" cx="32" cy="32" r="27" fill="none" stroke="#CB9A45" stroke-width="5" stroke-linecap="round" stroke-dasharray="169.6" stroke-dashoffset="' + (169.6 * (1 - t.remaining / t.total)).toFixed(1) + '"/></svg><span id="tText">' + m + ':' + (s < 10 ? '0' : '') + s + '</span></div>' +
-        '<div style="flex:1;display:flex;flex-direction:column;gap:8px"><span style="font-size:13px;color:var(--bone2)">' + (t.kind === 'sit' ? 'Sitting' : 'Focus sprint') + '. Breathing is enough. Finish to claim +' + (t.kind === 'sit' ? 10 : 20) + ' XP.</span><button type="button" class="btn ghost small" id="stopT" style="align-self:flex-start">Stop</button></div></div>';
+      h += '<div class="timer"><div class="ring"><svg viewBox="0 0 64 64" width="64" height="64" aria-hidden="true"><circle cx="32" cy="32" r="27" fill="none" stroke="#333" stroke-width="5"/><circle id="tRing" cx="32" cy="32" r="27" fill="none" stroke="#FFC23A" stroke-width="5" stroke-linecap="round" stroke-dasharray="169.6" stroke-dashoffset="' + (169.6 * (1 - t.remaining / t.total)).toFixed(1) + '"/></svg><span id="tText">' + m + ':' + (s < 10 ? '0' : '') + s + '</span></div>' +
+        '<div style="flex:1;display:flex;flex-direction:column;gap:8px"><span style="font-size:13px">' + (t.kind === 'sit' ? 'Sitting' : 'Focus sprint') + '. Breathing is enough. Finish for +' + (t.kind === 'sit' ? 10 : 20) + ' XP.</span><button type="button" class="btn small" id="stopT" style="align-self:flex-start">Stop</button></div></div>';
     }
-    h += '<div class="perfect' + (perfect ? ' on' : '') + '"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l2.9 6.9L22 10l-5.5 4.8L18.2 22 12 18.3 5.8 22l1.7-7.2L2 10l7.1-1.1z" fill="' + (perfect ? '#CB9A45' : '#5E686B') + '"/></svg>' +
-      '<div style="flex:1"><span style="font-size:13px">' + (perfect ? 'Perfect day. Bonus claimed.' : 'Perfect day bonus: ' + got + ' of ' + flags.length + ' done') + '</span><div class="segs" aria-hidden="true">' +
-      flags.map(function (f) { return '<i' + (f ? ' class="on"' : '') + '></i>'; }).join('') + '</div></div><span style="font-size:12px;font-weight:600;color:var(--ember)">+10</span></div></section>';
+    h += '<div class="perfect' + (perfect ? ' on' : '') + '"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l2.9 6.9L22 10l-5.5 4.8L18.2 22 12 18.3 5.8 22l1.7-7.2L2 10l7.1-1.1z" fill="' + (perfect ? '#FFC23A' : '#B3A999') + '"/></svg>' +
+      '<div style="flex:1"><span style="font-size:13px;font-weight:600">' + (perfect ? 'Perfect day. Bonus claimed.' : 'Perfect day bonus: ' + got + ' of ' + flags.length) + '</span><div class="segs" aria-hidden="true">' +
+      flags.map(function (f) { return '<i' + (f ? ' class="on"' : '') + '></i>'; }).join('') + '</div></div><span style="font-family:var(--mono);font-size:12px;font-weight:700">+10</span></div></section>';
+
+    // rings: four concentric rings, one per phase, one arc per day (inner ring = first days)
+    var RR = { 1: 62, 2: 92, 3: 122, 4: 152 }, C = 175;
+    function arc(r, a0, a1) {
+      var p = function (a) { var t = (a - 90) * Math.PI / 180; return (C + r * Math.cos(t)).toFixed(2) + ' ' + (C + r * Math.sin(t)).toFixed(2); };
+      return 'M' + p(a0) + ' A' + r + ' ' + r + ' 0 ' + (a1 - a0 > 180 ? 1 : 0) + ' 1 ' + p(a1);
+    }
+    var sd = state.days[sel];
+    h += '<section class="stack" style="gap:12px" aria-label="Thirty days"><div class="row between"><h2>Thirty days</h2><span class="muted" style="font-size:12px">inside out · tap a day</span></div><div class="ringmap">' +
+      '<svg viewBox="0 0 350 350" role="group" aria-label="Your 30 days as four rings">';
+    [1, 2, 3, 4].forEach(function (p) {
+      var z = Z[p], cnt = z.last - z.first + 1, span = 360 / cnt, gap = 28 / RR[p] * 180 / Math.PI;
+      for (var n = z.first; n <= z.last; n++) {
+        var i = n - z.first, a0 = i * span + gap / 2, a1 = (i + 1) * span - gap / 2, dd = state.days[n];
+        var col = '#E4DBCC', op = 1, dash = '';
+        if (dd.sit) col = SEC[p];
+        else if (n === today) col = '#141414';
+        else if (n < today) { col = SEC[p]; op = .28; }
+        var isSel = n === sel;
+        var lab = 'Day ' + n + ', ' + dateOf(n) + (dd.sit ? ', completed' : n === today ? ', today' : n < today ? ', missed' : ', not yet');
+        h += '<g class="seg' + (isSel ? ' sel' : '') + '" data-day="' + n + '" role="button" tabindex="0" aria-label="' + lab + '" aria-pressed="' + isSel + '">' +
+          '<path d="' + arc(RR[p], a0, a1) + '" stroke="transparent" stroke-width="30" fill="none"/>' +
+          (isSel ? '<path d="' + arc(RR[p], a0, a1) + '" stroke="#141414" stroke-width="27" stroke-linecap="round" fill="none"/><path d="' + arc(RR[p], a0, a1) + '" stroke="#fff" stroke-width="22" stroke-linecap="round" fill="none"/>' : '') +
+          '<path d="' + arc(RR[p], a0, a1) + '" stroke="' + col + '" stroke-opacity="' + op + '" stroke-width="' + (isSel ? 16 : 18) + '" stroke-linecap="round" fill="none"' + dash + '/>' +
+          (n === today && !dd.sit ? '<path class="breathe-arc" d="' + arc(RR[p], a0, a1) + '" stroke="#141414" stroke-width="30" stroke-opacity=".12" stroke-linecap="round" fill="none"/>' : '') + '</g>';
+      }
+    });
+    h += '<text x="175" y="168" text-anchor="middle" class="rm-num">' + String(sel).padStart(2, '0') + '</text>' +
+      '<text x="175" y="196" text-anchor="middle" class="rm-sub">' + (sel === today ? 'TODAY' : dateOf(sel).toUpperCase()) + '</text></svg></div><div class="sectors">';
+    [1, 2, 3, 4].forEach(function (p) {
+      var z = Z[p], done = 0, tot = z.last - z.first + 1;
+      for (var j = z.first; j <= z.last; j++) if (state.days[j].sit) done++;
+      h += '<div class="sector"><i style="background:' + SEC[p] + '"></i><span>' + z.name + '</span><b>' + done + '/' + tot + '</b></div>';
+    });
+    h += '</div></section>';
 
     // badges
     var sits = 0, sprints = 0, p1 = 0; for (var i = 1; i <= 30; i++) { if (state.days[i].sit) sits++; if (state.days[i].sprint) sprints++; if (i <= 5 && state.days[i].sit) p1++; }
     var best = bestStreak(), nC = state.checkins.length, nG = Object.keys(state.goals || {}).filter(function (k) { return state.goals[k].achievedAt; }).length;
-    var B = [['First Light', 'sun', sits >= 1, '0/1 sit'], ['Kindling', 'spark', best >= 3, Math.min(best, 3) + '/3 streak'], ['Steady Flame', 'torch', best >= 7, Math.min(best, 7) + '/7 streak'],
-      ['Present', 'eye', nC >= 10, Math.min(nC, 10) + '/10 check-ins'], ['Deep Work', 'target', sprints >= 1, '0/1 sprint'], ['Clearing', 'tent', p1 >= 5, p1 + '/5 sits'],
-      ['Finisher', 'flag', nG >= 5, Math.min(nG, 5) + '/5 goals'], ['Summit', 'peak', sits >= 30, sits + '/30 sits']];
-    var earned = B.filter(function (b) { return b[2]; }).length;
-    h += '<section class="stack" style="gap:14px" aria-label="Badges"><div class="row between"><h2>Badges</h2><span class="muted" style="font-size:12px">' + earned + ' of ' + B.length + ' earned</span></div><div class="badges">';
+    var B = [['Green Flag', 'flag', '#17A864', sits >= 1, '0/1 sit'], ['Hat-trick', 'three', '#FF5A1F', best >= 3, Math.min(best, 3) + '/3 days'], ['Seven Straight', 'seven', '#E0312B', best >= 7, Math.min(best, 7) + '/7 days'],
+      ['Pit Stop', 'wrench', '#0E9C95', nC >= 10, Math.min(nC, 10) + '/10'], ['Flat Out', 'gauge', '#1D5BD8', sprints >= 1, '0/1 sprint'], ['Sector One', 'curve', '#7B3FE4', p1 >= 5, p1 + '/5 sits'],
+      ['Chequered', 'cup', '#FFC23A', nG >= 5, Math.min(nG, 5) + '/5 goals'], ['Full Distance', 'helmet', '#141414', sits >= 30, sits + '/30']];
+    var earned = B.filter(function (b) { return b[3]; }).length;
+    h += '<section class="stack" style="gap:14px" aria-label="Badges"><div class="row between"><h2>Badges</h2><span class="muted" style="font-size:12px">' + earned + ' of ' + B.length + '</span></div><div class="badges">';
     B.forEach(function (b) {
-      h += '<div class="badge"><div class="h">' + hex(b[2] ? '#2B2415' : '#1B2022', b[2] ? '#CB9A45' : '#30383B') + '<div class="ic"><svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><path d="' + ICON[b[1]] + '" fill="none" stroke="' + (b[2] ? '#E7C07A' : '#6B7478') + '" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div></div>' +
-        '<b style="color:' + (b[2] ? 'var(--bone)' : 'var(--dim)') + '">' + b[0] + '</b><small>' + (b[2] ? 'Earned' : b[3]) + '</small></div>';
+      h += '<div class="badge"><div class="roundel' + (b[3] ? ' on' : '') + '" style="' + (b[3] ? 'background:' + b[2] : '') + '"><svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><path d="' + ICON[b[1]] + '" fill="none" stroke="' + (b[3] ? (b[2] === '#FFC23A' ? '#141414' : '#fff') : '#B3A999') + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>' +
+        '<b style="color:' + (b[3] ? 'var(--bone)' : 'var(--dim)') + '">' + b[0] + '</b><small>' + (b[3] ? 'Earned' : b[4]) + '</small></div>';
     });
-    h += '</div></section>';
-
-    // trail map
-    var reached = 1; for (var r = today; r >= 1; r--) if (state.days[r].sit) { reached = r; break; }
-    var decor = document.getElementById('trail-decor').content.firstElementChild.innerHTML;
-    h += '<section class="stack" style="gap:12px" aria-label="The trail"><div class="row between"><h2>The trail</h2><span class="muted" style="font-size:12px">Tap a stop to see its quests</span></div><div class="map">' +
-      '<svg viewBox="0 0 350 1640" preserveAspectRatio="none" aria-hidden="true">' + decor +
-      '<path d="' + curve(30) + '" fill="none" stroke="#3A4447" stroke-width="6" stroke-linecap="round" stroke-dasharray="1 13"/>' +
-      '<path d="' + curve(reached) + '" fill="none" stroke="#CB9A45" stroke-width="6" stroke-linecap="round"/></svg>';
-    var tops = { 1: 1362, 2: 997, 3: 582, 4: 12 };
-    [1, 2, 3, 4].forEach(function (p) {
-      var z = Z[p], lx = PTS[z.last - 1][0], done = 0, tot = z.last - z.first + 1;
-      for (var j = z.first; j <= z.last; j++) if (state.days[j].sit) done++;
-      h += '<div class="zone" style="top:' + (tops[p] / 1640 * 100).toFixed(2) + '%;' + (lx < 175 ? 'right:12px' : 'left:12px') + '">' + z.name + ' <b style="color:' + (done === tot ? 'var(--sage)' : 'var(--ember)') + '">' + done + '/' + tot + '</b></div>';
-    });
-    for (var n = 1; n <= 30; n++) {
-      var dd = state.days[n], p2 = phaseFor(n), ms = n === Z[p2].last, x = PTS[n - 1][0], y = PTS[n - 1][1];
-      var cls = 'node' + (ms ? ' big' : '') + (dd.sit ? ' done' : '') + (n === today ? ' today' : '') + (n < today && !dd.sit ? ' missed' : '') + (n > today ? ' future' : '') + (n === sel ? ' sel' : '');
-      var lab = 'Day ' + n + ', ' + dateOf(n) + (dd.sit ? ', completed' : n === today ? ', today' : n < today ? ', missed' : ', locked');
-      h += '<div class="spot" style="left:' + (x / 350 * 100).toFixed(2) + '%;top:' + (y / 1640 * 100).toFixed(2) + '%">';
-      if (n === today) h += '<span class="pulse"></span><span class="you">YOU</span>';
-      h += '<button type="button" class="' + cls + '" data-day="' + n + '" aria-label="' + lab + '" aria-pressed="' + (n === sel) + '">' +
-        (dd.sit ? '<svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="#15191A" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>' : n) + '</button>';
-      if (ms) {
-        var pd = true; for (var q = Z[p2].first; q <= Z[p2].last; q++) if (!state.days[q].sit) pd = false;
-        h += '<svg class="chest" style="' + (x < 175 ? 'left:62px' : 'right:62px') + '" viewBox="0 0 30 26" aria-hidden="true"><path d="M3 11h24v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" fill="' + (pd ? '#CB9A45' : '#262D30') + '" stroke="' + (pd ? '#6F5A2C' : '#5E686B') + '" stroke-width="1.5"/><path d="M3 11c0-5 3-8 12-8s12 3 12 8z" fill="' + (pd ? '#E7C07A' : '#30383B') + '" stroke="' + (pd ? '#6F5A2C' : '#5E686B') + '" stroke-width="1.5"/><rect x="12.5" y="9" width="5" height="6" rx="1" fill="' + (pd ? '#6F5A2C' : '#5E686B') + '"/></svg>';
-      }
-      h += '</div>';
-    }
     h += '</div></section>';
     h += '<p class="muted" style="font-size:12px;margin:0">XP: sit +10 · one thing fully +15 · focus sprint +20 · journal +5 · check-in +5 (up to ' + PINGS + ' a day) · perfect day +10 · daily goal set +5, achieved +20.</p></div>';
     return h;
@@ -301,21 +294,20 @@
   function goalCard() {
     var g = todayGoal(), h;
     if (!g) {
-      return '<section class="card goal" aria-label="Today’s goal"><div class="row between"><span class="eyebrow">Today’s goal</span><span class="xp">+5 XP</span></div>' +
-        '<p style="margin:0;font-family:var(--serif);font-size:18px">What’s the one thing you want to get done today?</p>' +
-        '<button type="button" class="btn solid" data-goal="open">Set today’s goal</button></section>';
+      return '<section class="card goal" aria-label="Today’s target"><div class="row between"><span class="eyebrow">Today’s target</span><span class="xp" style="background:rgba(0,0,0,.08);color:#141414">+5</span></div>' +
+        '<p class="gtext">What’s the one thing you want to get done today?</p>' +
+        '<button type="button" class="btn solid" data-goal="open">Set today’s target</button></section>';
     }
     if (g.achievedAt) {
-      return '<section class="card goal won" aria-label="Today’s goal"><div class="row between"><span class="eyebrow" style="color:var(--ember)">Goal achieved · ' + timeOf(g.achievedAt) + '</span><span class="xp done">+20 XP</span></div>' +
-        '<div class="row" style="align-items:flex-start"><svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true" style="flex-shrink:0"><path d="M5 21V4M5 4h11l-2 4 2 4H5" fill="#CB9A45" stroke="#CB9A45" stroke-width="1.6" stroke-linejoin="round"/></svg>' +
-        '<p style="margin:0;font-family:var(--serif);font-size:19px;line-height:1.3">' + esc(g.text) + '</p></div>' +
+      return '<section class="card goal won" aria-label="Today’s target"><div class="row between"><span class="eyebrow">Target hit · ' + timeOf(g.achievedAt) + '</span><span class="xp" style="background:rgba(255,255,255,.22);color:#fff">+20</span></div>' +
+        '<p class="gtext">' + esc(g.text) + '</p>' +
         '<span class="muted" style="font-size:12px">' + g.updates.length + ' update' + (g.updates.length === 1 ? '' : 's') + ' along the way. Check-ins carry on as usual.</span></section>';
     }
     var last = g.updates[g.updates.length - 1];
-    h = '<section class="card goal" aria-label="Today’s goal"><div class="row between"><span class="eyebrow">Today’s goal</span><span class="muted" style="font-size:12px">set ' + timeOf(g.setAt) + '</span></div>' +
-      '<p style="margin:0;font-family:var(--serif);font-size:19px;line-height:1.3">' + esc(g.text) + '</p>';
-    h += last ? '<div class="upd"><span class="muted" style="font-size:12px">Latest · ' + timeOf(last.t) + '</span><span style="font-size:14px">' + esc(last.text) + '</span></div>' : '<span class="muted" style="font-size:13px">Each ping will ask how it’s going.</span>';
-    h += '<div class="row"><button type="button" class="btn" data-goal="open" style="flex:1">Add update</button><button type="button" class="btn solid" data-goal="win" style="flex:1">Achieved · +20</button></div></section>';
+    h = '<section class="card goal" aria-label="Today’s target"><div class="row between"><span class="eyebrow">Today’s target</span><span class="eyebrow">set ' + timeOf(g.setAt) + '</span></div>' +
+      '<p class="gtext">' + esc(g.text) + '</p>';
+    h += last ? '<div class="upd"><span style="font-family:var(--mono);font-size:11px;color:#5A4300">LATEST · ' + timeOf(last.t) + '</span><span style="font-size:14px">' + esc(last.text) + '</span></div>' : '<span style="font-size:13px;color:#5A4300">Each ping will ask how it’s going.</span>';
+    h += '<div class="row"><button type="button" class="btn" data-goal="open" style="flex:1">Add update</button><button type="button" class="btn solid" data-goal="win" style="flex:1">Hit it · +20</button></div></section>';
     return h;
   }
 
@@ -342,7 +334,9 @@
       });
     });
     view.querySelectorAll('[data-day]').forEach(function (b) {
-      b.addEventListener('click', function () { ui.sel = +b.dataset.day; render(); window.scrollTo({ top: 0, behavior: 'smooth' }); });
+      var go = function () { ui.sel = +b.dataset.day; render(); var q = document.querySelector('[aria-label^="Quests for day"]'); if (q) q.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+      b.addEventListener('click', go);
+      b.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
     });
   }
   function startTimer(day, kind, mins) {
@@ -366,6 +360,7 @@
 
   // ---------- check-in flow ----------
   var DISTRACTIONS = ['Phone / notifications', 'Social media', 'Work worries', 'Planning ahead', 'Replaying the past', 'People around me', 'Tired or hungry', 'Daydreaming', 'Noise / surroundings', 'Nothing, I was present'];
+  var DCOL = ['#E0312B', '#7B3FE4', '#1D5BD8', '#0E9C95', '#FF5A1F', '#C2185B', '#B8860B', '#5B6CFF', '#6B645B', '#17A864'];
   var ci = null;
   function openCheckin() {
     var dr = state.ciDraft;
@@ -377,6 +372,7 @@
   }
   function closeCheckin() {
     gv = null;
+    document.getElementById('overlay').classList.remove('dark');
     if (ci && ci.iv) clearInterval(ci.iv);
     if (ci && ci.bt) clearTimeout(ci.bt);
     ci = null;
@@ -386,11 +382,12 @@
   }
   function drawCheckin() {
     var o = document.getElementById('overlay'), h = '<div class="inner">';
+    o.classList.toggle('dark', ci.stage === 'breathe');
     h += '<div class="row between"><span class="eyebrow">Mindful check-in</span><div class="row" style="gap:8px">' + (ci.stage === 'reflect' ? '<button type="button" class="btn ghost small" id="ciDiscard">Discard</button>' : '') + '<button type="button" class="btn ghost small" id="ciClose">Close</button></div></div>';
     if (ci.stage === 'reflect') h += '<span class="muted" style="font-size:12px;margin-top:-10px">Saved as you type. Close any time and come back.</span>';
     if (ci.stage === 'breathe') {
       h += '<div><h1>Pause here.</h1><p class="muted" style="margin:6px 0 0">Let whatever you were doing wait for a minute. Just follow the light.</p></div>';
-      h += '<div class="breath"><div class="orb" id="orb"></div><svg viewBox="0 0 240 240" width="240" height="240" aria-hidden="true"><circle cx="120" cy="120" r="112" fill="none" stroke="#262D30" stroke-width="4"/><circle id="ciRing" cx="120" cy="120" r="112" fill="none" stroke="#CB9A45" stroke-width="4" stroke-linecap="round" stroke-dasharray="703.7" stroke-dashoffset="703.7"/></svg>' +
+      h += '<div class="breath"><svg class="rings" id="orb" viewBox="0 0 260 260" width="260" height="260" aria-hidden="true"><g><circle cx="130" cy="130" r="24" fill="none" stroke="#2BD576" stroke-width="7" stroke-linecap="round" stroke-dasharray="18.1 7.0"/></g><g class="rev"><circle cx="130" cy="130" r="37" fill="none" stroke="#27C27A" stroke-width="7" stroke-linecap="round" stroke-dasharray="20.9 8.1"/></g><g><circle cx="130" cy="130" r="50" fill="none" stroke="#1FAE86" stroke-width="7" stroke-linecap="round" stroke-dasharray="22.6 8.8"/></g><g class="rev"><circle cx="130" cy="130" r="63" fill="none" stroke="#169A91" stroke-width="7" stroke-linecap="round" stroke-dasharray="23.8 9.2"/></g><g><circle cx="130" cy="130" r="76" fill="none" stroke="#10869A" stroke-width="7" stroke-linecap="round" stroke-dasharray="24.6 9.6"/></g><g class="rev"><circle cx="130" cy="130" r="89" fill="none" stroke="#1273A3" stroke-width="7" stroke-linecap="round" stroke-dasharray="25.2 9.8"/></g><g><circle cx="130" cy="130" r="102" fill="none" stroke="#1D5BD8" stroke-width="7" stroke-linecap="round" stroke-dasharray="25.6 10.0"/></g><g class="rev"><circle cx="130" cy="130" r="115" fill="none" stroke="#2A4BB0" stroke-width="7" stroke-linecap="round" stroke-dasharray="26.0 10.1"/></g></svg><svg class="prog" viewBox="0 0 260 260" width="260" height="260" aria-hidden="true"><circle id="ciRing" cx="130" cy="130" r="127" fill="none" stroke="#FFC23A" stroke-width="3" stroke-linecap="round" stroke-dasharray="798" stroke-dashoffset="798"/></svg>' +
         '<div class="cue" aria-live="polite"><b id="cue">' + (ci.running ? 'Breathe in' : 'Ready') + '</b><span id="left">' + fmt(ci.left) + '</span></div></div>';
       if (!ci.running) {
         h += '<div class="seg" role="group" aria-label="Length"><button type="button" data-secs="60" class="' + (ci.secs === 60 ? 'on' : '') + '">1 minute</button><button type="button" data-secs="120" class="' + (ci.secs === 120 ? 'on' : '') + '">2 minutes</button></div>';
@@ -406,7 +403,7 @@
           '<textarea class="text" id="ciGoal" placeholder="e.g. drafted two sections, stuck on the budget">' + esc(ci.gUpd) + '</textarea>' +
           '<button type="button" class="dchip" id="ciWin" aria-pressed="' + ci.gWin + '" style="align-self:flex-start">' + (ci.gWin ? '✓ Achieved' : 'Mark as achieved') + '</button></section>';
       } else if (g) {
-        h += '<div class="notice" style="color:var(--ember)"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V4M5 4h11l-2 4 2 4H5" fill="#CB9A45" stroke="#CB9A45" stroke-width="1.6"/></svg><span>Goal achieved at ' + timeOf(g.achievedAt) + '. Just the check-in now.</span></div>';
+        h += '<div class="notice" style="color:var(--ember)"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V4M5 4h11l-2 4 2 4H5" fill="#E0312B" stroke="#E0312B" stroke-width="1.6"/></svg><span>Goal achieved at ' + timeOf(g.achievedAt) + '. Just the check-in now.</span></div>';
       } else {
         h += '<section class="card stack" style="gap:8px"><label for="ciGoalNew" style="font-size:14px;color:var(--bone2)">No goal set for today. Add one? <span class="muted">(optional)</span></label><input class="text" id="ciGoalNew" type="text" value="' + esc(ci.gNew) + '" placeholder="the one thing you want to get done"></section>';
       }
@@ -415,7 +412,7 @@
         [1, 2, 3, 4, 5].map(function (n) { return '<button type="button" data-pres="' + n + '" aria-pressed="' + (ci.presence === n) + '">' + n + '</button>'; }).join('') +
         '</div><div class="row between muted" style="font-size:12px"><span>Lost in thought</span><span>Fully here</span></div></div>';
       h += '<div class="stack" style="gap:10px"><span style="font-size:14px;color:var(--bone2)">What was on your mind? Pick any.</span><div class="dchips">' +
-        DISTRACTIONS.map(function (d, i) { return '<button type="button" class="dchip" data-pick="' + i + '" aria-pressed="' + (ci.picks.indexOf(i) >= 0) + '">' + d + '</button>'; }).join('') + '</div></div>';
+        DISTRACTIONS.map(function (d, i) { return '<button type="button" class="dchip" style="--c:' + DCOL[i] + '" data-pick="' + i + '" aria-pressed="' + (ci.picks.indexOf(i) >= 0) + '">' + d + '</button>'; }).join('') + '</div></div>';
       h += '<div class="stack" style="gap:8px"><label for="ciNote" style="font-size:14px;color:var(--bone2)">Anything else? <span class="muted">(optional)</span></label><textarea class="text" id="ciNote" placeholder="e.g. kept checking email for a reply">' + esc(ci.note) + '</textarea></div>';
       h += '<button type="button" class="btn solid" id="ciSave">Save check-in · +5 XP</button>';
     }
@@ -465,7 +462,7 @@
     document.body.style.overflow = 'hidden';
   }
   function drawGoal() {
-    var o = document.getElementById('overlay'), g = todayGoal(), hr = new Date().getHours();
+    var o = document.getElementById('overlay'); o.classList.remove('dark'); var g = todayGoal(), hr = new Date().getHours();
     var h = '<div class="inner"><div class="row between"><span class="eyebrow">Today’s goal · ' + new Date().toLocaleDateString('en', { weekday: 'short', month: 'short', day: 'numeric' }) + '</span><button type="button" class="btn ghost small" id="gClose">Close</button></div>';
     if (gv.edit) {
       h += '<div><h1>' + (g ? 'Edit today’s goal' : (hr < 12 ? 'Good morning.' : 'Set a goal for today.')) + '</h1><p class="muted" style="margin:6px 0 0">One clear thing. Each ping through the day will ask how it’s going.</p></div>' +
@@ -482,7 +479,7 @@
         h += '<div class="stack" style="gap:8px"><label for="gUpd" style="font-size:14px;color:var(--bone2)">Add an update <span class="muted">(or type “achieved”)</span></label><textarea class="text" id="gUpd" placeholder="where you are with it"></textarea>' +
           '<div class="row"><button type="button" class="btn" id="gAdd" style="flex:1">Save update</button><button type="button" class="btn solid" id="gWin" style="flex:1">Achieved · +20</button></div></div>';
       } else {
-        h += '<div class="perfect on"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V4M5 4h11l-2 4 2 4H5" fill="#CB9A45" stroke="#CB9A45" stroke-width="1.6"/></svg><span style="font-size:14px">Done. Progress checks have stopped for today; mindful check-ins carry on.</span></div>';
+        h += '<div class="perfect on"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V4M5 4h11l-2 4 2 4H5" fill="#E0312B" stroke="#E0312B" stroke-width="1.6"/></svg><span style="font-size:14px">Done. Progress checks have stopped for today; mindful check-ins carry on.</span></div>';
       }
     }
     h += '</div>';
@@ -515,7 +512,7 @@
     var ring = document.getElementById('ciRing'), orb = document.getElementById('orb'), cue = document.getElementById('cue');
     function breathe(inhale) {
       if (!ci || ci.stage !== 'breathe') return;
-      orb.className = 'orb ' + (inhale ? 'in' : 'out');
+      orb.setAttribute('class', 'rings ' + (inhale ? 'in' : 'out'));
       cue.textContent = inhale ? 'Breathe in' : 'Breathe out';
       ci.bt = setTimeout(function () { breathe(!inhale); }, inhale ? 4000 : 6000);
     }
@@ -523,7 +520,7 @@
     ci.iv = setInterval(function () {
       ci.left--; ci.done++;
       var l = document.getElementById('left'); if (l) l.textContent = fmt(Math.max(ci.left, 0));
-      if (ring) ring.setAttribute('stroke-dashoffset', (703.7 * (ci.left / ci.secs)).toFixed(1));
+      if (ring) ring.setAttribute('stroke-dashoffset', (798 * (ci.left / ci.secs)).toFixed(1));
       if (ci.left <= 0) {
         clearInterval(ci.iv); clearTimeout(ci.bt);
         if (navigator.vibrate) navigator.vibrate(150);
@@ -545,12 +542,12 @@
     h += '<div class="stat3"><div><b>' + todayC + '</b><small>check-ins today</small></div><div><b>' + state.checkins.length + '</b><small>all time</small></div><div><b>' + avg + '</b><small>avg presence /5</small></div></div>';
     h += '<section class="card stack" style="gap:12px"><h2>Top distractions</h2>';
     if (!top.length) h += '<p class="muted" style="margin:0;font-size:14px">Nothing yet. Your first check-in will start this chart.</p>';
-    top.forEach(function (d) { h += '<div class="hbar"><span>' + esc(d) + '</span><span class="b"><i style="width:' + Math.round(counts[d] / max * 100) + '%"></i></span><span style="text-align:right">' + counts[d] + '</span></div>'; });
+    top.forEach(function (d) { var ix = DISTRACTIONS.indexOf(d); h += '<div class="hbar"><span>' + esc(d) + '</span><span class="b"><i style="background:' + (ix >= 0 ? DCOL[ix] : '#141414') + ';width:' + Math.round(counts[d] / max * 100) + '%"></i></span><span style="text-align:right">' + counts[d] + '</span></div>'; });
     h += '</section>';
     var gk = Object.keys(state.goals || {}).sort().reverse();
     var won = gk.filter(function (k) { return state.goals[k].achievedAt; }).length;
     h += '<section class="card"><div class="row between" style="margin-bottom:6px"><h2>Daily goals</h2><span class="muted" style="font-size:12px">' + won + ' of ' + gk.length + ' achieved</span></div>';
-    if (!gk.length) h += '<p class="muted" style="margin:0;font-size:14px">Set a goal on the Trail tab and it will show up here.</p>';
+    if (!gk.length) h += '<p class="muted" style="margin:0;font-size:14px">Set a target on the Today tab and it will show up here.</p>';
     gk.slice(0, 20).forEach(function (k) {
       var g = state.goals[k], d = new Date(k + 'T00:00:00');
       h += '<div class="entry"><div class="row between"><span style="font-size:13px;color:var(--bone2)">' + d.toLocaleDateString('en', { weekday: 'short', month: 'short', day: 'numeric' }) + '</span>' +
@@ -624,7 +621,7 @@
       '<div class="stack" style="gap:8px"><span style="font-size:14px;color:var(--bone2)">Go back to an earlier day</span><div id="snaps" class="row" style="flex-wrap:wrap;gap:8px"><span class="muted" style="font-size:13px">Loading…</span></div></div>' +
       '<div class="stack" style="gap:8px;padding-top:12px;border-top:1px solid var(--line2)"><span style="font-size:14px;color:var(--bone2)">Delete</span>' +
       '<p class="muted" style="margin:0;font-size:13px">Remove single check-ins or goals from the Insights tab. Or:</p>' +
-      '<div class="row" style="flex-wrap:wrap"><button type="button" class="btn ghost" id="delCi">Delete all check-ins</button><button type="button" class="btn ghost" id="resetBtn" style="border-color:#8A4B3C;color:#E0907C">Erase everything</button></div></div></section></div>';
+      '<div class="row" style="flex-wrap:wrap"><button type="button" class="btn ghost" id="delCi">Delete all check-ins</button><button type="button" class="btn ghost" id="resetBtn" style="border-color:#E0312B;color:#C0261F">Erase everything</button></div></div></section></div>';
     return h;
   }
   function bindSettings(view) {
@@ -700,11 +697,11 @@
     }).catch(function () { var el = document.getElementById('snaps'); if (el) el.innerHTML = '<span class="muted" style="font-size:13px">Not available in this browser.</span>'; });
     view.querySelector('#delCi').onclick = function () {
       if (!state.checkins.length) { toast('No check-ins to delete'); return; }
-      if (!confirm('Delete all ' + state.checkins.length + ' check-ins? Your trail, goals and journal stay.')) return;
+      if (!confirm('Delete all ' + state.checkins.length + ' check-ins? Your progress, goals and journal stay.')) return;
       state.checkins = []; save(); render(); toast('Check-ins deleted');
     };
     view.querySelector('#resetBtn').onclick = function () {
-      if (!confirm('Erase everything: trail progress, goals, journal and check-ins? The 30 days restart from today. (Tip: save a backup file first.)')) return;
+      if (!confirm('Erase everything: progress, goals, journal and check-ins? The 30 days restart from today. (Tip: save a backup file first.)')) return;
       if (prompt('Type ERASE to confirm') !== 'ERASE') { toast('Nothing was erased'); return; }
       var code = state.code, keys = state.keys; state = fresh(); state.code = code; state.keys = keys;
       state.days[1].sit = false; state.days[1].note = '';
