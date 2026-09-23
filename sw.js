@@ -1,5 +1,5 @@
 /* Attention service worker: offline shell, push reminders, tap-to-check-in. */
-var CACHE = 'attention-v5';
+var CACHE = 'attention-v6';
 var SHELL = ['./', 'index.html', 'style.css', 'app.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/badge-96.png', 'fonts/archivo.woff2', 'fonts/space-mono-400.woff2', 'fonts/space-mono-700.woff2', 'fonts/plex-400.woff2', 'fonts/plex-500.woff2', 'fonts/plex-600.woff2', 'fonts/plex-700.woff2'];
 
 self.addEventListener('install', function (e) {
@@ -13,7 +13,7 @@ self.addEventListener('activate', function (e) {
 // Network first (so updates arrive), cache as fallback when offline.
 self.addEventListener('fetch', function (e) {
   if (e.request.method !== 'GET' || new URL(e.request.url).origin !== location.origin) return;
-  e.respondWith(fetch(e.request).then(function (res) {
+  e.respondWith(fetch(e.request, { cache: 'no-cache' }).then(function (res) {
     var copy = res.clone();
     caches.open(CACHE).then(function (c) { c.put(e.request, copy); });
     return res;

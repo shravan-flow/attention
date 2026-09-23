@@ -3,6 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
+  var APP_VERSION = '8';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am to set your daily goal, then 10 gentle pings at random times until 9pm, at least 45 minutes apart. Each opens a 1–2 minute pause, a quick question, and an update on your goal until it’s achieved.';
 
@@ -621,7 +622,8 @@
       '<div class="stack" style="gap:8px"><span style="font-size:14px;color:var(--bone2)">Go back to an earlier day</span><div id="snaps" class="row" style="flex-wrap:wrap;gap:8px"><span class="muted" style="font-size:13px">Loading…</span></div></div>' +
       '<div class="stack" style="gap:8px;padding-top:12px;border-top:1px solid var(--line2)"><span style="font-size:14px;color:var(--bone2)">Delete</span>' +
       '<p class="muted" style="margin:0;font-size:13px">Remove single check-ins or goals from the Insights tab. Or:</p>' +
-      '<div class="row" style="flex-wrap:wrap"><button type="button" class="btn ghost" id="delCi">Delete all check-ins</button><button type="button" class="btn ghost" id="resetBtn" style="border-color:#E0312B;color:#C0261F">Erase everything</button></div></div></section></div>';
+      '<div class="row" style="flex-wrap:wrap"><button type="button" class="btn ghost" id="delCi">Delete all check-ins</button><button type="button" class="btn ghost" id="resetBtn" style="border-color:#E0312B;color:#C0261F">Erase everything</button></div></div></section>' +
+      '<p class="eyebrow" style="text-align:center;margin:0">App version ' + APP_VERSION + '</p></div>';
     return h;
   }
   function bindSettings(view) {
