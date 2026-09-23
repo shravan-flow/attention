@@ -1,8 +1,8 @@
 {
-  "pingsPerDay": 5,
+  "pingsPerDay": 10,
   "startHour": 9,
   "endHour": 21,
-  "minGapMinutes": 60,
+  "minGapMinutes": 45,
   "utcOffsetMinutes": 330,
   "goalPing": true
 }

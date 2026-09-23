@@ -3,7 +3,8 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var PING_INFO = 'A good-morning ping at 9am to set your daily goal, then 5 gentle pings at random times until 9pm, at least an hour apart. Each opens a 1–2 minute pause, a quick question, and an update on your goal until it’s achieved.';
+  var PINGS = 10; // random check-in pings per day (keep in step with config.json)
+  var PING_INFO = 'A good-morning ping at 9am to set your daily goal, then 10 gentle pings at random times until 9pm, at least 45 minutes apart. Each opens a 1–2 minute pause, a quick question, and an update on your goal until it’s achieved.';
 
   // ---------- state ----------
   function blankDays() {
@@ -17,9 +18,67 @@
     return s;
   }
   var state;
-  try { state = JSON.parse(localStorage.getItem(STORE_KEY)) || fresh(); } catch (e) { state = fresh(); }
-  function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {} }
-  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(function () {});
+  // ---------- storage: every change is saved at once to two places on the phone,
+  // plus one automatic snapshot per day (the last 14 are kept) ----------
+  var fromLocal = null;
+  try { fromLocal = JSON.parse(localStorage.getItem(STORE_KEY)); } catch (e) {}
+  state = fromLocal || fresh();
+  var IDB = null;
+  function idb() {
+    if (IDB) return IDB;
+    IDB = new Promise(function (res, rej) {
+      if (!window.indexedDB) return rej(new Error('no indexedDB'));
+      var r = indexedDB.open('attention', 1);
+      r.onupgradeneeded = function () { r.result.createObjectStore('kv'); };
+      r.onsuccess = function () { res(r.result); };
+      r.onerror = function () { rej(r.error); };
+    });
+    IDB.catch(function () {});
+    return IDB;
+  }
+  function idbDo(mode, fn) {
+    return idb().then(function (db) {
+      return new Promise(function (res, rej) {
+        var tx = db.transaction('kv', mode), st = tx.objectStore('kv'), out = fn(st);
+        tx.oncomplete = function () { res(out && 'result' in out ? out.result : undefined); };
+        tx.onerror = function () { rej(tx.error); };
+      });
+    });
+  }
+  function idbGet(k) { return idbDo('readonly', function (st) { return st.get(k); }); }
+  function idbPut(k, v) { return idbDo('readwrite', function (st) { st.put(v, k); }); }
+  function idbDel(k) { return idbDo('readwrite', function (st) { st.delete(k); }); }
+  function idbKeys() { return idbDo('readonly', function (st) { return st.getAllKeys(); }); }
+  var mirrorT;
+  function save() {
+    state.savedAt = Date.now();
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {}
+    clearTimeout(mirrorT);
+    mirrorT = setTimeout(mirror, 300);
+  }
+  function mirror() {
+    var copy = JSON.parse(JSON.stringify(state));
+    idbPut('state', copy).then(function () {
+      var today = 'snap-' + dkey(new Date());
+      return idbPut(today, copy).then(idbKeys).then(function (keys) {
+        var snaps = keys.filter(function (k) { return String(k).indexOf('snap-') === 0; }).sort();
+        return Promise.all(snaps.slice(0, Math.max(0, snaps.length - 14)).map(idbDel));
+      });
+    }).catch(function () {});
+  }
+  function hasData(st) { return st && ((st.checkins && st.checkins.length) || Object.keys(st.goals || {}).length || Object.keys(st.days || {}).some(function (k) { var d = st.days[k]; return d.sit || d.singleTask || d.sprint || d.note; })); }
+  // If this phone's quick storage was wiped but the second copy survived, bring it back.
+  idbGet('state').then(function (copy) {
+    if (copy && (!fromLocal || (copy.savedAt || 0) > (state.savedAt || 0))) {
+      state = copy;
+      try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {}
+      render(); if (!fromLocal && hasData(copy)) toast('Your data was restored');
+    } else if (fromLocal) mirror();
+  }).catch(function () {});
+  var persisted = null;
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().then(function (p) { persisted = p; }).catch(function () {});
+  window.addEventListener('pagehide', function () { try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {} mirror(); });
+  document.addEventListener('visibilitychange', function () { if (document.hidden) { try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {} mirror(); } });
 
   var ui = { tab: 'trail', sel: null, timer: null };
 
@@ -76,7 +135,7 @@
     if (pn >= 2) { need++; if (d.singleTask) { xp += 15; got++; } }
     if (pn >= 3) { need++; if (d.sprint) { xp += 20; got++; } }
     if (got === need) xp += 10;
-    xp += Math.min(checkinsOn(n).length, 5) * 5;
+    xp += Math.min(checkinsOn(n).length, PINGS) * 5;
     var g = goalFor(dkey(dayDate(n)));
     if (g) { xp += 5; if (g.achievedAt) xp += 20; }
     return xp;
@@ -180,8 +239,8 @@
         (q.mins ? '<button type="button" class="btn small" data-begin="' + q.f + '" data-mins="' + q.mins + '"' + (locked ? ' disabled' : '') + ' aria-label="Begin ' + q.n + ' timer">▶ Begin</button>' : '') +
         '<span class="xp' + (d[q.f] ? ' done' : '') + '">+' + q.xp + ' XP</span></div>';
     });
-    h += '<div class="quest"><div style="flex:1;display:flex;flex-direction:column"><span class="t">Mindful check-ins</span><span class="d">' + cins + ' of 5 answered · from your random pings</span></div>' +
-      '<span class="xp' + (cins >= 5 ? ' done' : '') + '">+5 each</span></div>';
+    h += '<div class="quest"><div style="flex:1;display:flex;flex-direction:column"><span class="t">Mindful check-ins</span><span class="d">' + cins + ' of ' + PINGS + ' answered · from your random pings</span></div>' +
+      '<span class="xp' + (cins >= PINGS ? ' done' : '') + '">+5 each</span></div>';
     h += '<div style="display:flex;flex-direction:column;gap:8px;padding-top:12px;border-top:1px solid var(--line2)"><div class="row between"><label for="journal" style="font-size:13px;color:var(--bone2)">Journal: what pulled your attention away?</label><span class="xp' + (hasNote ? ' done' : '') + '">+5 XP</span></div>' +
       '<input class="text" id="journal" type="text" value="' + esc(d.note) + '" placeholder="a thought, a ping, a craving…"' + (locked ? ' disabled' : '') + '></div></div>';
     if (ui.timer && ui.timer.day === sel) {
@@ -235,7 +294,7 @@
       h += '</div>';
     }
     h += '</div></section>';
-    h += '<p class="muted" style="font-size:12px;margin:0">XP: sit +10 · one thing fully +15 · focus sprint +20 · journal +5 · check-in +5 (up to 5 a day) · perfect day +10 · daily goal set +5, achieved +20.</p></div>';
+    h += '<p class="muted" style="font-size:12px;margin:0">XP: sit +10 · one thing fully +15 · focus sprint +20 · journal +5 · check-in +5 (up to ' + PINGS + ' a day) · perfect day +10 · daily goal set +5, achieved +20.</p></div>';
     return h;
   }
 
@@ -266,7 +325,11 @@
       cb.addEventListener('change', function () { var f = cb.dataset.q, v = cb.checked; mutate(function () { state.days[sel][f] = v; }); });
     });
     var j = view.querySelector('#journal');
-    if (j) j.addEventListener('change', function () { var v = j.value; mutate(function () { state.days[sel].note = v; }); });
+    if (j) {
+      var had = !!(state.days[sel].note || '').trim();
+      j.addEventListener('input', function () { state.days[sel].note = j.value; save(); });
+      j.addEventListener('change', function () { if (!had && j.value.trim()) toast('+5 XP'); render(); });
+    }
     view.querySelectorAll('[data-begin]').forEach(function (b) {
       b.addEventListener('click', function () { startTimer(sel, b.dataset.begin, +b.dataset.mins); });
     });
@@ -305,6 +368,8 @@
   var DISTRACTIONS = ['Phone / notifications', 'Social media', 'Work worries', 'Planning ahead', 'Replaying the past', 'People around me', 'Tired or hungry', 'Daydreaming', 'Noise / surroundings', 'Nothing, I was present'];
   var ci = null;
   function openCheckin() {
+    var dr = state.ciDraft;
+    if (dr && Date.now() - dr.at < 45 * 60000) { ci = Object.assign({ stage: 'reflect', secs: 60, running: false, left: 60 }, dr.ci); drawCheckin(); document.getElementById('overlay').hidden = false; document.body.style.overflow = 'hidden'; return; }
     ci = { stage: 'breathe', secs: 60, running: false, left: 60, picks: [], presence: 0, note: '', gUpd: '', gWin: false, gNew: '' };
     drawCheckin();
     document.getElementById('overlay').hidden = false;
@@ -321,7 +386,8 @@
   }
   function drawCheckin() {
     var o = document.getElementById('overlay'), h = '<div class="inner">';
-    h += '<div class="row between"><span class="eyebrow">Mindful check-in</span><button type="button" class="btn ghost small" id="ciClose">Close</button></div>';
+    h += '<div class="row between"><span class="eyebrow">Mindful check-in</span><div class="row" style="gap:8px">' + (ci.stage === 'reflect' ? '<button type="button" class="btn ghost small" id="ciDiscard">Discard</button>' : '') + '<button type="button" class="btn ghost small" id="ciClose">Close</button></div></div>';
+    if (ci.stage === 'reflect') h += '<span class="muted" style="font-size:12px;margin-top:-10px">Saved as you type. Close any time and come back.</span>';
     if (ci.stage === 'breathe') {
       h += '<div><h1>Pause here.</h1><p class="muted" style="margin:6px 0 0">Let whatever you were doing wait for a minute. Just follow the light.</p></div>';
       h += '<div class="breath"><div class="orb" id="orb"></div><svg viewBox="0 0 240 240" width="240" height="240" aria-hidden="true"><circle cx="120" cy="120" r="112" fill="none" stroke="#262D30" stroke-width="4"/><circle id="ciRing" cx="120" cy="120" r="112" fill="none" stroke="#CB9A45" stroke-width="4" stroke-linecap="round" stroke-dasharray="703.7" stroke-dashoffset="703.7"/></svg>' +
@@ -355,7 +421,8 @@
     }
     h += '</div>';
     o.innerHTML = h;
-    o.querySelector('#ciClose').onclick = closeCheckin;
+    o.querySelector('#ciClose').onclick = function () { saveNote(); closeCheckin(); };
+    var dc = o.querySelector('#ciDiscard'); if (dc) dc.onclick = function () { delete state.ciDraft; save(); closeCheckin(); };
     o.querySelectorAll('[data-secs]').forEach(function (b) { b.onclick = function () { ci.secs = +b.dataset.secs; ci.left = ci.secs; drawCheckin(); }; });
     var st = o.querySelector('#ciStart'); if (st) st.onclick = startBreath;
     var sk = o.querySelector('#ciSkip'); if (sk) sk.onclick = function () { if (ci.iv) clearInterval(ci.iv); clearTimeout(ci.bt); ci.stage = 'reflect'; drawCheckin(); };
@@ -363,6 +430,8 @@
     o.querySelectorAll('[data-pick]').forEach(function (b) {
       b.onclick = function () { var i = +b.dataset.pick, at = ci.picks.indexOf(i); if (at >= 0) ci.picks.splice(at, 1); else ci.picks.push(i); saveNote(); drawCheckin(); };
     });
+    ['#ciNote', '#ciGoal', '#ciGoalNew'].forEach(function (id) { var el = o.querySelector(id); if (el) el.addEventListener('input', saveNote); });
+    if (ci.stage === 'reflect' && !state.ciDraft) saveNote();
     var cw = o.querySelector('#ciWin'); if (cw) cw.onclick = function () { saveNote(); ci.gWin = !ci.gWin; drawCheckin(); };
     var sv = o.querySelector('#ciSave');
     if (sv) sv.onclick = function () {
@@ -371,6 +440,7 @@
       var entry = { t: new Date().toISOString(), secs: ci.done || 0, presence: ci.presence || null, distractions: ci.picks.map(function (i) { return DISTRACTIONS[i]; }), note: ci.note.trim() };
       closeCheckin();
       mutate(function () {
+        delete state.ciDraft;
         state.checkins.push(entry);
         if (gN && !todayGoal()) setGoal(gN);
         else if (todayGoal() && !todayGoal().achievedAt) goalUpdate(gU, gW);
@@ -379,9 +449,11 @@
     };
   }
   function saveNote() {
+    if (!ci) return;
     var n = document.getElementById('ciNote'); if (n) ci.note = n.value;
     var a = document.getElementById('ciGoal'); if (a) ci.gUpd = a.value;
     var b = document.getElementById('ciGoalNew'); if (b) ci.gNew = b.value;
+    if (ci.stage === 'reflect') { state.ciDraft = { at: Date.now(), ci: { picks: ci.picks.slice(), presence: ci.presence, note: ci.note, gUpd: ci.gUpd, gWin: ci.gWin, gNew: ci.gNew, done: ci.done || 0 } }; save(); }
   }
 
   // ---------- goal screen ----------
@@ -417,22 +489,24 @@
     o.innerHTML = h;
     o.querySelector('#gClose').onclick = closeCheckin;
     var e = o.querySelector('#gEdit'); if (e) e.onclick = function () { gv.edit = true; drawGoal(); };
+    var gt = o.querySelector('#gText'); if (gt) { if (!gt.value && state.goalDraft) gt.value = state.goalDraft; gt.addEventListener('input', function () { state.goalDraft = gt.value; save(); }); }
+    var gu = o.querySelector('#gUpd'); if (gu) { if (state.updDraft) gu.value = state.updDraft; gu.addEventListener('input', function () { state.updDraft = gu.value; save(); }); }
     var st = o.querySelector('#gSet');
     if (st) st.onclick = function () {
       var t = o.querySelector('#gText').value.trim(); if (!t) { o.querySelector('#gText').focus(); return; }
-      mutate(function () { setGoal(t); }); gv.edit = false; drawGoal();
+      mutate(function () { setGoal(t); delete state.goalDraft; }); gv.edit = false; drawGoal();
     };
     var ad = o.querySelector('#gAdd');
     if (ad) ad.onclick = function () {
       var t = o.querySelector('#gUpd').value; if (!t.trim()) return;
       var win = isAchievedText(t);
-      mutate(function () { goalUpdate(t, false); }); drawGoal();
+      mutate(function () { goalUpdate(t, false); delete state.updDraft; }); drawGoal();
       if (win) setTimeout(function () { toast('Goal achieved · +20 XP'); }, 50);
     };
     var wn = o.querySelector('#gWin');
     if (wn) wn.onclick = function () {
       var t = o.querySelector('#gUpd').value;
-      mutate(function () { goalUpdate(t, true); }); drawGoal();
+      mutate(function () { goalUpdate(t, true); delete state.updDraft; }); drawGoal();
     };
   }
   function fmt(s) { return Math.floor(s / 60) + ':' + (s % 60 < 10 ? '0' : '') + (s % 60); }
@@ -481,7 +555,7 @@
       var g = state.goals[k], d = new Date(k + 'T00:00:00');
       h += '<div class="entry"><div class="row between"><span style="font-size:13px;color:var(--bone2)">' + d.toLocaleDateString('en', { weekday: 'short', month: 'short', day: 'numeric' }) + '</span>' +
         (g.achievedAt ? '<span class="xp done">Achieved ' + timeOf(g.achievedAt) + '</span>' : '<span class="xp" style="background:var(--raised);color:var(--dim)">Not marked</span>') + '</div>' +
-        '<span style="font-size:14px">' + esc(g.text) + '</span>' + (g.updates.length ? '<span class="muted" style="font-size:12px">' + g.updates.length + ' update' + (g.updates.length === 1 ? '' : 's') + ' · last: “' + esc(g.updates[g.updates.length - 1].text) + '”</span>' : '') + '</div>';
+        '<span style="font-size:14px">' + esc(g.text) + '</span>' + '<button type="button" class="del" data-delgoal="' + k + '" aria-label="Delete this goal">Delete</button>' + (g.updates.length ? '<span class="muted" style="font-size:12px">' + g.updates.length + ' update' + (g.updates.length === 1 ? '' : 's') + ' · last: “' + esc(g.updates[g.updates.length - 1].text) + '”</span>' : '') + '</div>';
     });
     h += '</section><section class="card"><h2 style="margin-bottom:6px">Recent check-ins</h2>';
     if (!list.length) h += '<p class="muted" style="margin:0;font-size:14px">Tap <b style="color:var(--ember)">Check in</b> below, or wait for your next ping.</p>';
@@ -490,10 +564,26 @@
       h += '<div class="entry"><div class="row between"><span style="font-size:13px;color:var(--bone2)">' + t.toLocaleDateString('en', { weekday: 'short', month: 'short', day: 'numeric' }) + ' · ' + t.toLocaleTimeString('en', { hour: 'numeric', minute: '2-digit' }) + '</span>' +
         (c.presence ? '<span class="xp">' + c.presence + '/5</span>' : '') + '</div>' +
         (c.distractions.length ? '<span style="font-size:14px">' + esc(c.distractions.join(', ')) + '</span>' : '') +
-        (c.note ? '<span class="muted" style="font-size:13px">“' + esc(c.note) + '”</span>' : '') + '</div>';
+        (c.note ? '<span class="muted" style="font-size:13px">“' + esc(c.note) + '”</span>' : '') +
+        '<button type="button" class="del" data-delci="' + esc(c.t) + '" aria-label="Delete this check-in">Delete</button></div>';
     });
     h += '</section></div>';
     return h;
+  }
+
+  function bindLog(view) {
+    view.querySelectorAll('[data-delci]').forEach(function (b) {
+      b.onclick = function () {
+        if (!confirm('Delete this check-in?')) return;
+        var t = b.dataset.delci; state.checkins = state.checkins.filter(function (c) { return c.t !== t; }); save(); render(); toast('Check-in deleted');
+      };
+    });
+    view.querySelectorAll('[data-delgoal]').forEach(function (b) {
+      b.onclick = function () {
+        if (!confirm('Delete this goal and its updates?')) return;
+        delete state.goals[b.dataset.delgoal]; save(); syncGoal(); render(); toast('Goal deleted');
+      };
+    });
   }
 
   // ---------- reminders / settings ----------
@@ -526,7 +616,15 @@
     }
     h += '</section>';
     if (supported && perm === 'granted') h += '<section class="card stack" style="gap:10px"><h2>Test on this phone</h2><p class="muted" style="margin:0;font-size:14px">Shows a sample reminder right now, to check that notifications appear. Tap it to open a check-in.</p><button type="button" class="btn" id="testBtn">Show a sample reminder</button></section>';
-    h += '<section class="card stack" style="gap:10px"><h2>Your data</h2><p class="muted" style="margin:0;font-size:14px">Everything you log stays on this phone. Save a backup now and then.</p><div class="row"><button type="button" class="btn" id="expBtn">Save backup</button><button type="button" class="btn ghost" id="resetBtn">Start over</button></div></section></div>';
+    var last = state.savedAt ? new Date(state.savedAt) : null;
+    h += '<section class="card stack" style="gap:12px" id="dataCard"><h2>Your data</h2>' +
+      '<div class="notice" style="color:var(--sage-hi)"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Auto-save is on' + (last ? ' · last saved ' + last.toLocaleTimeString('en', { hour: 'numeric', minute: '2-digit' }) : '') + '</span></div>' +
+      '<p class="muted" style="margin:0;font-size:13px">Every tap and every letter you type is saved instantly, in two places on this phone, plus a daily snapshot (last 14 days). It stays on this phone only; clearing Chrome’s data or uninstalling would erase it, so save a backup file once a week.</p>' +
+      '<div class="row" style="flex-wrap:wrap"><button type="button" class="btn" id="expBtn">Save backup file</button><button type="button" class="btn" id="impBtn">Restore from file</button><input type="file" id="impFile" accept="application/json,.json" hidden></div>' +
+      '<div class="stack" style="gap:8px"><span style="font-size:14px;color:var(--bone2)">Go back to an earlier day</span><div id="snaps" class="row" style="flex-wrap:wrap;gap:8px"><span class="muted" style="font-size:13px">Loading…</span></div></div>' +
+      '<div class="stack" style="gap:8px;padding-top:12px;border-top:1px solid var(--line2)"><span style="font-size:14px;color:var(--bone2)">Delete</span>' +
+      '<p class="muted" style="margin:0;font-size:13px">Remove single check-ins or goals from the Insights tab. Or:</p>' +
+      '<div class="row" style="flex-wrap:wrap"><button type="button" class="btn ghost" id="delCi">Delete all check-ins</button><button type="button" class="btn ghost" id="resetBtn" style="border-color:#8A4B3C;color:#E0907C">Erase everything</button></div></div></section></div>';
     return h;
   }
   function bindSettings(view) {
@@ -564,12 +662,50 @@
       });
     };
     view.querySelector('#expBtn').onclick = function () {
-      var a = document.createElement('a');
-      a.href = URL.createObjectURL(new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' }));
+      var a = document.createElement('a'), copy = JSON.parse(JSON.stringify(state));
+      delete copy.keys; delete copy.code;
+      a.href = URL.createObjectURL(new Blob([JSON.stringify(copy, null, 2)], { type: 'application/json' }));
       a.download = 'attention-backup-' + new Date().toISOString().slice(0, 10) + '.json'; a.click();
     };
+    var imp = view.querySelector('#impFile');
+    view.querySelector('#impBtn').onclick = function () { imp.click(); };
+    imp.onchange = function () {
+      var f = imp.files[0]; if (!f) return;
+      f.text().then(function (txt) {
+        var d = JSON.parse(txt);
+        if (!d || !d.days || !d.startDate) throw new Error('not an Attention backup');
+        if (!confirm('Replace what’s on this phone with the backup from ' + (d.savedAt ? new Date(d.savedAt).toLocaleString('en') : f.name) + '?')) return;
+        var code = state.code, keys = state.keys;
+        state = d; state.code = state.code || code; state.keys = state.keys || keys;
+        save(); syncGoal(); render(); toast('Backup restored');
+      }).catch(function (e) { toast('Could not restore: ' + e.message); });
+    };
+    idbKeys().then(function (keys) {
+      var snaps = keys.filter(function (k) { return String(k).indexOf('snap-') === 0; }).sort().reverse();
+      var el = document.getElementById('snaps'); if (!el) return;
+      if (!snaps.length) { el.innerHTML = '<span class="muted" style="font-size:13px">Snapshots will appear here from tomorrow.</span>'; return; }
+      el.innerHTML = snaps.map(function (k) {
+        var d = new Date(k.slice(5) + 'T00:00:00');
+        return '<button type="button" class="dchip" data-snap="' + k + '">' + d.toLocaleDateString('en', { weekday: 'short', month: 'short', day: 'numeric' }) + '</button>';
+      }).join('');
+      el.querySelectorAll('[data-snap]').forEach(function (b) {
+        b.onclick = function () {
+          idbGet(b.dataset.snap).then(function (d) {
+            if (!d || !confirm('Go back to how things were at the end of ' + b.textContent + '? Anything logged after that will be replaced.')) return;
+            var code = state.code, keys = state.keys;
+            state = d; state.code = code; state.keys = keys; save(); syncGoal(); render(); toast('Restored ' + b.textContent);
+          });
+        };
+      });
+    }).catch(function () { var el = document.getElementById('snaps'); if (el) el.innerHTML = '<span class="muted" style="font-size:13px">Not available in this browser.</span>'; });
+    view.querySelector('#delCi').onclick = function () {
+      if (!state.checkins.length) { toast('No check-ins to delete'); return; }
+      if (!confirm('Delete all ' + state.checkins.length + ' check-ins? Your trail, goals and journal stay.')) return;
+      state.checkins = []; save(); render(); toast('Check-ins deleted');
+    };
     view.querySelector('#resetBtn').onclick = function () {
-      if (!confirm('Erase all progress and check-ins, and start the 30 days from today?')) return;
+      if (!confirm('Erase everything: trail progress, goals, journal and check-ins? The 30 days restart from today. (Tip: save a backup file first.)')) return;
+      if (prompt('Type ERASE to confirm') !== 'ERASE') { toast('Nothing was erased'); return; }
       var code = state.code, keys = state.keys; state = fresh(); state.code = code; state.keys = keys;
       state.days[1].sit = false; state.days[1].note = '';
       var t = new Date(); state.startDate = t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0');
@@ -581,7 +717,7 @@
   function render() {
     var view = document.getElementById('view');
     if (ui.tab === 'trail') { view.innerHTML = renderTrail(); bindTrail(view); }
-    else if (ui.tab === 'log') { view.innerHTML = renderLog(); }
+    else if (ui.tab === 'log') { view.innerHTML = renderLog(); bindLog(view); }
     else { view.innerHTML = renderSettings(); bindSettings(view); }
     document.querySelectorAll('.tab[data-tab]').forEach(function (t) { t.classList.toggle('on', t.dataset.tab === ui.tab); t.setAttribute('aria-current', t.dataset.tab === ui.tab ? 'page' : 'false'); });
   }

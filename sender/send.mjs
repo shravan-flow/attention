@@ -39,13 +39,13 @@ async function sendOne(label, payload) {
 // Deterministic "random" schedule for a date, so every run agrees on it.
 function rng(seed) { let a = seed >>> 0; return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 function scheduleFor(ymd) {
+  // n random times in [start, end), every two at least `gap` minutes apart (uniform over all such schedules)
   const r = rng(Number(ymd.replace(/-/g, '')) * 7919);
   const start = cfg.startHour * 60 + (cfg.goalPing ? 30 : 0), end = cfg.endHour * 60, n = cfg.pingsPerDay, gap = cfg.minGapMinutes;
-  for (let tries = 0; tries < 5000; tries++) {
-    const t = Array.from({ length: n }, () => start + Math.floor(r() * (end - start))).sort((a, b) => a - b);
-    if (t.every((v, i) => i === 0 || v - t[i - 1] >= gap)) return t;
-  }
-  return Array.from({ length: n }, (_, i) => start + Math.round((i + 0.5) * (end - start) / n));
+  const free = end - start - (n - 1) * gap;
+  if (free <= 0) return Array.from({ length: n }, (_, i) => start + Math.round(i * (end - start) / n));
+  const u = Array.from({ length: n }, () => Math.floor(r() * free)).sort((a, b) => a - b);
+  return u.map((v, i) => start + v + i * gap);
 }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));

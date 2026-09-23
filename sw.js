@@ -1,5 +1,5 @@
 /* Attention service worker: offline shell, push reminders, tap-to-check-in. */
-var CACHE = 'attention-v2';
+var CACHE = 'attention-v3';
 var SHELL = ['./', 'index.html', 'style.css', 'app.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/badge-96.png'];
 
 self.addEventListener('install', function (e) {
