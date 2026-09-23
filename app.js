@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var PING_INFO = '5 gentle pings a day at random times between 9am and 9pm, at least an hour apart. Each one opens a 1–2 minute pause and a quick question.';
+  var PING_INFO = 'A good-morning ping at 9am to set your daily goal, then 5 gentle pings at random times until 9pm, at least an hour apart. Each opens a 1–2 minute pause, a quick question, and an update on your goal until it’s achieved.';
 
   // ---------- state ----------
   function blankDays() {
@@ -41,6 +41,34 @@
     4: { name: 'IV · The Summit', desc: 'Stack it, and start noticing your triggers.', first: 21, last: 30 }
   };
   function checkinsOn(n) { return state.checkins.filter(function (c) { return dayNumFor(new Date(c.t)) === n; }); }
+  // ---------- daily goal ----------
+  function dkey(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+  function dayDate(n) { var d = startDate(); d.setDate(d.getDate() + n - 1); return d; }
+  function goalFor(key) { return (state.goals || {})[key]; }
+  function todayGoal() { return goalFor(dkey(new Date())); }
+  function isAchievedText(t) { return /^\s*achieved[.!\s]*$/i.test(t || ''); }
+  function setGoal(text) {
+    state.goals = state.goals || {};
+    var k = dkey(new Date()), g = state.goals[k];
+    if (g) g.text = text; else state.goals[k] = { text: text, setAt: new Date().toISOString(), updates: [], achievedAt: null };
+  }
+  function goalUpdate(text, achieved) {
+    var g = todayGoal(); if (!g) return;
+    text = (text || '').trim();
+    if (isAchievedText(text)) { achieved = true; text = ''; }
+    if (text) g.updates.push({ t: new Date().toISOString(), text: text });
+    if (achieved && !g.achievedAt) g.achievedAt = new Date().toISOString();
+  }
+  function syncGoal() {
+    try {
+      var g = todayGoal();
+      caches.open('attention-data').then(function (c) {
+        return c.put('goal.json', new Response(JSON.stringify(g && !g.achievedAt ? { day: dkey(new Date()), text: g.text } : {}), { headers: { 'Content-Type': 'application/json' } }));
+      }).catch(function () {});
+    } catch (e) {}
+  }
+  function timeOf(iso) { return new Date(iso).toLocaleTimeString('en', { hour: 'numeric', minute: '2-digit' }); }
+
   function dayXp(n) {
     var d = state.days[n], pn = phaseFor(n), xp = 0, need = 2, got = 0;
     if (d.sit) { xp += 10; got++; }
@@ -49,6 +77,8 @@
     if (pn >= 3) { need++; if (d.sprint) { xp += 20; got++; } }
     if (got === need) xp += 10;
     xp += Math.min(checkinsOn(n).length, 5) * 5;
+    var g = goalFor(dkey(dayDate(n)));
+    if (g) { xp += 5; if (g.achievedAt) xp += 20; }
     return xp;
   }
   function totalXp() { var t = 0; for (var i = 1; i <= 30; i++) t += dayXp(i); return t; }
@@ -75,7 +105,7 @@
   }
   function mutate(fn) {
     var before = totalXp(), lv = levelFor(before).num;
-    fn(); save();
+    fn(); save(); syncGoal();
     var after = totalXp(), nl = levelFor(after);
     if (nl.num > lv) toast('Level up · ' + nl.title);
     else if (after > before) toast('+' + (after - before) + ' XP');
@@ -100,6 +130,7 @@
     target: 'M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18M12 7.5a4.5 4.5 0 1 0 0 9a4.5 4.5 0 1 0 0-9M12 11.2a.8.8 0 1 0 0 1.6a.8.8 0 1 0 0-1.6',
     tent: 'M3 20L12 5l9 15zM12 5v15M9.5 20l2.5-5 2.5 5',
     peak: 'M2 20l7-11 4 6 2.5-3.5L22 20zM9 9V3l4 1.5L9 6',
+    flag: 'M5 21V4M5 4h11l-2 4 2 4H5',
     eye: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zM12 9a3 3 0 1 0 0 6a3 3 0 1 0 0-6'
   };
   var FLAME = 'M12 2c2 4-3 5-3 9a3 3 0 1 0 6 0c0-1-1-2-1-3 2 1 3 3 3 5a5 5 0 0 1-10 0c0-5 3-6 5-11z';
@@ -110,6 +141,9 @@
     var pct = lv.next ? Math.round((xp - lv.floor) / (lv.next - lv.floor) * 100) : 100;
     var h = '<div class="stack">';
     h += '<header class="stack" style="gap:4px"><h1>Thirty days of attention</h1><p class="muted" style="margin:0;font-size:14px">A daily return to one thing. Climb the trail, one sit at a time.</p></header>';
+
+    // today's goal
+    h += goalCard();
 
     // HUD
     h += '<section class="card hud" aria-label="Your progress"><div class="hex">' + hex('#2B2415', '#CB9A45') +
@@ -161,10 +195,10 @@
 
     // badges
     var sits = 0, sprints = 0, p1 = 0; for (var i = 1; i <= 30; i++) { if (state.days[i].sit) sits++; if (state.days[i].sprint) sprints++; if (i <= 5 && state.days[i].sit) p1++; }
-    var best = bestStreak(), nC = state.checkins.length;
+    var best = bestStreak(), nC = state.checkins.length, nG = Object.keys(state.goals || {}).filter(function (k) { return state.goals[k].achievedAt; }).length;
     var B = [['First Light', 'sun', sits >= 1, '0/1 sit'], ['Kindling', 'spark', best >= 3, Math.min(best, 3) + '/3 streak'], ['Steady Flame', 'torch', best >= 7, Math.min(best, 7) + '/7 streak'],
       ['Present', 'eye', nC >= 10, Math.min(nC, 10) + '/10 check-ins'], ['Deep Work', 'target', sprints >= 1, '0/1 sprint'], ['Clearing', 'tent', p1 >= 5, p1 + '/5 sits'],
-      ['Summit', 'peak', sits >= 30, sits + '/30 sits']];
+      ['Finisher', 'flag', nG >= 5, Math.min(nG, 5) + '/5 goals'], ['Summit', 'peak', sits >= 30, sits + '/30 sits']];
     var earned = B.filter(function (b) { return b[2]; }).length;
     h += '<section class="stack" style="gap:14px" aria-label="Badges"><div class="row between"><h2>Badges</h2><span class="muted" style="font-size:12px">' + earned + ' of ' + B.length + ' earned</span></div><div class="badges">';
     B.forEach(function (b) {
@@ -201,7 +235,28 @@
       h += '</div>';
     }
     h += '</div></section>';
-    h += '<p class="muted" style="font-size:12px;margin:0">XP: sit +10 · one thing fully +15 · focus sprint +20 · journal +5 · check-in +5 (up to 5 a day) · perfect day +10.</p></div>';
+    h += '<p class="muted" style="font-size:12px;margin:0">XP: sit +10 · one thing fully +15 · focus sprint +20 · journal +5 · check-in +5 (up to 5 a day) · perfect day +10 · daily goal set +5, achieved +20.</p></div>';
+    return h;
+  }
+
+  function goalCard() {
+    var g = todayGoal(), h;
+    if (!g) {
+      return '<section class="card goal" aria-label="Today’s goal"><div class="row between"><span class="eyebrow">Today’s goal</span><span class="xp">+5 XP</span></div>' +
+        '<p style="margin:0;font-family:var(--serif);font-size:18px">What’s the one thing you want to get done today?</p>' +
+        '<button type="button" class="btn solid" data-goal="open">Set today’s goal</button></section>';
+    }
+    if (g.achievedAt) {
+      return '<section class="card goal won" aria-label="Today’s goal"><div class="row between"><span class="eyebrow" style="color:var(--ember)">Goal achieved · ' + timeOf(g.achievedAt) + '</span><span class="xp done">+20 XP</span></div>' +
+        '<div class="row" style="align-items:flex-start"><svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true" style="flex-shrink:0"><path d="M5 21V4M5 4h11l-2 4 2 4H5" fill="#CB9A45" stroke="#CB9A45" stroke-width="1.6" stroke-linejoin="round"/></svg>' +
+        '<p style="margin:0;font-family:var(--serif);font-size:19px;line-height:1.3">' + esc(g.text) + '</p></div>' +
+        '<span class="muted" style="font-size:12px">' + g.updates.length + ' update' + (g.updates.length === 1 ? '' : 's') + ' along the way. Check-ins carry on as usual.</span></section>';
+    }
+    var last = g.updates[g.updates.length - 1];
+    h = '<section class="card goal" aria-label="Today’s goal"><div class="row between"><span class="eyebrow">Today’s goal</span><span class="muted" style="font-size:12px">set ' + timeOf(g.setAt) + '</span></div>' +
+      '<p style="margin:0;font-family:var(--serif);font-size:19px;line-height:1.3">' + esc(g.text) + '</p>';
+    h += last ? '<div class="upd"><span class="muted" style="font-size:12px">Latest · ' + timeOf(last.t) + '</span><span style="font-size:14px">' + esc(last.text) + '</span></div>' : '<span class="muted" style="font-size:13px">Each ping will ask how it’s going.</span>';
+    h += '<div class="row"><button type="button" class="btn" data-goal="open" style="flex:1">Add update</button><button type="button" class="btn solid" data-goal="win" style="flex:1">Achieved · +20</button></div></section>';
     return h;
   }
 
@@ -217,6 +272,12 @@
     });
     var stop = view.querySelector('#stopT');
     if (stop) stop.addEventListener('click', function () { clearInterval(ui.timer.iv); ui.timer = null; render(); });
+    view.querySelectorAll('[data-goal]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        if (b.dataset.goal === 'win') mutate(function () { goalUpdate('', true); });
+        else openGoal();
+      });
+    });
     view.querySelectorAll('[data-day]').forEach(function (b) {
       b.addEventListener('click', function () { ui.sel = +b.dataset.day; render(); window.scrollTo({ top: 0, behavior: 'smooth' }); });
     });
@@ -244,12 +305,13 @@
   var DISTRACTIONS = ['Phone / notifications', 'Social media', 'Work worries', 'Planning ahead', 'Replaying the past', 'People around me', 'Tired or hungry', 'Daydreaming', 'Noise / surroundings', 'Nothing, I was present'];
   var ci = null;
   function openCheckin() {
-    ci = { stage: 'breathe', secs: 60, running: false, left: 60, picks: [], presence: 0, note: '' };
+    ci = { stage: 'breathe', secs: 60, running: false, left: 60, picks: [], presence: 0, note: '', gUpd: '', gWin: false, gNew: '' };
     drawCheckin();
     document.getElementById('overlay').hidden = false;
     document.body.style.overflow = 'hidden';
   }
   function closeCheckin() {
+    gv = null;
     if (ci && ci.iv) clearInterval(ci.iv);
     if (ci && ci.bt) clearTimeout(ci.bt);
     ci = null;
@@ -271,6 +333,17 @@
         h += '<button type="button" class="btn ghost" id="ciSkip">Finish early</button>';
       }
     } else {
+      var g = todayGoal();
+      if (g && !g.achievedAt) {
+        h += '<section class="card stack" style="gap:10px"><span class="eyebrow">Today’s goal</span><p style="margin:0;font-family:var(--serif);font-size:18px;line-height:1.3">' + esc(g.text) + '</p>' +
+          '<label for="ciGoal" style="font-size:14px;color:var(--bone2)">How’s it going? <span class="muted">(type “achieved” when it’s done)</span></label>' +
+          '<textarea class="text" id="ciGoal" placeholder="e.g. drafted two sections, stuck on the budget">' + esc(ci.gUpd) + '</textarea>' +
+          '<button type="button" class="dchip" id="ciWin" aria-pressed="' + ci.gWin + '" style="align-self:flex-start">' + (ci.gWin ? '✓ Achieved' : 'Mark as achieved') + '</button></section>';
+      } else if (g) {
+        h += '<div class="notice" style="color:var(--ember)"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V4M5 4h11l-2 4 2 4H5" fill="#CB9A45" stroke="#CB9A45" stroke-width="1.6"/></svg><span>Goal achieved at ' + timeOf(g.achievedAt) + '. Just the check-in now.</span></div>';
+      } else {
+        h += '<section class="card stack" style="gap:8px"><label for="ciGoalNew" style="font-size:14px;color:var(--bone2)">No goal set for today. Add one? <span class="muted">(optional)</span></label><input class="text" id="ciGoalNew" type="text" value="' + esc(ci.gNew) + '" placeholder="the one thing you want to get done"></section>';
+      }
       h += '<div><h1>What pulled you away?</h1><p class="muted" style="margin:6px 0 0">No judgement. Noticing is the practice.</p></div>';
       h += '<div class="stack" style="gap:10px"><span style="font-size:14px;color:var(--bone2)">Just before the ping, how present were you?</span><div class="scale" role="group" aria-label="Presence from 1 to 5">' +
         [1, 2, 3, 4, 5].map(function (n) { return '<button type="button" data-pres="' + n + '" aria-pressed="' + (ci.presence === n) + '">' + n + '</button>'; }).join('') +
@@ -290,15 +363,78 @@
     o.querySelectorAll('[data-pick]').forEach(function (b) {
       b.onclick = function () { var i = +b.dataset.pick, at = ci.picks.indexOf(i); if (at >= 0) ci.picks.splice(at, 1); else ci.picks.push(i); saveNote(); drawCheckin(); };
     });
+    var cw = o.querySelector('#ciWin'); if (cw) cw.onclick = function () { saveNote(); ci.gWin = !ci.gWin; drawCheckin(); };
     var sv = o.querySelector('#ciSave');
     if (sv) sv.onclick = function () {
       saveNote();
+      var gU = ci.gUpd, gW = ci.gWin, gN = ci.gNew.trim();
       var entry = { t: new Date().toISOString(), secs: ci.done || 0, presence: ci.presence || null, distractions: ci.picks.map(function (i) { return DISTRACTIONS[i]; }), note: ci.note.trim() };
       closeCheckin();
-      mutate(function () { state.checkins.push(entry); });
+      mutate(function () {
+        state.checkins.push(entry);
+        if (gN && !todayGoal()) setGoal(gN);
+        else if (todayGoal() && !todayGoal().achievedAt) goalUpdate(gU, gW);
+      });
+      if (gW || isAchievedText(gU)) setTimeout(function () { toast('Goal achieved · +20 XP'); }, 2100);
     };
   }
-  function saveNote() { var n = document.getElementById('ciNote'); if (n) ci.note = n.value; }
+  function saveNote() {
+    var n = document.getElementById('ciNote'); if (n) ci.note = n.value;
+    var a = document.getElementById('ciGoal'); if (a) ci.gUpd = a.value;
+    var b = document.getElementById('ciGoalNew'); if (b) ci.gNew = b.value;
+  }
+
+  // ---------- goal screen ----------
+  var gv = null;
+  function openGoal() {
+    gv = { edit: !todayGoal() };
+    drawGoal();
+    document.getElementById('overlay').hidden = false;
+    document.body.style.overflow = 'hidden';
+  }
+  function drawGoal() {
+    var o = document.getElementById('overlay'), g = todayGoal(), hr = new Date().getHours();
+    var h = '<div class="inner"><div class="row between"><span class="eyebrow">Today’s goal · ' + new Date().toLocaleDateString('en', { weekday: 'short', month: 'short', day: 'numeric' }) + '</span><button type="button" class="btn ghost small" id="gClose">Close</button></div>';
+    if (gv.edit) {
+      h += '<div><h1>' + (g ? 'Edit today’s goal' : (hr < 12 ? 'Good morning.' : 'Set a goal for today.')) + '</h1><p class="muted" style="margin:6px 0 0">One clear thing. Each ping through the day will ask how it’s going.</p></div>' +
+        '<label for="gText" class="sr">Goal</label><textarea class="text" id="gText" style="min-height:96px;font-size:17px" placeholder="e.g. finish the fixture drawing and send it for review">' + esc(g ? g.text : '') + '</textarea>' +
+        '<button type="button" class="btn solid" id="gSet">' + (g ? 'Save goal' : 'Set goal · +5 XP') + '</button>';
+    } else {
+      h += '<div class="stack" style="gap:6px"><h1 style="line-height:1.25">' + esc(g.text) + '</h1><span class="muted" style="font-size:13px">Set at ' + timeOf(g.setAt) + (g.achievedAt ? ' · achieved at ' + timeOf(g.achievedAt) : '') + ' · <button type="button" class="link" id="gEdit">edit</button></span></div>';
+      if (g.updates.length) {
+        h += '<section class="card"><h2 style="margin-bottom:6px;font-size:17px">Progress</h2>' + g.updates.map(function (u) {
+          return '<div class="entry"><span class="muted" style="font-size:12px">' + timeOf(u.t) + '</span><span style="font-size:14px">' + esc(u.text) + '</span></div>';
+        }).join('') + '</section>';
+      }
+      if (!g.achievedAt) {
+        h += '<div class="stack" style="gap:8px"><label for="gUpd" style="font-size:14px;color:var(--bone2)">Add an update <span class="muted">(or type “achieved”)</span></label><textarea class="text" id="gUpd" placeholder="where you are with it"></textarea>' +
+          '<div class="row"><button type="button" class="btn" id="gAdd" style="flex:1">Save update</button><button type="button" class="btn solid" id="gWin" style="flex:1">Achieved · +20</button></div></div>';
+      } else {
+        h += '<div class="perfect on"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V4M5 4h11l-2 4 2 4H5" fill="#CB9A45" stroke="#CB9A45" stroke-width="1.6"/></svg><span style="font-size:14px">Done. Progress checks have stopped for today; mindful check-ins carry on.</span></div>';
+      }
+    }
+    h += '</div>';
+    o.innerHTML = h;
+    o.querySelector('#gClose').onclick = closeCheckin;
+    var e = o.querySelector('#gEdit'); if (e) e.onclick = function () { gv.edit = true; drawGoal(); };
+    var st = o.querySelector('#gSet');
+    if (st) st.onclick = function () {
+      var t = o.querySelector('#gText').value.trim(); if (!t) { o.querySelector('#gText').focus(); return; }
+      mutate(function () { setGoal(t); }); gv.edit = false; drawGoal();
+    };
+    var ad = o.querySelector('#gAdd');
+    if (ad) ad.onclick = function () {
+      var t = o.querySelector('#gUpd').value; if (!t.trim()) return;
+      var win = isAchievedText(t);
+      mutate(function () { goalUpdate(t, false); }); drawGoal();
+      if (win) setTimeout(function () { toast('Goal achieved · +20 XP'); }, 50);
+    };
+    var wn = o.querySelector('#gWin');
+    if (wn) wn.onclick = function () {
+      var t = o.querySelector('#gUpd').value;
+      mutate(function () { goalUpdate(t, true); }); drawGoal();
+    };
+  }
   function fmt(s) { return Math.floor(s / 60) + ':' + (s % 60 < 10 ? '0' : '') + (s % 60); }
   function startBreath() {
     ci.running = true; ci.left = ci.secs; ci.done = 0; drawCheckin();
@@ -336,6 +472,17 @@
     h += '<section class="card stack" style="gap:12px"><h2>Top distractions</h2>';
     if (!top.length) h += '<p class="muted" style="margin:0;font-size:14px">Nothing yet. Your first check-in will start this chart.</p>';
     top.forEach(function (d) { h += '<div class="hbar"><span>' + esc(d) + '</span><span class="b"><i style="width:' + Math.round(counts[d] / max * 100) + '%"></i></span><span style="text-align:right">' + counts[d] + '</span></div>'; });
+    h += '</section>';
+    var gk = Object.keys(state.goals || {}).sort().reverse();
+    var won = gk.filter(function (k) { return state.goals[k].achievedAt; }).length;
+    h += '<section class="card"><div class="row between" style="margin-bottom:6px"><h2>Daily goals</h2><span class="muted" style="font-size:12px">' + won + ' of ' + gk.length + ' achieved</span></div>';
+    if (!gk.length) h += '<p class="muted" style="margin:0;font-size:14px">Set a goal on the Trail tab and it will show up here.</p>';
+    gk.slice(0, 20).forEach(function (k) {
+      var g = state.goals[k], d = new Date(k + 'T00:00:00');
+      h += '<div class="entry"><div class="row between"><span style="font-size:13px;color:var(--bone2)">' + d.toLocaleDateString('en', { weekday: 'short', month: 'short', day: 'numeric' }) + '</span>' +
+        (g.achievedAt ? '<span class="xp done">Achieved ' + timeOf(g.achievedAt) + '</span>' : '<span class="xp" style="background:var(--raised);color:var(--dim)">Not marked</span>') + '</div>' +
+        '<span style="font-size:14px">' + esc(g.text) + '</span>' + (g.updates.length ? '<span class="muted" style="font-size:12px">' + g.updates.length + ' update' + (g.updates.length === 1 ? '' : 's') + ' · last: “' + esc(g.updates[g.updates.length - 1].text) + '”</span>' : '') + '</div>';
+    });
     h += '</section><section class="card"><h2 style="margin-bottom:6px">Recent check-ins</h2>';
     if (!list.length) h += '<p class="muted" style="margin:0;font-size:14px">Tap <b style="color:var(--ember)">Check in</b> below, or wait for your next ping.</p>';
     list.slice(0, 40).forEach(function (c) {
@@ -445,11 +592,17 @@
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(function () {});
-    navigator.serviceWorker.addEventListener('message', function (e) { if (e.data && e.data.type === 'checkin' && !ci) openCheckin(); });
+    navigator.serviceWorker.addEventListener('message', function (e) {
+      if (!e.data) return;
+      if (e.data.type === 'goal' && !ci && !gv) openGoal();
+      else if (e.data.type === 'checkin' && !ci) { if (gv) closeCheckin(); openCheckin(); }
+    });
   }
   var lastDay = todayNum();
   document.addEventListener('visibilitychange', function () { if (!document.hidden && todayNum() !== lastDay) { lastDay = todayNum(); ui.sel = null; render(); } });
 
   render();
-  if (/[?&]checkin=1/.test(location.search)) openCheckin();
+  syncGoal();
+  if (/[?&]goal=1/.test(location.search)) openGoal();
+  else if (/[?&]checkin=1/.test(location.search)) openCheckin();
 })();

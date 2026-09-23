@@ -149,3 +149,9 @@ ol.steps{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;c
 @keyframes rise{from{transform:translate(-50%,12px);opacity:0}to{transform:translate(-50%,0);opacity:1}}
 @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
 @media (prefers-reduced-motion:reduce){.flame,.pulse,.twinkle,.toast,.you{animation:none}.breath .orb{transition:none}}
+
+.goal{display:flex;flex-direction:column;gap:12px;border-color:var(--ember-dim)}
+.goal.won{background:rgba(203,154,69,.10);border-color:var(--ember)}
+.upd{display:flex;flex-direction:column;gap:2px;padding:10px 12px;background:var(--raised);border-radius:10px}
+.link{background:none;border:none;padding:0;color:var(--ember);font-size:13px;text-decoration:underline;cursor:pointer}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}

@@ -3,5 +3,6 @@
   "startHour": 9,
   "endHour": 21,
   "minGapMinutes": 60,
-  "utcOffsetMinutes": 330
+  "utcOffsetMinutes": 330,
+  "goalPing": true
 }

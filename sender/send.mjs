@@ -22,11 +22,11 @@ const MESSAGES = [
   ['What are you doing?', 'Is it the thing you meant to be doing? Take a minute.'],
 ];
 
-async function sendOne(label) {
-  const [title, body] = MESSAGES[Math.floor(Math.random() * MESSAGES.length)];
+async function sendOne(label, payload) {
+  const [title, body] = payload ? [payload.title, payload.body] : MESSAGES[Math.floor(Math.random() * MESSAGES.length)];
   for (const s of subs) {
     try {
-      await webpush.sendNotification(s.sub, JSON.stringify({ title, body }), { TTL: 1800, urgency: 'high', vapidDetails: s.vapid });
+      await webpush.sendNotification(s.sub, JSON.stringify({ ...(payload || {}), title, body }), { TTL: 1800, urgency: 'high', vapidDetails: s.vapid });
       console.log(`${label}: sent "${title}"`);
     } catch (e) {
       console.log(`${label}: FAILED (${e.statusCode || ''}) ${e.body || e.message}`);
@@ -40,7 +40,7 @@ async function sendOne(label) {
 function rng(seed) { let a = seed >>> 0; return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 function scheduleFor(ymd) {
   const r = rng(Number(ymd.replace(/-/g, '')) * 7919);
-  const start = cfg.startHour * 60, end = cfg.endHour * 60, n = cfg.pingsPerDay, gap = cfg.minGapMinutes;
+  const start = cfg.startHour * 60 + (cfg.goalPing ? 30 : 0), end = cfg.endHour * 60, n = cfg.pingsPerDay, gap = cfg.minGapMinutes;
   for (let tries = 0; tries < 5000; tries++) {
     const t = Array.from({ length: n }, () => start + Math.floor(r() * (end - start))).sort((a, b) => a - b);
     if (t.every((v, i) => i === 0 || v - t[i - 1] >= gap)) return t;
@@ -54,6 +54,8 @@ const hhmm = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 6
 
 if (MODE === 'test') {
   await sendOne('Test ping');
+} else if (MODE === 'goal') {
+  await sendOne('Morning goal (test)', { kind: 'goal', url: './?goal=1', title: 'Good morning', body: 'What’s the one thing you want to get done today? Tap to set your goal.' });
 } else {
   const now = local();
   const ymd = now.toISOString().slice(0, 10);
@@ -63,6 +65,8 @@ if (MODE === 'test') {
   const slotStart = cfg.startHour * 60 + Math.floor((nowMin - cfg.startHour * 60 + 5) / WINDOW) * WINDOW; // +5: tolerate starting slightly early
   const mine = plan.filter(m => m >= slotStart && m < slotStart + WINDOW && m >= nowMin - 45);
   console.log(`Today (${ymd}) pings at ${plan.map(hhmm).join(', ')}. This run covers ${hhmm(slotStart)}–${hhmm(slotStart + WINDOW)}; sending ${mine.map(hhmm).join(', ') || 'none'}.`);
+  const GOAL = { kind: 'goal', url: './?goal=1', title: 'Good morning', body: 'What’s the one thing you want to get done today? Tap to set your goal.' };
+  if (cfg.goalPing && slotStart === cfg.startHour * 60 && nowMin <= slotStart + 45) await sendOne('Morning goal', GOAL);
   for (const m of mine) {
     const nowM = local().getUTCHours() * 60 + local().getUTCMinutes() + local().getUTCSeconds() / 60;
     if (m > nowM) await sleep((m - nowM) * 60000);
