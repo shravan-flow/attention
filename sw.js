@@ -1,5 +1,5 @@
 /* Attention service worker: offline shell, push reminders, tap-to-check-in. */
-var CACHE = 'attention-v7';
+var CACHE = 'attention-v8';
 var SHELL = ['./', 'index.html', 'style.css', 'app.js', 'manifest.webmanifest', 'moves.json', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/badge-96.png', 'fonts/archivo.woff2', 'fonts/space-mono-400.woff2', 'fonts/space-mono-700.woff2', 'fonts/plex-400.woff2', 'fonts/plex-500.woff2', 'fonts/plex-600.woff2', 'fonts/plex-700.woff2'];
 
 self.addEventListener('install', function (e) {
@@ -31,7 +31,9 @@ self.addEventListener('push', function (e) {
       var now = new Date(), today = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
       var body = d.body || 'Where is your attention right now? Tap to check in.';
       if (!d.kind && g && g.text && g.day === today) body += '\nToday’s goal: ' + g.text;
+      var goalOn = !d.kind && g && g.text && g.day === today;
       return self.registration.showNotification(d.title || 'Pause for a minute', {
+        actions: goalOn ? [{ action: 'goal', title: 'Update goal' }, { action: 'win', title: 'Goal achieved ✓' }] : [],
         body: body,
         icon: 'icons/icon-192.png',
         badge: 'icons/badge-96.png',
@@ -45,7 +47,8 @@ self.addEventListener('push', function (e) {
 
 self.addEventListener('notificationclick', function (e) {
   e.notification.close();
-  var url = new URL((e.notification.data && e.notification.data.url) || './?checkin=1', self.registration.scope).href;
+  var rel = e.action === 'win' ? './?goal=1&win=1' : e.action === 'goal' ? './?goal=1' : ((e.notification.data && e.notification.data.url) || './?checkin=1');
+  var url = new URL(rel, self.registration.scope).href;
   e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (list) {
     for (var i = 0; i < list.length; i++) {
       if (list[i].url.indexOf(self.registration.scope) === 0 && 'focus' in list[i]) {

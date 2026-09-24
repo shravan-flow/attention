@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '9';
+  var APP_VERSION = '10';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am to set your daily goal, then 10 mindful pings at random times until 9pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -376,8 +376,9 @@
   function openCheckin() {
     if (typeof stopMoveTimer === 'function') { stopMoveTimer(); mv = null; }
     var dr = state.ciDraft;
-    if (dr && Date.now() - dr.at < 45 * 60000) { ci = Object.assign({ stage: 'reflect', secs: 60, running: false, left: 60 }, dr.ci); drawCheckin(); document.getElementById('overlay').hidden = false; document.body.style.overflow = 'hidden'; return; }
-    ci = { stage: 'breathe', secs: 60, running: false, left: 60, picks: [], presence: 0, note: '', gUpd: '', gWin: false, gNew: '' };
+    if (dr && Date.now() - dr.at < 10 * 60000) { ci = Object.assign({ stage: 'reflect', secs: 60, running: false, left: 60 }, dr.ci); drawCheckin(); document.getElementById('overlay').hidden = false; document.body.style.overflow = 'hidden'; return; }
+    var tg = todayGoal();
+    ci = { stage: tg && !tg.achievedAt ? 'goal' : 'breathe', secs: 60, running: false, left: 60, picks: [], presence: 0, note: '', gUpd: '', gWin: false, gNew: '' };
     drawCheckin();
     document.getElementById('overlay').hidden = false;
     document.body.style.overflow = 'hidden';
@@ -397,7 +398,15 @@
     o.classList.toggle('dark', ci.stage === 'breathe');
     h += '<div class="row between"><span class="eyebrow">Mindful check-in</span><div class="row" style="gap:8px">' + (ci.stage === 'reflect' ? '<button type="button" class="btn ghost small" id="ciDiscard">Discard</button>' : '') + '<button type="button" class="btn ghost small" id="ciClose">Close</button></div></div>';
     if (ci.stage === 'reflect') h += '<span class="muted" style="font-size:12px;margin-top:-10px">Saved as you type. Close any time and come back.</span>';
-    if (ci.stage === 'breathe') {
+    if (ci.stage === 'goal') {
+      var gg = todayGoal(), lu = gg.updates[gg.updates.length - 1];
+      h += '<section class="card goal" style="gap:10px"><span class="eyebrow">Goal check · 1 of 3</span><p class="gtext">' + esc(gg.text) + '</p>' +
+        (lu ? '<div class="upd"><span style="font-family:var(--mono);font-size:11px;color:#5A4300">LAST UPDATE · ' + timeOf(lu.t) + '</span><span style="font-size:14px">' + esc(lu.text) + '</span></div>' : '') + '</section>';
+      h += '<div class="stack" style="gap:8px"><label for="gcText"><h1 style="font-size:22px">How’s it going?</h1></label><textarea class="text" id="gcText" style="min-height:90px;font-size:16px" placeholder="e.g. base plate done, clamps next · or type “achieved”"></textarea></div>';
+      h += '<button type="button" class="btn solid" id="gcSave">Save update → breathe</button>';
+      h += '<button type="button" class="btn" id="gcWin" style="background:var(--green);border-color:var(--green);color:#fff">✓ Achieved it · +20 XP</button>';
+      h += '<button type="button" class="btn ghost" id="gcSkip">Skip the goal this time</button>';
+    } else if (ci.stage === 'breathe') {
       h += '<div><h1>Pause here.</h1><p class="muted" style="margin:6px 0 0">Let whatever you were doing wait for a minute. Just follow the light.</p></div>';
       h += '<div class="breath"><svg class="rings" id="orb" viewBox="0 0 260 260" width="260" height="260" aria-hidden="true"><g><circle cx="130" cy="130" r="24" fill="none" stroke="#2BD576" stroke-width="7" stroke-linecap="round" stroke-dasharray="18.1 7.0"/></g><g class="rev"><circle cx="130" cy="130" r="37" fill="none" stroke="#27C27A" stroke-width="7" stroke-linecap="round" stroke-dasharray="20.9 8.1"/></g><g><circle cx="130" cy="130" r="50" fill="none" stroke="#1FAE86" stroke-width="7" stroke-linecap="round" stroke-dasharray="22.6 8.8"/></g><g class="rev"><circle cx="130" cy="130" r="63" fill="none" stroke="#169A91" stroke-width="7" stroke-linecap="round" stroke-dasharray="23.8 9.2"/></g><g><circle cx="130" cy="130" r="76" fill="none" stroke="#10869A" stroke-width="7" stroke-linecap="round" stroke-dasharray="24.6 9.6"/></g><g class="rev"><circle cx="130" cy="130" r="89" fill="none" stroke="#1273A3" stroke-width="7" stroke-linecap="round" stroke-dasharray="25.2 9.8"/></g><g><circle cx="130" cy="130" r="102" fill="none" stroke="#1D5BD8" stroke-width="7" stroke-linecap="round" stroke-dasharray="25.6 10.0"/></g><g class="rev"><circle cx="130" cy="130" r="115" fill="none" stroke="#2A4BB0" stroke-width="7" stroke-linecap="round" stroke-dasharray="26.0 10.1"/></g></svg><svg class="prog" viewBox="0 0 260 260" width="260" height="260" aria-hidden="true"><circle id="ciRing" cx="130" cy="130" r="127" fill="none" stroke="#FFC23A" stroke-width="3" stroke-linecap="round" stroke-dasharray="798" stroke-dashoffset="798"/></svg>' +
         '<div class="cue" aria-live="polite"><b id="cue">' + (ci.running ? 'Breathe in' : 'Ready') + '</b><span id="left">' + fmt(ci.left) + '</span></div></div>';
@@ -409,7 +418,9 @@
       }
     } else {
       var g = todayGoal();
-      if (g && !g.achievedAt) {
+      if (g && !g.achievedAt && ci.asked) {
+        h += '<div class="notice"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V4M5 4h11l-2 4 2 4H5" fill="#FFC23A" stroke="#141414" stroke-width="1.4"/></svg><span>Goal: ' + esc(g.text) + (g.updates.length ? ' · last update ' + timeOf(g.updates[g.updates.length - 1].t) : '') + '</span></div>';
+      } else if (g && !g.achievedAt) {
         h += '<section class="card stack" style="gap:10px"><span class="eyebrow">Today’s goal</span><p style="margin:0;font-family:var(--serif);font-size:18px;line-height:1.3">' + esc(g.text) + '</p>' +
           '<label for="ciGoal" style="font-size:14px;color:var(--bone2)">How’s it going? <span class="muted">(type “achieved” when it’s done)</span></label>' +
           '<textarea class="text" id="ciGoal" placeholder="e.g. drafted two sections, stuck on the budget">' + esc(ci.gUpd) + '</textarea>' +
@@ -434,6 +445,18 @@
     var dc = o.querySelector('#ciDiscard'); if (dc) dc.onclick = function () { delete state.ciDraft; save(); closeCheckin(); };
     o.querySelectorAll('[data-secs]').forEach(function (b) { b.onclick = function () { ci.secs = +b.dataset.secs; ci.left = ci.secs; drawCheckin(); }; });
     var st = o.querySelector('#ciStart'); if (st) st.onclick = startBreath;
+    var gcs = o.querySelector('#gcSave'), gcw = o.querySelector('#gcWin'), gck = o.querySelector('#gcSkip'), gct = o.querySelector('#gcText');
+    function goalStep(win) {
+      var t = gct.value, achieved = win || isAchievedText(t);
+      if (t.trim() || win) mutate(function () { goalUpdate(t, win); });
+      ci.asked = true; ci.stage = 'breathe'; drawCheckin();
+      if (achieved) setTimeout(function () { toast('Goal achieved · +20 XP'); }, 2100);
+      else if (t.trim()) toast('Update saved');
+    }
+    if (gcs) gcs.onclick = function () { if (!gct.value.trim()) { gct.focus(); return; } goalStep(false); };
+    if (gcw) gcw.onclick = function () { goalStep(true); };
+    if (gck) gck.onclick = function () { ci.asked = true; ci.stage = 'breathe'; drawCheckin(); };
+    if (gct) setTimeout(function () { try { gct.focus(); } catch (e) {} }, 50);
     var sk = o.querySelector('#ciSkip'); if (sk) sk.onclick = function () { if (ci.iv) clearInterval(ci.iv); clearTimeout(ci.bt); ci.stage = 'reflect'; drawCheckin(); };
     o.querySelectorAll('[data-pres]').forEach(function (b) { b.onclick = function () { ci.presence = +b.dataset.pres; saveNote(); drawCheckin(); }; });
     o.querySelectorAll('[data-pick]').forEach(function (b) {
@@ -445,16 +468,16 @@
     var sv = o.querySelector('#ciSave');
     if (sv) sv.onclick = function () {
       saveNote();
-      var gU = ci.gUpd, gW = ci.gWin, gN = ci.gNew.trim();
+      var gU = ci.gUpd, gW = ci.gWin, gN = ci.gNew.trim(), ci_asked = !!ci.asked;
       var entry = { t: new Date().toISOString(), secs: ci.done || 0, presence: ci.presence || null, distractions: ci.picks.map(function (i) { return DISTRACTIONS[i]; }), note: ci.note.trim() };
       closeCheckin();
       mutate(function () {
         delete state.ciDraft;
         state.checkins.push(entry);
         if (gN && !todayGoal()) setGoal(gN);
-        else if (todayGoal() && !todayGoal().achievedAt) goalUpdate(gU, gW);
+        else if (todayGoal() && !todayGoal().achievedAt && !ci_asked) goalUpdate(gU, gW);
       });
-      if (gW || isAchievedText(gU)) setTimeout(function () { toast('Goal achieved · +20 XP'); }, 2100);
+      if (!ci_asked && (gW || isAchievedText(gU))) setTimeout(function () { toast('Goal achieved · +20 XP'); }, 2100);
     };
   }
   function saveNote() {
@@ -462,7 +485,7 @@
     var n = document.getElementById('ciNote'); if (n) ci.note = n.value;
     var a = document.getElementById('ciGoal'); if (a) ci.gUpd = a.value;
     var b = document.getElementById('ciGoalNew'); if (b) ci.gNew = b.value;
-    if (ci.stage === 'reflect') { state.ciDraft = { at: Date.now(), ci: { picks: ci.picks.slice(), presence: ci.presence, note: ci.note, gUpd: ci.gUpd, gWin: ci.gWin, gNew: ci.gNew, done: ci.done || 0 } }; save(); }
+    if (ci.stage === 'reflect') { state.ciDraft = { at: Date.now(), ci: { picks: ci.picks.slice(), presence: ci.presence, note: ci.note, gUpd: ci.gUpd, gWin: ci.gWin, gNew: ci.gNew, done: ci.done || 0, asked: !!ci.asked } }; save(); }
   }
 
   // ---------- goal screen ----------
@@ -499,7 +522,7 @@
     o.querySelector('#gClose').onclick = closeCheckin;
     var e = o.querySelector('#gEdit'); if (e) e.onclick = function () { gv.edit = true; drawGoal(); };
     var gt = o.querySelector('#gText'); if (gt) { if (!gt.value && state.goalDraft) gt.value = state.goalDraft; gt.addEventListener('input', function () { state.goalDraft = gt.value; save(); }); }
-    var gu = o.querySelector('#gUpd'); if (gu) { if (state.updDraft) gu.value = state.updDraft; gu.addEventListener('input', function () { state.updDraft = gu.value; save(); }); }
+    var gu = o.querySelector('#gUpd'); if (gu) { setTimeout(function () { try { gu.focus(); } catch (e) {} }, 50); if (state.updDraft) gu.value = state.updDraft; gu.addEventListener('input', function () { state.updDraft = gu.value; save(); }); }
     var st = o.querySelector('#gSet');
     if (st) st.onclick = function () {
       var t = o.querySelector('#gText').value.trim(); if (!t) { o.querySelector('#gText').focus(); return; }
@@ -850,7 +873,7 @@
     navigator.serviceWorker.addEventListener('message', function (e) {
       if (!e.data) return;
       if (e.data.type === 'move') { var mm = /move=([a-z0-9]+)/.exec(e.data.url || ''); if (gv || ci) closeCheckin(); openMove(mm ? mm[1] : suggestMove()); return; }
-      if (e.data.type === 'goal' && !ci && !gv) openGoal();
+      if (e.data.type === 'goal') { if (ci) closeCheckin(); if (/win=1/.test(e.data.url || '') && todayGoal() && !todayGoal().achievedAt) mutate(function () { goalUpdate('', true); }); openGoal(); return; }
       else if (e.data.type === 'checkin' && !ci) { if (gv) closeCheckin(); openCheckin(); }
     });
   }
@@ -859,6 +882,7 @@
 
   render();
   syncGoal();
-  if (/[?&]goal=1/.test(location.search)) openGoal();
+  if (/[?&]win=1/.test(location.search)) { if (todayGoal() && !todayGoal().achievedAt) mutate(function () { goalUpdate('', true); }); openGoal(); }
+  else if (/[?&]goal=1/.test(location.search)) openGoal();
   else if (/[?&]checkin=1/.test(location.search)) openCheckin();
 })();
