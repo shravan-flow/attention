@@ -3,9 +3,9 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '8';
+  var APP_VERSION = '9';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
-  var PING_INFO = 'A good-morning ping at 9am to set your daily goal, then 10 gentle pings at random times until 9pm, at least 45 minutes apart. Each opens a 1–2 minute pause, a quick question, and an update on your goal until it’s achieved.';
+  var PING_INFO = 'A good-morning ping at 9am to set your daily goal, then 10 mindful pings at random times until 9pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
   // ---------- state ----------
   function blankDays() {
@@ -139,6 +139,7 @@
     xp += Math.min(checkinsOn(n).length, PINGS) * 5;
     var g = goalFor(dkey(dayDate(n)));
     if (g) { xp += 5; if (g.achievedAt) xp += 20; }
+    xp += Math.min(movesOn(dkey(dayDate(n))).length, 12) * 5;
     return xp;
   }
   function totalXp() { var t = 0; for (var i = 1; i <= 30; i++) t += dayXp(i); return t; }
@@ -182,7 +183,9 @@
     gauge: 'M4 17a8 8 0 1 1 16 0M12 17l4.5-5M7 17h.01M17 17h.01',
     curve: 'M5 20c1-8 6-9 9-9s6-2 6-7M4 20h3',
     cup: 'M8 4h8v5a4 4 0 0 1-8 0zM8 6H5v1a3 3 0 0 0 3 3M16 6h3v1a3 3 0 0 1-3 3M12 13v4M8.5 20h7',
-    helmet: 'M3.5 16a8.5 8.5 0 0 1 17 0v2h-17zM12 16h8.5M7 11.5h7'
+    helmet: 'M3.5 16a8.5 8.5 0 0 1 17 0v2h-17zM12 16h8.5M7 11.5h7',
+    bolt: 'M13 2L4 14h7l-1 8 9-12h-7z',
+    grid4: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z'
   };
   var FLAME = 'M12 2c2 4-3 5-3 9a3 3 0 1 0 6 0c0-1-1-2-1-3 2 1 3 3 3 5a5 5 0 0 1-10 0c0-5 3-6 5-11z';
 
@@ -240,6 +243,8 @@
       '<div style="flex:1"><span style="font-size:13px;font-weight:600">' + (perfect ? 'Perfect day. Bonus claimed.' : 'Perfect day bonus: ' + got + ' of ' + flags.length) + '</span><div class="segs" aria-hidden="true">' +
       flags.map(function (f) { return '<i' + (f ? ' class="on"' : '') + '></i>'; }).join('') + '</div></div><span style="font-family:var(--mono);font-size:12px;font-weight:700">+10</span></div></section>';
 
+    h += bodyCard();
+
     // rings: four concentric rings, one per phase, one arc per day (inner ring = first days)
     var RR = { 1: 62, 2: 92, 3: 122, 4: 152 }, C = 175;
     function arc(r, a0, a1) {
@@ -277,10 +282,14 @@
 
     // badges
     var sits = 0, sprints = 0, p1 = 0; for (var i = 1; i <= 30; i++) { if (state.days[i].sit) sits++; if (state.days[i].sprint) sprints++; if (i <= 5 && state.days[i].sit) p1++; }
+    var nMv = (state.moves || []).filter(function (m) { return !m.skipped; }).length, allRound = false, perDay = {};
+    (state.moves || []).forEach(function (m) { if (m.skipped) return; var k = dkey(new Date(m.t)); (perDay[k] = perDay[k] || {})[m.cat] = 1; });
+    Object.keys(perDay).forEach(function (k) { if (Object.keys(perDay[k]).length >= 4) allRound = true; });
     var best = bestStreak(), nC = state.checkins.length, nG = Object.keys(state.goals || {}).filter(function (k) { return state.goals[k].achievedAt; }).length;
     var B = [['Green Flag', 'flag', '#17A864', sits >= 1, '0/1 sit'], ['Hat-trick', 'three', '#FF5A1F', best >= 3, Math.min(best, 3) + '/3 days'], ['Seven Straight', 'seven', '#E0312B', best >= 7, Math.min(best, 7) + '/7 days'],
       ['Pit Stop', 'wrench', '#0E9C95', nC >= 10, Math.min(nC, 10) + '/10'], ['Flat Out', 'gauge', '#1D5BD8', sprints >= 1, '0/1 sprint'], ['Sector One', 'curve', '#7B3FE4', p1 >= 5, p1 + '/5 sits'],
-      ['Chequered', 'cup', '#FFC23A', nG >= 5, Math.min(nG, 5) + '/5 goals'], ['Full Distance', 'helmet', '#141414', sits >= 30, sits + '/30']];
+      ['Chequered', 'cup', '#FFC23A', nG >= 5, Math.min(nG, 5) + '/5 goals'], ['Full Distance', 'helmet', '#141414', sits >= 30, sits + '/30'],
+      ['Mover', 'bolt', '#FF5A1F', nMv >= 25, Math.min(nMv, 25) + '/25 moves'], ['All-rounder', 'grid4', '#1D5BD8', allRound, 'all 4 in a day']];
     var earned = B.filter(function (b) { return b[3]; }).length;
     h += '<section class="stack" style="gap:14px" aria-label="Badges"><div class="row between"><h2>Badges</h2><span class="muted" style="font-size:12px">' + earned + ' of ' + B.length + '</span></div><div class="badges">';
     B.forEach(function (b) {
@@ -313,6 +322,7 @@
   }
 
   function bindTrail(view) {
+    var mn = view.querySelector('#moveNow'); if (mn) mn.addEventListener('click', function () { openMove(suggestMove()); });
     var today = todayNum(), sel = ui.sel || today;
     view.querySelectorAll('[data-q]').forEach(function (cb) {
       cb.addEventListener('change', function () { var f = cb.dataset.q, v = cb.checked; mutate(function () { state.days[sel][f] = v; }); });
@@ -364,6 +374,7 @@
   var DCOL = ['#E0312B', '#7B3FE4', '#1D5BD8', '#0E9C95', '#FF5A1F', '#C2185B', '#B8860B', '#5B6CFF', '#6B645B', '#17A864'];
   var ci = null;
   function openCheckin() {
+    if (typeof stopMoveTimer === 'function') { stopMoveTimer(); mv = null; }
     var dr = state.ciDraft;
     if (dr && Date.now() - dr.at < 45 * 60000) { ci = Object.assign({ stage: 'reflect', secs: 60, running: false, left: 60 }, dr.ci); drawCheckin(); document.getElementById('overlay').hidden = false; document.body.style.overflow = 'hidden'; return; }
     ci = { stage: 'breathe', secs: 60, running: false, left: 60, picks: [], presence: 0, note: '', gUpd: '', gWin: false, gNew: '' };
@@ -530,6 +541,105 @@
     }, 1000);
   }
 
+  // ---------- movement snacks ----------
+  var LIB = null;
+  fetch('moves.json').then(function (r) { return r.json(); }).then(function (j) {
+    LIB = j; render();
+    var mm = /[?&]move=([a-z0-9]+)/.exec(location.search); if (mm) openMove(mm[1]);
+  }).catch(function () {});
+  function moveById(id) { return LIB && LIB.moves.filter(function (m) { return m.id === id; })[0]; }
+  function movesOn(key) { return (state.moves || []).filter(function (m) { return dkey(new Date(m.t)) === key && !m.skipped; }); }
+  function dose(mv) {
+    var ph = phaseFor(todayNum()), k = mv.inc * (ph - 1);
+    if (mv.secs) { var s = mv.secs + k; return { secs: s, text: s >= 120 ? Math.round(s / 60) + ' min' : s + ' sec' }; }
+    return { reps: mv.reps + k, text: (mv.reps + k) + ' ' + (mv.unit || 'reps') + (mv.per ? ' ' + mv.per : '') };
+  }
+  function suggestMove() {
+    var h = new Date().getHours(), pool = h < 11 ? ['yoga', 'stretch'] : h < 17 ? ['strength', 'cardio', 'stretch'] : ['stretch', 'yoga', 'cardio'];
+    var done = movesOn(dkey(new Date())).map(function (m) { return m.id; });
+    var opts = LIB.moves.filter(function (m) { return pool.indexOf(m.cat) >= 0 && done.indexOf(m.id) < 0; });
+    if (!opts.length) opts = LIB.moves;
+    return opts[Math.floor(Math.random() * opts.length)].id;
+  }
+  var BODY_SLOTS = []; for (var bm = 9 * 60 + 30; bm < 21 * 60; bm += 30) BODY_SLOTS.push(bm);
+  function bodyCard() {
+    if (!LIB) return '';
+    var key = dkey(new Date()), done = movesOn(key), now = new Date(), nowM = now.getHours() * 60 + now.getMinutes();
+    var byCat = { yoga: 0, cardio: 0, strength: 0, stretch: 0 }, secs = 0;
+    done.forEach(function (m) { byCat[m.cat]++; secs += m.secs || 45; });
+    var h = '<section class="card stack body" style="gap:14px" aria-label="Movement today"><div class="row between"><div style="display:flex;flex-direction:column;gap:2px"><span class="eyebrow">Body clock · every 30 min</span><h1>Move</h1></div>' +
+      '<div class="bignum"><b>' + done.length + '</b><small>moves · ~' + Math.max(0, Math.round(secs / 60)) + ' min</small></div></div>';
+    h += '<div class="clock" role="img" aria-label="' + done.length + ' movement snacks done today">';
+    BODY_SLOTS.forEach(function (sm) {
+      var hit = done.filter(function (m) { var d = new Date(m.t), x = d.getHours() * 60 + d.getMinutes(); return x >= sm - 15 && x < sm + 15; })[0];
+      var cls = hit ? 'on' : (nowM >= sm - 15 && nowM < sm + 15 ? 'now' : (nowM >= sm + 15 ? 'past' : ''));
+      h += '<i class="' + cls + '"' + (hit ? ' style="background:' + LIB.categories[hit.cat].color + '"' : '') + '></i>';
+    });
+    h += '</div><div class="clockax"><span>9:30</span><span>12</span><span>3pm</span><span>6pm</span><span>9</span></div>';
+    h += '<div class="cats">' + Object.keys(LIB.categories).map(function (c) {
+      return '<span class="cat" style="--c:' + LIB.categories[c].color + '"><i></i>' + LIB.categories[c].name + ' <b>' + byCat[c] + '</b></span>';
+    }).join('') + '</div>';
+    h += '<button type="button" class="btn red" id="moveNow">Move now · +5 XP</button></section>';
+    return h;
+  }
+
+  var mv = null;
+  function openMove(id) {
+    if (!LIB) return;
+    var m = moveById(id) || moveById(suggestMove());
+    if (ci) closeCheckin();
+    mv = { id: m.id, left: 0, total: 0, iv: null };
+    drawMove();
+    document.getElementById('overlay').hidden = false;
+    document.body.style.overflow = 'hidden';
+  }
+  function drawMove() {
+    var o = document.getElementById('overlay'), m = moveById(mv.id), cat = LIB.categories[m.cat], d = dose(m);
+    o.classList.remove('dark');
+    var h = '<div class="inner">';
+    h += '<div class="row between"><span class="eyebrow">Movement snack</span><button type="button" class="btn ghost small" id="mClose">Close</button></div>';
+    h += '<section class="movehero" style="background:' + cat.color + '"><span class="lbl">' + cat.name.toUpperCase() + '</span><h1>' + m.name + '</h1><div class="dose">' + d.text + '</div><span class="cue">' + m.cue + '</span></section>';
+    h += '<ol class="howto">' + m.how.map(function (s) { return '<li>' + s + '</li>'; }).join('') + '</ol>';
+    if (d.secs) {
+      var left = mv.iv ? mv.left : d.secs, tot = d.secs;
+      h += '<div class="timer" style="background:' + cat.color + '"><div class="ring"><svg viewBox="0 0 64 64" width="64" height="64" aria-hidden="true"><circle cx="32" cy="32" r="27" fill="none" stroke="rgba(0,0,0,.2)" stroke-width="5"/><circle id="mRing" cx="32" cy="32" r="27" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-dasharray="169.6" stroke-dashoffset="' + (169.6 * (1 - left / tot)).toFixed(1) + '"/></svg><span id="mText">' + fmt(left) + '</span></div>' +
+        '<div style="flex:1"><button type="button" class="btn small" id="mGo" style="color:#fff;border-color:#fff">' + (mv.iv ? 'Pause' : 'Start timer') + '</button></div></div>';
+    }
+    h += '<div class="row"><button type="button" class="btn ghost" id="mSkip" style="flex:1">Skip</button><button type="button" class="btn ghost" id="mSwap" style="flex:1">Swap</button></div>';
+    h += '<button type="button" class="btn solid" id="mDone">Done · +5 XP</button>';
+    h += '<p class="muted" style="margin:0;font-size:12px;text-align:center">Move within what feels good; stop if anything hurts.</p></div>';
+    o.innerHTML = h;
+    o.querySelector('#mClose').onclick = closeMove;
+    o.querySelector('#mSwap').onclick = function () {
+      stopMoveTimer();
+      var same = LIB.moves.filter(function (x) { return x.cat === m.cat && x.id !== m.id; });
+      mv.id = same[Math.floor(Math.random() * same.length)].id; drawMove();
+    };
+    o.querySelector('#mSkip').onclick = function () { logMove(m, d, true); closeMove(); toast('Skipped. Next one in 30 min'); };
+    o.querySelector('#mDone').onclick = function () { closeMove(); mutate(function () { logMove(m, d, false); }); };
+    var go = o.querySelector('#mGo');
+    if (go) go.onclick = function () {
+      if (mv.iv) { stopMoveTimer(); drawMove(); return; }
+      if (!mv.left) { mv.left = d.secs; }
+      mv.total = d.secs;
+      mv.iv = setInterval(function () {
+        mv.left--;
+        var t = document.getElementById('mText'), r = document.getElementById('mRing');
+        if (t) t.textContent = fmt(Math.max(mv.left, 0));
+        if (r) r.setAttribute('stroke-dashoffset', (169.6 * (1 - mv.left / mv.total)).toFixed(1));
+        if (mv.left <= 0) { stopMoveTimer(); mv.left = 0; if (navigator.vibrate) navigator.vibrate([150, 80, 150]); var b = document.getElementById('mGo'); if (b) b.textContent = 'Done? Tap below'; }
+      }, 1000);
+      drawMove();
+    };
+  }
+  function stopMoveTimer() { if (mv && mv.iv) { clearInterval(mv.iv); mv.iv = null; } }
+  function closeMove() { stopMoveTimer(); mv = null; document.getElementById('overlay').hidden = true; document.body.style.overflow = ''; if (location.search) history.replaceState(null, '', location.pathname); }
+  function logMove(m, d, skipped) {
+    state.moves = state.moves || [];
+    state.moves.push({ t: new Date().toISOString(), id: m.id, cat: m.cat, secs: d.secs || null, reps: d.reps || null, skipped: !!skipped });
+    save();
+  }
+
   // ---------- insights ----------
   function renderLog() {
     var list = state.checkins.slice().reverse(), counts = {};
@@ -545,6 +655,15 @@
     if (!top.length) h += '<p class="muted" style="margin:0;font-size:14px">Nothing yet. Your first check-in will start this chart.</p>';
     top.forEach(function (d) { var ix = DISTRACTIONS.indexOf(d); h += '<div class="hbar"><span>' + esc(d) + '</span><span class="b"><i style="background:' + (ix >= 0 ? DCOL[ix] : '#141414') + ';width:' + Math.round(counts[d] / max * 100) + '%"></i></span><span style="text-align:right">' + counts[d] + '</span></div>'; });
     h += '</section>';
+    if (LIB) {
+      var all = (state.moves || []).filter(function (m) { return !m.skipped; }), tk = dkey(new Date()), tmv = all.filter(function (m) { return dkey(new Date(m.t)) === tk; });
+      var sk = (state.moves || []).filter(function (m) { return m.skipped && dkey(new Date(m.t)) === tk; }).length;
+      var cc = { yoga: 0, cardio: 0, strength: 0, stretch: 0 }; all.forEach(function (m) { cc[m.cat]++; });
+      var mx = Math.max(1, cc.yoga, cc.cardio, cc.strength, cc.stretch);
+      h += '<section class="card stack" style="gap:12px"><div class="row between"><h2>Movement</h2><span class="muted" style="font-size:12px">today ' + tmv.length + ' done · ' + sk + ' skipped</span></div>';
+      Object.keys(cc).forEach(function (c) { h += '<div class="hbar"><span>' + LIB.categories[c].name + '</span><span class="b"><i style="background:' + LIB.categories[c].color + ';width:' + Math.round(cc[c] / mx * 100) + '%"></i></span><span style="text-align:right">' + cc[c] + '</span></div>'; });
+      h += '<span class="muted" style="font-size:12px">' + all.length + ' movement snacks in total</span></section>';
+    }
     var gk = Object.keys(state.goals || {}).sort().reverse();
     var won = gk.filter(function (k) { return state.goals[k].achievedAt; }).length;
     h += '<section class="card"><div class="row between" style="margin-bottom:6px"><h2>Daily goals</h2><span class="muted" style="font-size:12px">' + won + ' of ' + gk.length + ' achieved</span></div>';
@@ -609,6 +728,7 @@
     else if (perm === 'denied') h += '<p style="margin:0;color:var(--bone2)">Notifications are blocked. Long-press the Attention icon → <b>App info</b> → <b>Notifications</b> → turn on, then reopen the app.</p>';
     else h += '<p class="muted" style="margin:0;font-size:14px">Tap the button and choose <b>Allow</b>. You’ll get a private setup code to paste into GitHub.</p><button type="button" class="btn solid" id="subBtn">' + (state.code ? 'Show my connection code again' : 'Turn on reminders') + '</button>';
     if (state.code) {
+      try { var ep = JSON.parse(atob(state.code.slice(6))).s.endpoint; h += '<span class="eyebrow">Connection ID …' + esc(ep.slice(-6)) + '</span>'; } catch (e) {}
       h += '<label for="code" style="font-size:13px;color:var(--bone2)">Your private setup code</label><textarea class="code" id="code" readonly>' + esc(state.code) + '</textarea><button type="button" class="btn" id="copyBtn">Copy code</button>' +
         '<p class="muted" style="margin:0;font-size:13px">Paste it only into GitHub: your <b>attention</b> project → <b>Settings</b> → <b>Secrets and variables</b> → <b>Actions</b> → <b>New repository secret</b>. Name: <b>PUSH_SETUP</b>. Don’t share it anywhere else.</p>';
     }
@@ -729,6 +849,7 @@
     navigator.serviceWorker.register('sw.js').catch(function () {});
     navigator.serviceWorker.addEventListener('message', function (e) {
       if (!e.data) return;
+      if (e.data.type === 'move') { var mm = /move=([a-z0-9]+)/.exec(e.data.url || ''); if (gv || ci) closeCheckin(); openMove(mm ? mm[1] : suggestMove()); return; }
       if (e.data.type === 'goal' && !ci && !gv) openGoal();
       else if (e.data.type === 'checkin' && !ci) { if (gv) closeCheckin(); openCheckin(); }
     });

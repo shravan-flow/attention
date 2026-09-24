@@ -1,0 +1,45 @@
+{
+  "categories": {
+    "yoga": { "name": "Yoga", "color": "#1D5BD8" },
+    "cardio": { "name": "Cardio", "color": "#FF5A1F" },
+    "strength": { "name": "Strength", "color": "#E0312B" },
+    "stretch": { "name": "Stretch", "color": "#0E9C95" }
+  },
+  "moves": [
+    { "id": "neck", "cat": "stretch", "name": "Neck release", "secs": 40, "inc": 0, "cue": "Right at your desk.", "how": ["Sit tall, shoulders heavy.", "Tip your right ear towards your right shoulder and take 3 slow breaths.", "Switch sides."] },
+    { "id": "doorway", "cat": "stretch", "name": "Doorway chest opener", "secs": 30, "inc": 10, "cue": "Next door frame you pass.", "how": ["Forearms on the door frame, elbows at shoulder height.", "Step one foot through until you feel the chest open.", "Breathe slowly; don’t push into pain."] },
+    { "id": "fold", "cat": "stretch", "name": "Standing forward fold", "secs": 30, "inc": 10, "cue": "Stand up from your chair first.", "how": ["Feet hip-width, knees soft.", "Hinge at the hips and let your head and arms hang.", "Roll up slowly, one vertebra at a time."] },
+    { "id": "hipflexor", "cat": "stretch", "name": "Kneeling hip-flexor stretch", "secs": 40, "inc": 10, "cue": "Undo hours of sitting.", "how": ["Kneel on one knee, other foot in front.", "Tuck your tailbone and shift forward gently.", "Half the time each side."] },
+    { "id": "wrists", "cat": "stretch", "name": "Wrist & forearm stretch", "secs": 30, "inc": 0, "cue": "After typing or scrolling.", "how": ["Arm straight, palm up; gently pull fingers back with the other hand.", "Then palm down, fingers towards you.", "Both arms."] },
+    { "id": "twist", "cat": "stretch", "name": "Seated spinal twist", "secs": 30, "inc": 10, "cue": "Without leaving your chair.", "how": ["Sit tall, feet flat.", "Turn your chest to the right, hand on the chair back; breathe.", "Switch sides."] },
+    { "id": "calfwall", "cat": "stretch", "name": "Calf stretch on a wall", "secs": 30, "inc": 10, "cue": "Any wall will do.", "how": ["Hands on the wall, one foot back, heel down.", "Lean in until the back calf stretches.", "Switch legs halfway."] },
+    { "id": "shoulder", "cat": "stretch", "name": "Cross-body shoulder stretch", "secs": 30, "inc": 0, "cue": "Standing or sitting.", "how": ["Bring one arm across your chest.", "Hug it in with the other forearm.", "Switch halfway."] },
+
+    { "id": "squats", "cat": "strength", "name": "Bodyweight squats", "reps": 10, "inc": 3, "cue": "While the kettle boils.", "how": ["Feet shoulder-width, arms forward.", "Sit back as if into a chair, chest up.", "Stand up through your heels."] },
+    { "id": "deskpush", "cat": "strength", "name": "Desk push-ups", "reps": 10, "inc": 2, "cue": "Hands on a sturdy desk or counter.", "how": ["Hands on the edge, body in one straight line.", "Lower your chest to the edge.", "Press back up."] },
+    { "id": "wallsit", "cat": "strength", "name": "Wall sit", "secs": 30, "inc": 10, "cue": "Back against any wall.", "how": ["Slide down until knees are near 90°.", "Knees over ankles, back flat on the wall.", "Breathe and hold."] },
+    { "id": "calfraise", "cat": "strength", "name": "Calf raises", "reps": 15, "inc": 5, "cue": "While brushing teeth or waiting.", "how": ["Stand tall, hold something for balance if needed.", "Rise onto your toes, pause.", "Lower slowly."] },
+    { "id": "lunges", "cat": "strength", "name": "Reverse lunges", "reps": 8, "inc": 2, "per": "each leg", "cue": "A few steps of space is enough.", "how": ["Step one foot back and lower the back knee.", "Front knee stays over the ankle.", "Push back up; alternate legs."] },
+    { "id": "bridge", "cat": "strength", "name": "Glute bridges", "reps": 12, "inc": 3, "cue": "On the floor or bed.", "how": ["Lie on your back, knees bent, feet flat.", "Squeeze your glutes and lift your hips.", "Lower slowly."] },
+    { "id": "plank", "cat": "strength", "name": "Plank", "secs": 20, "inc": 10, "cue": "On forearms; knees down is fine.", "how": ["Elbows under shoulders.", "Body in one line, belly braced.", "Breathe, don’t hold your breath."] },
+    { "id": "dips", "cat": "strength", "name": "Chair dips", "reps": 8, "inc": 2, "cue": "Only on a chair that won’t roll.", "how": ["Hands on the seat edge, feet forward.", "Bend elbows to lower your hips.", "Press back up."] },
+    { "id": "superman", "cat": "strength", "name": "Superman hold", "secs": 20, "inc": 5, "cue": "Lying face down.", "how": ["Arms overhead.", "Lift arms, chest and legs a little.", "Hold, then relax."] },
+
+    { "id": "stairs", "cat": "cardio", "name": "Take the stairs", "reps": 2, "inc": 1, "unit": "flights", "cue": "Or 20 step-ups on one stair.", "how": ["Walk up at a brisk pace.", "Use the rail.", "Walk down slowly."] },
+    { "id": "march", "cat": "cardio", "name": "High-knee march", "secs": 45, "inc": 15, "cue": "On the spot, anywhere.", "how": ["Lift knees towards hip height.", "Swing your arms.", "Go faster if it feels good."] },
+    { "id": "jacks", "cat": "cardio", "name": "Jumping jacks", "reps": 30, "inc": 10, "cue": "Step-jacks if you’d rather not jump.", "how": ["Jump feet out as arms go up.", "Jump back in.", "Low-impact: step one foot out at a time."] },
+    { "id": "walkcall", "cat": "cardio", "name": "Walk your next call", "secs": 300, "inc": 0, "cue": "Phone call or voice note? Walk it.", "how": ["Stand up before you dial.", "Walk at a brisk pace while you talk.", "Tick it off after the call."] },
+    { "id": "shadowbox", "cat": "cardio", "name": "Shadow boxing", "secs": 45, "inc": 15, "cue": "Light on your feet.", "how": ["Guard up, soft knees.", "Jab, cross, hook; keep moving.", "Breathe out on each punch."] },
+    { "id": "skater", "cat": "cardio", "name": "Skater steps", "secs": 30, "inc": 10, "cue": "Side to side.", "how": ["Step wide to the right, sweep the left leg behind.", "Switch sides in a rhythm.", "Hop it when you feel ready."] },
+    { "id": "brisk", "cat": "cardio", "name": "Two-minute brisk walk", "secs": 120, "inc": 30, "cue": "Around the room, the corridor or the garden.", "how": ["Walk faster than usual.", "Swing your arms.", "Notice your breath rising."] },
+
+    { "id": "sunsal", "cat": "yoga", "name": "Half sun salutation", "reps": 3, "inc": 1, "unit": "rounds", "cue": "Great first thing, or after a long sit.", "how": ["Inhale arms up.", "Exhale fold forward; inhale halfway lift.", "Exhale fold; inhale rise up. That’s one round."] },
+    { "id": "catcow", "cat": "yoga", "name": "Cat–cow", "reps": 8, "inc": 2, "unit": "breaths", "cue": "On hands and knees, or seated.", "how": ["Inhale: drop the belly, lift the gaze.", "Exhale: round the back, tuck the chin.", "Move with each breath."] },
+    { "id": "downdog", "cat": "yoga", "name": "Downward dog", "reps": 5, "inc": 1, "unit": "breaths", "cue": "Pedal the heels.", "how": ["From hands and knees, lift the hips up and back.", "Bend the knees as much as you need.", "Press the floor away."] },
+    { "id": "tree", "cat": "yoga", "name": "Tree pose", "secs": 40, "inc": 10, "cue": "Half the time on each leg.", "how": ["Stand on one leg; foot on the calf or thigh (not the knee).", "Hands at the chest, eyes on one still point.", "Switch legs."] },
+    { "id": "warrior", "cat": "yoga", "name": "Warrior II", "reps": 5, "inc": 1, "unit": "breaths each side", "cue": "Strong and steady.", "how": ["Wide stance, front knee bent over the ankle.", "Arms out, gaze over the front hand.", "Switch sides."] },
+    { "id": "child", "cat": "yoga", "name": "Child’s pose", "secs": 60, "inc": 0, "cue": "A reset for the back.", "how": ["Kneel, sit back on your heels.", "Fold forward, arms long or by your sides.", "Breathe into your back."] },
+    { "id": "mountain", "cat": "yoga", "name": "Mountain pose + 5 breaths", "reps": 5, "inc": 0, "unit": "breaths", "cue": "Wherever you’re standing.", "how": ["Feet grounded, spine long, crown up.", "Soften the shoulders.", "Five slow breaths, eyes open or closed."] },
+    { "id": "chairpose", "cat": "yoga", "name": "Chair pose", "secs": 20, "inc": 10, "cue": "Sit on an invisible chair.", "how": ["Feet together, bend the knees.", "Arms up by the ears.", "Weight in the heels; breathe."] }
+  ]
+}

@@ -4,5 +4,7 @@
   "endHour": 21,
   "minGapMinutes": 45,
   "utcOffsetMinutes": 330,
-  "goalPing": true
+  "goalPing": true,
+  "movePings": true,
+  "moveEveryMinutes": 30
 }
