@@ -1,5 +1,5 @@
 // Sends the mindful pings (random times) and the movement pings (every 30 minutes).
-// Run by GitHub Actions three times a day (9am, 1pm, 5pm India time); each run covers the next 4 hours.
+// Run by GitHub Actions every hour; each run covers the hour it starts in, so a late start only loses part of one hour.
 import webpush from 'web-push';
 import { readFileSync } from 'node:fs';
 
@@ -31,7 +31,9 @@ async function sendOne(label, payload) {
       console.log(`${label}: sent "${title}" to phone …${s.sub.endpoint.slice(-6)}`);
     } catch (e) {
       console.log(`${label}: FAILED (${e.statusCode || ''}) ${e.body || e.message}`);
-      if (e.statusCode === 404 || e.statusCode === 410) console.log('The phone connection has expired. Open the app → Reminders → Turn on reminders, and update the PUSH_SETUP secret with the new code.');
+      if (e.statusCode === 404 || e.statusCode === 410) console.log('>>> CODE 410/404: the phone connection has expired. Open the app → Reminders → Turn on reminders, and update the PUSH_SETUP secret with the new code.');
+      else if (e.statusCode === 403 || e.statusCode === 401) console.log('>>> CODE 403: the setup code does not match this phone. Copy the code again from the app and update the PUSH_SETUP secret.');
+      else console.log('>>> Could not reach the push service; this ping was lost. The next one will try again.');
       process.exitCode = 1;
     }
   }
@@ -91,15 +93,15 @@ if (MODE === 'test') {
   const nowMin = now.getUTCHours() * 60 + now.getUTCMinutes();
   const plan = scheduleFor(ymd);
   const moves = moveSlotsFor(ymd, plan.concat(cfg.goalPing ? [cfg.startHour * 60] : []));
-  const WINDOW = 240; // each run covers 4 hours
-  const slotStart = cfg.startHour * 60 + Math.floor((nowMin - cfg.startHour * 60 + 5) / WINDOW) * WINDOW; // +5: tolerate starting slightly early
-  const inWin = m => m >= slotStart && m < slotStart + WINDOW && m >= nowMin - 45;
+  const WINDOW = 60; // each run covers one hour
+  const slotStart = Math.floor((nowMin + 5) / WINDOW) * WINDOW; // +5: the 8:58 run covers 9:00–10:00
+  const inWin = m => m >= slotStart && m < slotStart + WINDOW && m >= nowMin - 20;
   const events = plan.filter(inWin).map(m => ({ m, label: hhmm(m) + ' mindful', payload: null }))
     .concat(moves.filter(x => inWin(x.m)).map(x => ({ m: x.m, label: hhmm(x.m) + ' move (' + x.mv.name + ')', payload: movePayload(x.mv) })))
     .sort((a, b) => a.m - b.m);
   console.log(`Today (${ymd}) mindful pings at ${plan.map(hhmm).join(', ')}; ${moves.length} movement pings. This run covers ${hhmm(slotStart)}–${hhmm(slotStart + WINDOW)}; sending ${events.length}.`);
   const GOAL = { kind: 'goal', url: './?goal=1', title: 'Good morning', body: 'What’s the one thing you want to get done today? Tap to set your goal.' };
-  if (cfg.goalPing && slotStart === cfg.startHour * 60 && nowMin <= slotStart + 45) await sendOne('Morning goal', GOAL);
+  if (cfg.goalPing && slotStart === cfg.startHour * 60 && nowMin <= slotStart + 50) await sendOne('Morning goal', GOAL);
   for (const ev of events) {
     const nowM = local().getUTCHours() * 60 + local().getUTCMinutes() + local().getUTCSeconds() / 60;
     if (ev.m > nowM) await sleep((ev.m - nowM) * 60000);
