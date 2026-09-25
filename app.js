@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '11';
+  var APP_VERSION = '12';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am to set your daily goal, then 10 mindful pings at random times until 9pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -749,9 +749,10 @@
     h += '<section class="card stack" style="gap:12px"><h2>' + (standalone ? '1' : '2') + ' · Turn on notifications</h2>';
     if (!supported) h += '<p class="muted" style="margin:0">This browser can’t receive reminders. Open the app in Chrome.</p>';
     else if (perm === 'denied') h += '<p style="margin:0;color:var(--bone2)">Notifications are blocked. Long-press the Attention icon → <b>App info</b> → <b>Notifications</b> → turn on, then reopen the app.</p>';
-    else h += '<p class="muted" style="margin:0;font-size:14px">Tap the button and choose <b>Allow</b>. You’ll get a private setup code to paste into GitHub.</p><button type="button" class="btn solid" id="subBtn">' + (state.code ? 'Show my connection code again' : 'Turn on reminders') + '</button>';
+    else h += '<p class="muted" style="margin:0;font-size:14px">Tap the button and choose <b>Allow</b>. You’ll get a private setup code to paste into GitHub.</p><button type="button" class="btn solid" id="subBtn">' + (state.code ? 'Refresh my code' : 'Turn on reminders') + '</button>';
     if (state.code) {
       try { var ep = JSON.parse(atob(state.code.slice(6))).s.endpoint; h += '<span class="eyebrow">Connection ID …' + esc(ep.slice(-6)) + '</span>'; } catch (e) {}
+      h += '<div id="connCheck" class="notice">Checking this phone’s connection…</div>';
       h += '<label for="code" style="font-size:13px;color:var(--bone2)">Your private setup code</label><textarea class="code" id="code" readonly>' + esc(state.code) + '</textarea><button type="button" class="btn" id="copyBtn">Copy code</button>' +
         '<p class="muted" style="margin:0;font-size:13px">Paste it only into GitHub: your <b>attention</b> project → <b>Settings</b> → <b>Secrets and variables</b> → <b>Actions</b> → <b>New repository secret</b>. Name: <b>PUSH_SETUP</b>. Don’t share it anywhere else.</p>';
     }
@@ -770,6 +771,18 @@
     return h;
   }
   function bindSettings(view) {
+    var cc = view.querySelector('#connCheck');
+    if (cc && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.ready.then(function (reg) { return reg.pushManager.getSubscription(); }).then(function (sub) {
+        var stored = null; try { stored = JSON.parse(atob(state.code.slice(6))).s.endpoint; } catch (e) {}
+        if (!sub) { cc.style.background = '#FFE3DF'; cc.innerHTML = '<b>Not connected.</b>&nbsp;This phone has no active reminder connection. Tap the button above, then update PUSH_SETUP on GitHub with the new code.'; state.code = null; save(); return; }
+        if (sub.endpoint !== stored) {
+          state.code = 'ATTN2.' + btoa(JSON.stringify({ s: sub.toJSON(), k: state.keys.pub, p: state.keys.priv })); save();
+          cc.style.background = '#FFE3DF'; cc.innerHTML = '<b>Your code changed.</b>&nbsp;Copy the new code below and update PUSH_SETUP on GitHub.'; setTimeout(render, 2500); return;
+        }
+        cc.style.background = 'rgba(23,168,100,.14)'; cc.innerHTML = '✓ This phone is connected. If GitHub still says 410, the code saved on GitHub is an older one: copy this one and update PUSH_SETUP.';
+      }).catch(function () { cc.textContent = 'Could not check the connection.'; });
+    }
     var sb = view.querySelector('#subBtn');
     if (sb) sb.onclick = function () {
       sb.disabled = true; sb.textContent = 'Working…';
