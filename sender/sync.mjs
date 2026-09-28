@@ -4,7 +4,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import crypto from 'node:crypto';
 
-const KEY = (process.env.INTERVALS_API_KEY || '').trim(), PASS = process.env.SYNC_PASSPHRASE;
+const KEY = (process.env.INTERVALS_API_KEY || '').trim(), PASS = (process.env.SYNC_PASSPHRASE || '').trim();
 const API = process.env.INTERVALS_API || 'https://intervals.icu';
 const DIR = new URL('../data/', import.meta.url);
 const DATA_FILE = new URL('activities.enc.json', DIR), META_FILE = new URL('activities.meta.json', DIR);
@@ -12,6 +12,13 @@ function fail(msg) { console.log('>>> ' + msg); process.exit(1); }
 if (!KEY) fail('Missing INTERVALS_API_KEY secret (intervals.icu → Settings → Developer Settings → API key).');
 if (!PASS || PASS.length < 8) fail('Missing SYNC_PASSPHRASE secret (use at least 8 characters).');
 
+function decrypts(box) {
+  try {
+    const key = crypto.pbkdf2Sync(PASS, Buffer.from(box.salt, 'base64'), 200000, 32, 'sha256');
+    const raw = Buffer.from(box.ct, 'base64'), d = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(box.iv, 'base64'));
+    d.setAuthTag(raw.subarray(raw.length - 16)); d.update(raw.subarray(0, raw.length - 16)); d.final(); return true;
+  } catch (e) { return false; }
+}
 function encrypt(obj) {
   const salt = crypto.randomBytes(16), iv = crypto.randomBytes(12);
   const key = crypto.pbkdf2Sync(PASS, salt, 200000, 32, 'sha256');
@@ -37,7 +44,10 @@ if (!existsSync(DIR)) mkdirSync(DIR);
 const fp = crypto.createHash('sha256').update(JSON.stringify(out)).digest('hex').slice(0, 16);
 const old = existsSync(META_FILE) ? JSON.parse(readFileSync(META_FILE)).fp : '';
 console.log(`Found ${out.length} activities between ${oldest} and ${newest}.`);
-if (old === fp) { console.log('No changes since last sync.'); process.exit(0); }
+if (!out.length) console.log('>>> intervals.icu has no activities yet. Check that Garmin is connected there (Settings → Connections) and that your workouts show in its calendar.');
+const sameKey = existsSync(DATA_FILE) && decrypts(JSON.parse(readFileSync(DATA_FILE)));
+if (old === fp && sameKey) { console.log('No changes since last sync.'); process.exit(0); }
+if (!sameKey && existsSync(DATA_FILE)) console.log('Passphrase changed: re-locking the data with the new one.');
 writeFileSync(DATA_FILE, JSON.stringify(encrypt({ at: new Date().toISOString(), activities: out })));
 writeFileSync(META_FILE, JSON.stringify({ fp, at: new Date().toISOString(), count: out.length }));
 console.log('Saved encrypted activities.');

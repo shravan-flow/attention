@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '15';
+  var APP_VERSION = '16';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am to set your daily goal, then 10 mindful pings at random times until 9pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -1047,7 +1047,7 @@
     var sv = state.strava || {}, h = '<section class="card stack" style="gap:10px"><div class="row between"><h2>Garmin sync</h2><span class="eyebrow">Garmin → intervals.icu → here</span></div>';
     if (!sv.pass) {
       h += '<p class="muted" style="margin:0;font-size:13px">Pulls your Garmin workouts automatically: Garmin sends them to intervals.icu, GitHub collects them every 2 hours and locks them with your passphrase.</p>' +
-        '<div class="formgrid"><label class="wide">Sync passphrase<input id="svPass" type="password" placeholder="same as SYNC_PASSPHRASE on GitHub"></label></div>' +
+        '<div class="formgrid"><label class="wide">Sync passphrase<input id="svPass" type="text" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" placeholder="same as SYNC_PASSPHRASE on GitHub"></label></div>' +
         '<button type="button" class="btn solid" id="svSave">Save passphrase & sync</button>';
     } else {
       h += '<div class="notice" style="' + (sv.error ? 'background:#FFE3DF' : '') + '">' + (sv.error ? 'Last sync failed: ' + esc(sv.error) : sv.syncedAt ? '✓ ' + sv.count + ' activities · updated ' + new Date(sv.syncedAt).toLocaleString('en', { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : 'Waiting for the first sync from GitHub.') + '</div>' +
@@ -1064,7 +1064,7 @@
   function bindStrava(view) {
     var s = view.querySelector('#svSave');
     if (s) s.onclick = function () {
-      var p = view.querySelector('#svPass').value; if (p.length < 8) { toast('Passphrase: at least 8 characters'); return; }
+      var p = view.querySelector('#svPass').value.trim(); if (p.length < 8) { toast('Passphrase: at least 8 characters'); return; }
       state.strava = Object.assign(state.strava || {}, { pass: p, error: null }); save(); render(); stravaSync(true);
     };
     var y = view.querySelector('#svSync'); if (y) y.onclick = function () { stravaSync(true); };
