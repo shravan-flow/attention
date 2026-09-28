@@ -1,0 +1,29 @@
+name: Garmin sync
+on:
+  schedule:
+    - cron: '15 1-17/2 * * *'   # every 2 hours, 6:45am to 10:45pm India time
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: sync
+  cancel-in-progress: false
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node sender/sync.mjs
+        env:
+          INTERVALS_API_KEY: ${{ secrets.INTERVALS_API_KEY }}
+          SYNC_PASSPHRASE: ${{ secrets.SYNC_PASSPHRASE }}
+      - name: Save
+        run: |
+          git config user.name "garmin-sync"
+          git config user.email "garmin-sync@users.noreply.github.com"
+          git add data
+          git diff --cached --quiet || (git commit -m "Garmin sync" && git push)
