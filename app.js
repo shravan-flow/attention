@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '16';
+  var APP_VERSION = '17';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am to set your daily goal, then 10 mindful pings at random times until 9pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -160,7 +160,7 @@
   var toastT;
   function toast(text) {
     var el = document.getElementById('toast');
-    el.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l2.9 6.9L22 10l-5.5 4.8L18.2 22 12 18.3 5.8 22l1.7-7.2L2 10l7.1-1.1z" fill="#FFC23A"/></svg><span>' + esc(text) + '</span>';
+    el.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l2.9 6.9L22 10l-5.5 4.8L18.2 22 12 18.3 5.8 22l1.7-7.2L2 10l7.1-1.1z" fill="#FFB23F"/></svg><span>' + esc(text) + '</span>';
     el.hidden = false;
     el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
     clearTimeout(toastT); toastT = setTimeout(function () { el.hidden = true; }, 2000);
@@ -175,7 +175,7 @@
   }
 
   // ---------- race view ----------
-  var SEC = { 1: '#E0312B', 2: '#FF5A1F', 3: '#1D5BD8', 4: '#17A864' };
+  var SEC = { 1: '#12A39A', 2: '#F28C28', 3: '#FF6B57', 4: '#E8457A' };
   var ICON = {
     flag: 'M5 21V4M5 4h11l-2 4 2 4H5',
     three: 'M8 6h8l-4.5 5a4.5 4.5 0 1 1-3.5 7.5',
@@ -190,141 +190,150 @@
   };
   var FLAME = 'M12 2c2 4-3 5-3 9a3 3 0 1 0 6 0c0-1-1-2-1-3 2 1 3 3 3 5a5 5 0 0 1-10 0c0-5 3-6 5-11z';
 
-  function renderTrail() {
-    var today = todayNum(), sel = ui.sel || today, xp = totalXp(), lv = levelFor(xp), st = streak();
-    var pct = lv.next ? Math.round((xp - lv.floor) / (lv.next - lv.floor) * 100) : 100;
-    var h = '<div class="stack">';
-    h += '<header class="topbar"><span class="wordmark">ATTENTION<i>.</i></span><span class="eyebrow">' + new Date().toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + '</span></header>';
+  // ---------- tropical UI helpers ----------
+  var T = { jungle: '#0F4D40', lagoon: '#12A39A', coral: '#FF6B57', mango: '#FFB23F', hib: '#E8457A', sand: '#FBF1E3', ink: '#16302A' };
+  var SEC = { 1: '#12A39A', 2: '#F28C28', 3: '#FF6B57', 4: '#E8457A' };
+  var CHEV = '<svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
+  var PLAY = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/></svg>';
+  function sun(col, size, right, top) { return '<span class="sun" aria-hidden="true" style="width:' + size + 'px;height:' + size + 'px;background:' + col + ';right:' + right + 'px;top:' + top + 'px"></span>'; }
+  function wave(col, op, h, y) {
+    var p = function (a) { return 'M0 ' + a + ' C 40 ' + (a - 12) + ', 80 ' + (a + 12) + ', 118 ' + a + ' S 196 ' + (a - 12) + ', 236 ' + a + ' S 314 ' + (a + 12) + ', 354 ' + a + ' L354 ' + h + ' L0 ' + h + ' Z'; };
+    return '<svg class="wave" aria-hidden="true" width="100%" height="' + h + '" viewBox="0 0 354 ' + h + '" preserveAspectRatio="none"><path d="' + p(y) + '" fill="' + col + '" fill-opacity="' + op + '"/><path d="' + p(y + 10) + '" fill="' + col + '" fill-opacity="' + op + '"/></svg>';
+  }
+  // one list row; o = { t, sub, v, sheet, tab, dot, lead }
+  function row(o) {
+    var link = o.sheet || o.tab, attrs = o.sheet ? ' data-sheet="' + o.sheet + '"' : o.tab ? ' data-tab-go="' + o.tab + '"' : '';
+    var tag = link ? 'button' : 'div';
+    return '<' + tag + (link ? ' type="button"' : '') + ' class="r"' + attrs + '>' + (o.lead || '') + (o.dot ? '<span class="dot" style="background:' + o.dot + '"></span>' : '') +
+      '<span class="t">' + o.t + (o.sub ? '<small>' + o.sub + '</small>' : '') + '</span>' + (o.v != null && o.v !== '' ? '<span class="v">' + o.v + '</span>' : '') + (link ? CHEV : '') + '</' + tag + '>';
+  }
+  function fmtN(x) { return Math.round(x || 0).toLocaleString('en'); }
+  function ago(iso) {
+    var m = Math.round((Date.now() - new Date(iso)) / 60000);
+    return m < 2 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago';
+  }
+  function myName() { return state.name || 'Shravan'; }
+  function topbar(label) {
+    return '<header class="top"><span class="cap">' + label + '</span><button type="button" class="av" data-tab-go="settings" aria-label="Settings">' + esc(myName().charAt(0).toUpperCase()) + '</button></header>';
+  }
+  // 30 short arcs, one per day
+  function dayRing(size, sw) {
+    var C = size / 2, R = C - sw, h = '', today = todayNum();
+    var pt = function (a) { var t = (a - 90) * Math.PI / 180; return (C + R * Math.cos(t)).toFixed(2) + ' ' + (C + R * Math.sin(t)).toFixed(2); };
+    for (var i = 1; i <= 30; i++) {
+      var d = state.days[i], col = d.sit ? '#FFFFFF' : i === today ? T.mango : i < today ? 'rgba(255,255,255,.32)' : 'rgba(255,255,255,.14)';
+      h += '<path d="M' + pt((i - 1) * 12 + 2.2) + ' A' + R + ' ' + R + ' 0 0 1 ' + pt(i * 12 - 2.2) + '" stroke="' + col + '" stroke-width="' + sw + '" fill="none" stroke-linecap="round"/>';
+    }
+    return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 ' + size + ' ' + size + '" aria-hidden="true">' + h + '</svg>';
+  }
+  function greet() { var h = new Date().getHours(); return h < 12 ? 'Good morning,' : h < 17 ? 'Good afternoon,' : 'Good evening,'; }
+  function questsFor(n) {
+    var pn = phaseFor(n), sitM = pn <= 2 ? 5 : pn === 3 ? 10 : 15, sprM = pn === 3 ? 20 : 25;
+    var q = [{ f: 'sit', n: 'Sit quietly', dd: sitM + ' min · just notice', xp: 10, mins: sitM }];
+    if (pn >= 2) q.push({ f: 'singleTask', n: 'One thing, fully', dd: 'no phone while you do it', xp: 15 });
+    if (pn >= 3) q.push({ f: 'sprint', n: 'Focus sprint', dd: sprM + ' min · one task only', xp: 20, mins: sprM });
+    return q;
+  }
+  function questRow(q, d, n, locked) {
+    var today = todayNum();
+    return '<div class="r"><label class="ql"><input class="qchk" type="checkbox" data-q="' + q.f + '"' + (d[q.f] ? ' checked' : '') + (locked ? ' disabled' : '') + '>' +
+      '<span class="t' + (d[q.f] ? ' done' : '') + '">' + q.n + '<small>' + q.dd + '</small></span></label>' +
+      (q.mins && !d[q.f] && n === today ? '<button type="button" class="gob" data-begin="' + q.f + '" data-mins="' + q.mins + '" aria-label="Start the ' + q.n + ' timer">' + PLAY + '</button>' : '<span class="v">+' + q.xp + '</span>') + '</div>';
+  }
+  function timerBlock() {
+    var t = ui.timer; if (!t) return '';
+    var m = Math.floor(t.remaining / 60), s = t.remaining % 60;
+    return '<div class="timer"><div class="ring"><svg viewBox="0 0 64 64" width="64" height="64" aria-hidden="true"><circle cx="32" cy="32" r="27" fill="none" stroke="rgba(255,255,255,.2)" stroke-width="5"/><circle id="tRing" cx="32" cy="32" r="27" fill="none" stroke="' + T.mango + '" stroke-width="5" stroke-linecap="round" stroke-dasharray="169.6" stroke-dashoffset="' + (169.6 * (1 - t.remaining / t.total)).toFixed(1) + '"/></svg><span id="tText">' + m + ':' + (s < 10 ? '0' : '') + s + '</span></div>' +
+      '<div style="flex:1;display:flex;flex-direction:column;gap:8px"><span style="font-size:14px">' + (t.kind === 'sit' ? 'Sitting quietly' : 'Focus sprint') + '. Breathing is enough. Finish for +' + (t.kind === 'sit' ? 10 : 20) + ' XP.</span><button type="button" class="btn small ghostw" id="stopT" style="align-self:flex-start">Stop</button></div></div>';
+  }
 
-    // hero livery card
-    h += '<section class="hero" aria-label="Your progress"><span class="streakpill" aria-label="' + st + ' day streak"><svg class="flame" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="' + FLAME + '" fill="#FFC23A"/></svg>' + st + '</span>' +
-      '<div><span class="lbl">DAY</span><div class="racenum">' + String(today).padStart(2, '0') + '<small>/30</small></div></div>' +
-      '<div class="meta"><div style="flex:1;display:flex;flex-direction:column;gap:6px;min-width:0"><span class="lbl">LV ' + lv.num + '</span><span class="lvl">' + lv.title + '</span>' +
-      '<div class="bar" aria-hidden="true"><i style="width:' + pct + '%"></i></div><span class="sub">' + (lv.next ? xp + ' / ' + lv.next + ' XP → ' + lv.nextTitle : xp + ' XP · Legend') + '</span></div></div></section>';
-
+  function renderToday() {
+    var today = todayNum(), st = streak(), d = state.days[today], key = dkey(new Date());
+    var h = '<div class="stack">' + topbar(new Date().toLocaleDateString('en', { weekday: 'long', day: 'numeric', month: 'short' }));
+    h += '<button type="button" class="hero tall" data-sheet="progress" aria-label="Your 30-day progress" style="background:' + T.jungle + ';color:#fff">' + sun(T.mango, 150, -40, -50) + wave(T.lagoon, .45, 56, 26) +
+      '<span class="cap">Day ' + today + ' of 30' + (st ? ' · ' + st + '-day streak' : '') + '</span>' +
+      '<span class="hrow"><span class="dring">' + dayRing(112, 6) + '<b class="display">' + today + '</b></span><span class="display greet">' + greet() + '<br><i>' + esc(myName()) + '</i></span></span></button>';
     h += goalCard();
-
-    // quests
-    var d = state.days[sel], pn = phaseFor(sel), sitM = pn <= 2 ? 5 : pn === 3 ? 10 : 15, sprM = pn === 3 ? 20 : 25, locked = sel > today;
-    var quests = [{ f: 'sit', n: 'Sit quietly', dd: sitM + ' min · just notice', xp: 10, mins: sitM }];
-    if (pn >= 2) quests.push({ f: 'singleTask', n: 'One thing, fully', dd: 'no phone while you do it', xp: 15 });
-    if (pn >= 3) quests.push({ f: 'sprint', n: 'Focus sprint', dd: sprM + ' min · one task only', xp: 20, mins: sprM });
+    h += timerBlock();
     var hasNote = !!(d.note || '').trim();
-    var flags = quests.map(function (q) { return d[q.f]; }).concat([hasNote]);
-    var got = flags.filter(Boolean).length, perfect = got === flags.length;
-    var cins = checkinsOn(sel).length;
-    var tag = ['Locked', 'var(--raised)', 'var(--dim)'];
-    if (perfect) tag = ['Perfect', 'var(--bone)', '#fff'];
-    else if (d.sit) tag = ['Cleared', 'var(--green)', '#fff'];
-    else if (sel === today) tag = ['Today', 'var(--red)', '#fff'];
-    else if (sel < today) tag = ['Missed', 'var(--raised)', 'var(--bone2)'];
-
-    h += '<section class="card stack" style="gap:12px" aria-label="Quests for day ' + sel + '">' +
-      '<div class="row between" style="align-items:flex-start"><div style="display:flex;flex-direction:column;gap:4px"><span class="eyebrow"><i style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + SEC[pn] + ';margin-right:6px"></i>' + Z[pn].name + ' · ' + dateOf(sel) + '</span>' +
-      '<h1>Day ' + sel + '</h1><p class="italic">' + Z[pn].desc + '</p></div>' +
-      '<span class="chip" style="background:' + tag[1] + ';color:' + tag[2] + '">' + tag[0] + '</span></div>';
-    if (locked) h += '<div class="notice"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><span>This day opens on ' + dateOf(sel) + '. Here’s what’s waiting.</span></div>';
-    h += '<div>';
-    quests.forEach(function (q) {
-      h += '<div class="quest"><label><input class="qchk" type="checkbox" data-q="' + q.f + '"' + (d[q.f] ? ' checked' : '') + (locked ? ' disabled' : '') + '>' +
-        '<span style="display:flex;flex-direction:column"><span class="t">' + q.n + '</span><span class="d">' + q.dd + '</span></span></label>' +
-        (q.mins ? '<button type="button" class="btn small" data-begin="' + q.f + '" data-mins="' + q.mins + '"' + (locked ? ' disabled' : '') + ' aria-label="Begin ' + q.n + ' timer">▶ Go</button>' : '') +
-        '<span class="xp' + (d[q.f] ? ' done' : '') + '">+' + q.xp + '</span></div>';
-    });
-    h += '<div class="quest"><div style="flex:1;display:flex;flex-direction:column"><span class="t">Mindful check-ins</span><span class="d">' + cins + ' of ' + PINGS + ' answered · from your pings</span></div>' +
-      '<span class="xp' + (cins >= PINGS ? ' done' : '') + '">+5 ea</span></div>';
-    h += '<div style="display:flex;flex-direction:column;gap:8px;padding-top:12px;border-top:1.5px solid var(--line2)"><div class="row between"><label for="journal" style="font-size:13px;font-weight:600">Journal: what pulled your attention away?</label><span class="xp' + (hasNote ? ' done' : '') + '">+5</span></div>' +
-      '<input class="text" id="journal" type="text" value="' + esc(d.note) + '" placeholder="a thought, a ping, a craving…"' + (locked ? ' disabled' : '') + '></div></div>';
-    if (ui.timer && ui.timer.day === sel) {
-      var t = ui.timer, m = Math.floor(t.remaining / 60), s = t.remaining % 60;
-      h += '<div class="timer"><div class="ring"><svg viewBox="0 0 64 64" width="64" height="64" aria-hidden="true"><circle cx="32" cy="32" r="27" fill="none" stroke="#333" stroke-width="5"/><circle id="tRing" cx="32" cy="32" r="27" fill="none" stroke="#FFC23A" stroke-width="5" stroke-linecap="round" stroke-dasharray="169.6" stroke-dashoffset="' + (169.6 * (1 - t.remaining / t.total)).toFixed(1) + '"/></svg><span id="tText">' + m + ':' + (s < 10 ? '0' : '') + s + '</span></div>' +
-        '<div style="flex:1;display:flex;flex-direction:column;gap:8px"><span style="font-size:13px">' + (t.kind === 'sit' ? 'Sitting' : 'Focus sprint') + '. Breathing is enough. Finish for +' + (t.kind === 'sit' ? 10 : 20) + ' XP.</span><button type="button" class="btn small" id="stopT" style="align-self:flex-start">Stop</button></div></div>';
-    }
-    h += '<div class="perfect' + (perfect ? ' on' : '') + '"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l2.9 6.9L22 10l-5.5 4.8L18.2 22 12 18.3 5.8 22l1.7-7.2L2 10l7.1-1.1z" fill="' + (perfect ? '#FFC23A' : '#B3A999') + '"/></svg>' +
-      '<div style="flex:1"><span style="font-size:13px;font-weight:600">' + (perfect ? 'Perfect day. Bonus claimed.' : 'Perfect day bonus: ' + got + ' of ' + flags.length) + '</span><div class="segs" aria-hidden="true">' +
-      flags.map(function (f) { return '<i' + (f ? ' class="on"' : '') + '></i>'; }).join('') + '</div></div><span style="font-family:var(--mono);font-size:12px;font-weight:700">+10</span></div></section>';
-
-    h += bodyCard();
-
-    // rings: four concentric rings, one per phase, one arc per day (inner ring = first days)
-    var RR = { 1: 62, 2: 92, 3: 122, 4: 152 }, C = 175;
-    function arc(r, a0, a1) {
-      var p = function (a) { var t = (a - 90) * Math.PI / 180; return (C + r * Math.cos(t)).toFixed(2) + ' ' + (C + r * Math.sin(t)).toFixed(2); };
-      return 'M' + p(a0) + ' A' + r + ' ' + r + ' 0 ' + (a1 - a0 > 180 ? 1 : 0) + ' 1 ' + p(a1);
-    }
-    var sd = state.days[sel];
-    h += '<section class="stack" style="gap:12px" aria-label="Thirty days"><div class="row between"><h2>Thirty days</h2><span class="muted" style="font-size:12px">inside out · tap a day</span></div><div class="ringmap">' +
-      '<svg viewBox="0 0 350 350" role="group" aria-label="Your 30 days as four rings">';
-    [1, 2, 3, 4].forEach(function (p) {
-      var z = Z[p], cnt = z.last - z.first + 1, span = 360 / cnt, gap = 28 / RR[p] * 180 / Math.PI;
-      for (var n = z.first; n <= z.last; n++) {
-        var i = n - z.first, a0 = i * span + gap / 2, a1 = (i + 1) * span - gap / 2, dd = state.days[n];
-        var col = '#E4DBCC', op = 1, dash = '';
-        if (dd.sit) col = SEC[p];
-        else if (n === today) col = '#141414';
-        else if (n < today) { col = SEC[p]; op = .28; }
-        var isSel = n === sel;
-        var lab = 'Day ' + n + ', ' + dateOf(n) + (dd.sit ? ', completed' : n === today ? ', today' : n < today ? ', missed' : ', not yet');
-        h += '<g class="seg' + (isSel ? ' sel' : '') + '" data-day="' + n + '" role="button" tabindex="0" aria-label="' + lab + '" aria-pressed="' + isSel + '">' +
-          '<path d="' + arc(RR[p], a0, a1) + '" stroke="transparent" stroke-width="30" fill="none"/>' +
-          (isSel ? '<path d="' + arc(RR[p], a0, a1) + '" stroke="#141414" stroke-width="27" stroke-linecap="round" fill="none"/><path d="' + arc(RR[p], a0, a1) + '" stroke="#fff" stroke-width="22" stroke-linecap="round" fill="none"/>' : '') +
-          '<path d="' + arc(RR[p], a0, a1) + '" stroke="' + col + '" stroke-opacity="' + op + '" stroke-width="' + (isSel ? 16 : 18) + '" stroke-linecap="round" fill="none"' + dash + '/>' +
-          (n === today && !dd.sit ? '<path class="breathe-arc" d="' + arc(RR[p], a0, a1) + '" stroke="#141414" stroke-width="30" stroke-opacity=".12" stroke-linecap="round" fill="none"/>' : '') + '</g>';
-      }
-    });
-    h += '<text x="175" y="168" text-anchor="middle" class="rm-num">' + String(sel).padStart(2, '0') + '</text>' +
-      '<text x="175" y="196" text-anchor="middle" class="rm-sub">' + (sel === today ? 'TODAY' : dateOf(sel).toUpperCase()) + '</text></svg></div><div class="sectors">';
-    [1, 2, 3, 4].forEach(function (p) {
-      var z = Z[p], done = 0, tot = z.last - z.first + 1;
-      for (var j = z.first; j <= z.last; j++) if (state.days[j].sit) done++;
-      h += '<div class="sector"><i style="background:' + SEC[p] + '"></i><span>' + z.name + '</span><b>' + done + '/' + tot + '</b></div>';
-    });
-    h += '</div></section>';
-
-    // badges
-    var sits = 0, sprints = 0, p1 = 0; for (var i = 1; i <= 30; i++) { if (state.days[i].sit) sits++; if (state.days[i].sprint) sprints++; if (i <= 5 && state.days[i].sit) p1++; }
-    var nMv = (state.moves || []).filter(function (m) { return !m.skipped; }).length, allRound = false, perDay = {};
-    (state.moves || []).forEach(function (m) { if (m.skipped) return; var k = dkey(new Date(m.t)); (perDay[k] = perDay[k] || {})[m.cat] = 1; });
-    Object.keys(perDay).forEach(function (k) { if (Object.keys(perDay[k]).length >= 4) allRound = true; });
-    var best = bestStreak(), nC = state.checkins.length, nG = Object.keys(state.goals || {}).filter(function (k) { return state.goals[k].achievedAt; }).length;
-    var B = [['Green Flag', 'flag', '#17A864', sits >= 1, '0/1 sit'], ['Hat-trick', 'three', '#FF5A1F', best >= 3, Math.min(best, 3) + '/3 days'], ['Seven Straight', 'seven', '#E0312B', best >= 7, Math.min(best, 7) + '/7 days'],
-      ['Pit Stop', 'wrench', '#0E9C95', nC >= 10, Math.min(nC, 10) + '/10'], ['Flat Out', 'gauge', '#1D5BD8', sprints >= 1, '0/1 sprint'], ['Sector One', 'curve', '#7B3FE4', p1 >= 5, p1 + '/5 sits'],
-      ['Chequered', 'cup', '#FFC23A', nG >= 5, Math.min(nG, 5) + '/5 goals'], ['Full Distance', 'helmet', '#141414', sits >= 30, sits + '/30'],
-      ['Mover', 'bolt', '#FF5A1F', nMv >= 25, Math.min(nMv, 25) + '/25 moves'], ['All-rounder', 'grid4', '#1D5BD8', allRound, 'all 4 in a day']];
-    var earned = B.filter(function (b) { return b[3]; }).length;
-    h += '<section class="stack" style="gap:14px" aria-label="Badges"><div class="row between"><h2>Badges</h2><span class="muted" style="font-size:12px">' + earned + ' of ' + B.length + '</span></div><div class="badges">';
-    B.forEach(function (b) {
-      h += '<div class="badge"><div class="roundel' + (b[3] ? ' on' : '') + '" style="' + (b[3] ? 'background:' + b[2] : '') + '"><svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><path d="' + ICON[b[1]] + '" fill="none" stroke="' + (b[3] ? (b[2] === '#FFC23A' ? '#141414' : '#fff') : '#B3A999') + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>' +
-        '<b style="color:' + (b[3] ? 'var(--bone)' : 'var(--dim)') + '">' + b[0] + '</b><small>' + (b[3] ? 'Earned' : b[4]) + '</small></div>';
-    });
-    h += '</div></section>';
-    h += '<p class="muted" style="font-size:12px;margin:0">XP: sit +10 · one thing fully +15 · focus sprint +20 · journal +5 · check-in +5 (up to ' + PINGS + ' a day) · perfect day +10 · daily goal set +5, achieved +20.</p></div>';
-    return h;
+    h += '<div class="list">' + questsFor(today).map(function (q) { return questRow(q, d, today, false); }).join('') +
+      row({ t: 'Journal', sub: hasNote ? esc(d.note) : 'what pulled you away today?', v: hasNote ? '✓' : '+5', sheet: 'day' }) + '</div>';
+    var mvN = LIB ? movesOn(key).length : 0, cN = checkinsOn(today).length, bc = bodyCalc(), eaten = sumItems(foodDay(key).filter(function (i) { return !i.planned; }));
+    h += '<div class="chips">' +
+      '<button type="button" class="chip" data-sheet="move" style="background:#FFE6B8"><b class="display">' + mvN + '</b><small>moves today</small></button>' +
+      '<button type="button" class="chip" data-tab-go="log" style="background:#CDEFEA"><b class="display">' + cN + '<span>/' + PINGS + '</span></b><small>check-ins</small></button>' +
+      '<button type="button" class="chip" data-tab-go="fit:food" style="background:#FFD9D3"><b class="display">' + (bc ? fmtN(Math.max(0, bc.kcal - eaten.kcal)) : fmtN(eaten.kcal)) + '</b><small>' + (bc ? 'kcal left' : 'kcal eaten') + '</small></button></div>';
+    return h + '</div>';
   }
 
   function goalCard() {
-    var g = todayGoal(), h;
-    if (!g) {
-      return '<section class="card goal" aria-label="Today’s target"><div class="row between"><span class="eyebrow">Today’s target</span><span class="xp" style="background:rgba(0,0,0,.08);color:#141414">+5</span></div>' +
-        '<p class="gtext">What’s the one thing you want to get done today?</p>' +
-        '<button type="button" class="btn solid" data-goal="open">Set today’s target</button></section>';
-    }
-    if (g.achievedAt) {
-      return '<section class="card goal won" aria-label="Today’s target"><div class="row between"><span class="eyebrow">Target hit · ' + timeOf(g.achievedAt) + '</span><span class="xp" style="background:rgba(255,255,255,.22);color:#fff">+20</span></div>' +
-        '<p class="gtext">' + esc(g.text) + '</p>' +
-        '<span class="muted" style="font-size:12px">' + g.updates.length + ' update' + (g.updates.length === 1 ? '' : 's') + ' along the way. Check-ins carry on as usual.</span></section>';
-    }
+    var g = todayGoal();
+    var open = function (bg, cap, text, extra, go) {
+      return '<button type="button" class="hero goalc" data-goal="open" style="background:' + bg + ';color:#fff">' + sun('rgba(255,255,255,.18)', 90, -26, -30) +
+        '<span class="cap">' + cap + '</span><span class="display gt">' + text + '</span>' + (extra || '') + '<span class="go">' + go + '</span></button>';
+    };
+    if (!g) return open(T.coral, 'Today’s target · +5 XP', 'What’s the one thing you want to get done today?', '', 'Set today’s target →');
+    if (g.achievedAt) return open(T.lagoon, 'Target hit · ' + timeOf(g.achievedAt), esc(g.text), '', 'See how it went →');
     var last = g.updates[g.updates.length - 1];
-    h = '<section class="card goal" aria-label="Today’s target"><div class="row between"><span class="eyebrow">Today’s target</span><span class="eyebrow">set ' + timeOf(g.setAt) + '</span></div>' +
-      '<p class="gtext">' + esc(g.text) + '</p>';
-    h += last ? '<div class="upd"><span style="font-family:var(--mono);font-size:11px;color:#5A4300">LATEST · ' + timeOf(last.t) + '</span><span style="font-size:14px">' + esc(last.text) + '</span></div>' : '<span style="font-size:13px;color:#5A4300">Each ping will ask how it’s going.</span>';
-    h += '<div class="row"><button type="button" class="btn" data-goal="open" style="flex:1">Add update</button><button type="button" class="btn solid" data-goal="win" style="flex:1">Hit it · +20</button></div></section>';
-    return h;
+    return open(T.coral, 'Today’s target', esc(g.text), last ? '<span class="gl">Latest: ' + esc(last.text) + '</span>' : '', 'Add an update →');
   }
 
-  function bindTrail(view) {
+  // --- Today detail sheets ---
+  function progressSheet() {
+    var xp = totalXp(), lv = levelFor(xp), today = todayNum(), done = 0;
+    for (var i = 1; i <= 30; i++) if (state.days[i].sit) done++;
+    var pct = lv.next ? Math.round((xp - lv.floor) / (lv.next - lv.floor) * 100) : 100;
+    var h = '<div class="hero center" style="background:' + T.jungle + ';color:#fff">' + sun(T.mango, 120, -30, -40) +
+      '<span class="dring big">' + dayRing(210, 10) + '<span class="mid"><b class="display">' + done + '</b><span class="cap">days done</span></span></span></div>';
+    h += '<div class="lvl"><div class="row between"><b>' + lv.title + (lv.next ? ' → ' + lv.nextTitle : '') + '</b><span class="cap">' + (lv.next ? xp + ' / ' + lv.next + ' XP' : xp + ' XP') + '</span></div><div class="bar" style="background:#F1E6D6"><i style="width:' + pct + '%;background:' + T.coral + '"></i></div></div>';
+    h += '<h3 class="sh">Thirty days <span class="cap">tap a day</span></h3><div class="daygrid">';
+    for (var n = 1; n <= 30; n++) {
+      var dd = state.days[n], cls = dd.sit ? 'on' : n === today ? 'now' : n < today ? 'miss' : '';
+      h += '<button type="button" class="dg ' + cls + '" data-day="' + n + '" aria-label="Day ' + n + ', ' + dateOf(n) + (dd.sit ? ', done' : n === today ? ', today' : n < today ? ', missed' : '') + '">' + n + '</button>';
+    }
+    h += '</div><h3 class="sh">Phases</h3><div class="list">';
+    [1, 2, 3, 4].forEach(function (p) {
+      var z = Z[p], c = 0; for (var j = z.first; j <= z.last; j++) if (state.days[j].sit) c++;
+      h += row({ t: z.name, sub: z.desc, v: c + '/' + (z.last - z.first + 1), dot: SEC[p] });
+    });
+    h += '</div>';
+    // badges
+    var sits = 0, sprints = 0, p1 = 0; for (var k = 1; k <= 30; k++) { if (state.days[k].sit) sits++; if (state.days[k].sprint) sprints++; if (k <= 5 && state.days[k].sit) p1++; }
+    var nMv = (state.moves || []).filter(function (m) { return !m.skipped; }).length, allRound = false, perDay = {};
+    (state.moves || []).forEach(function (m) { if (m.skipped) return; var dk = dkey(new Date(m.t)); (perDay[dk] = perDay[dk] || {})[m.cat] = 1; });
+    Object.keys(perDay).forEach(function (dk) { if (Object.keys(perDay[dk]).length >= 4) allRound = true; });
+    var best = bestStreak(), nC = state.checkins.length, nG = Object.keys(state.goals || {}).filter(function (x) { return state.goals[x].achievedAt; }).length;
+    var B = [['First sit', 'flag', T.lagoon, sits >= 1, '0/1 sit'], ['Hat-trick', 'three', '#F28C28', best >= 3, Math.min(best, 3) + '/3 days'], ['Seven straight', 'seven', T.coral, best >= 7, Math.min(best, 7) + '/7 days'],
+      ['Ten check-ins', 'wrench', T.lagoon, nC >= 10, Math.min(nC, 10) + '/10'], ['Flat out', 'gauge', T.jungle, sprints >= 1, '0/1 sprint'], ['Phase one', 'curve', T.hib, p1 >= 5, p1 + '/5 sits'],
+      ['Five targets', 'cup', T.mango, nG >= 5, Math.min(nG, 5) + '/5'], ['Full distance', 'helmet', T.jungle, sits >= 30, sits + '/30'],
+      ['Mover', 'bolt', T.coral, nMv >= 25, Math.min(nMv, 25) + '/25 moves'], ['All-rounder', 'grid4', T.hib, allRound, 'all 4 in a day']];
+    var earned = B.filter(function (b) { return b[3]; }).length;
+    h += '<h3 class="sh">Badges <span class="cap">' + earned + ' of ' + B.length + '</span></h3><div class="badges">';
+    B.forEach(function (b) {
+      h += '<div class="badge"><div class="roundel' + (b[3] ? ' on' : '') + '" style="' + (b[3] ? 'background:' + b[2] : '') + '"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><path d="' + ICON[b[1]] + '" fill="none" stroke="' + (b[3] ? '#fff' : '#B9C4BD') + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>' +
+        '<b>' + b[0] + '</b><small>' + (b[3] ? 'Earned' : b[4]) + '</small></div>';
+    });
+    h += '</div><p class="muted small">XP: sit +10 · one thing fully +15 · focus sprint +20 · journal +5 · check-in +5 (up to ' + PINGS + ' a day) · perfect day +10 · daily target set +5, hit +20 · movement snack +5 · training session +10.</p>';
+    return { title: 'Progress', cap: 'Day ' + today + ' / 30', html: h, bind: function (r) { bindTrail(r, today); } };
+  }
+
+  function daySheet(sel) {
+    var today = todayNum(), d = state.days[sel], pn = phaseFor(sel), locked = sel > today, qs = questsFor(sel);
+    var hasNote = !!(d.note || '').trim(), flags = qs.map(function (q) { return d[q.f]; }).concat([hasNote]);
+    var got = flags.filter(Boolean).length, perfect = got === flags.length, cins = checkinsOn(sel).length;
+    var h = '<p class="muted" style="margin:0">' + Z[pn].name + ' · ' + Z[pn].desc + '</p>';
+    if (locked) h += '<div class="notice">This day opens on ' + dateOf(sel) + '. Here’s what’s waiting.</div>';
+    h += '<div class="list">' + qs.map(function (q) { return questRow(q, d, sel, locked); }).join('') +
+      row({ t: 'Mindful check-ins', sub: 'from your pings', v: cins + '/' + PINGS }) + '</div>';
+    h += '<div class="stack" style="gap:8px"><label for="journal" class="lab">Journal: what pulled your attention away? <span class="muted">+5</span></label>' +
+      '<textarea class="text" id="journal" placeholder="a thought, a ping, a craving…"' + (locked ? ' disabled' : '') + '>' + esc(d.note) + '</textarea></div>';
+    h += '<div class="perfect' + (perfect ? ' on' : '') + '"><div style="flex:1"><span style="font-size:14px;font-weight:600">' + (perfect ? 'Perfect day. Bonus claimed.' : 'Perfect day bonus: ' + got + ' of ' + flags.length) + '</span><div class="segs" aria-hidden="true">' +
+      flags.map(function (f) { return '<i' + (f ? ' class="on"' : '') + '></i>'; }).join('') + '</div></div><span class="cap" style="color:inherit">+10</span></div>';
+    return { title: sel === today ? 'Today' : 'Day ' + sel, cap: dateOf(sel), html: h, bind: function (r) { bindTrail(r, sel); } };
+  }
+
+  function bindTrail(view, sel) {
     var mn = view.querySelector('#moveNow'); if (mn) mn.addEventListener('click', function () { openMove(suggestMove()); });
-    var today = todayNum(), sel = ui.sel || today;
     view.querySelectorAll('[data-q]').forEach(function (cb) {
       cb.addEventListener('change', function () { var f = cb.dataset.q, v = cb.checked; mutate(function () { state.days[sel][f] = v; }); });
     });
@@ -335,7 +344,7 @@
       j.addEventListener('change', function () { if (!had && j.value.trim()) toast('+5 XP'); render(); });
     }
     view.querySelectorAll('[data-begin]').forEach(function (b) {
-      b.addEventListener('click', function () { startTimer(sel, b.dataset.begin, +b.dataset.mins); });
+      b.addEventListener('click', function () { closeSheet(); ui.tab = 'trail'; startTimer(sel, b.dataset.begin, +b.dataset.mins); window.scrollTo(0, 0); });
     });
     var stop = view.querySelector('#stopT');
     if (stop) stop.addEventListener('click', function () { clearInterval(ui.timer.iv); ui.timer = null; render(); });
@@ -346,9 +355,7 @@
       });
     });
     view.querySelectorAll('[data-day]').forEach(function (b) {
-      var go = function () { ui.sel = +b.dataset.day; render(); var q = document.querySelector('[aria-label^="Quests for day"]'); if (q) q.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
-      b.addEventListener('click', go);
-      b.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
+      b.addEventListener('click', function () { ui.sel = +b.dataset.day; openSheet('day'); });
     });
   }
   function startTimer(day, kind, mins) {
@@ -372,7 +379,7 @@
 
   // ---------- check-in flow ----------
   var DISTRACTIONS = ['Phone / notifications', 'Social media', 'Work worries', 'Planning ahead', 'Replaying the past', 'People around me', 'Tired or hungry', 'Daydreaming', 'Noise / surroundings', 'Nothing, I was present'];
-  var DCOL = ['#E0312B', '#7B3FE4', '#1D5BD8', '#0E9C95', '#FF5A1F', '#C2185B', '#B8860B', '#5B6CFF', '#6B645B', '#17A864'];
+  var DCOL = ['#FF6B57', '#E8457A', '#0F4D40', '#12A39A', '#F28C28', '#B83280', '#C98A12', '#5B7BD5', '#6F7D74', '#2BB673'];
   var ci = null;
   function openCheckin() {
     if (typeof stopMoveTimer === 'function') { stopMoveTimer(); mv = null; }
@@ -392,7 +399,7 @@
     ci = null;
     document.getElementById('overlay').hidden = true;
     document.body.style.overflow = '';
-    if (location.search) history.replaceState(null, '', location.pathname);
+    if (location.search) history.replaceState(history.state, '', location.pathname);
   }
   function drawCheckin() {
     var o = document.getElementById('overlay'), h = '<div class="inner">';
@@ -402,14 +409,14 @@
     if (ci.stage === 'goal') {
       var gg = todayGoal(), lu = gg.updates[gg.updates.length - 1];
       h += '<section class="card goal" style="gap:10px"><span class="eyebrow">Goal check · 1 of 3</span><p class="gtext">' + esc(gg.text) + '</p>' +
-        (lu ? '<div class="upd"><span style="font-family:var(--mono);font-size:11px;color:#5A4300">LAST UPDATE · ' + timeOf(lu.t) + '</span><span style="font-size:14px">' + esc(lu.text) + '</span></div>' : '') + '</section>';
+        (lu ? '<div class="upd"><span style="font-family:var(--mono);font-size:11px;color:#7A4B00">LAST UPDATE · ' + timeOf(lu.t) + '</span><span style="font-size:14px">' + esc(lu.text) + '</span></div>' : '') + '</section>';
       h += '<div class="stack" style="gap:8px"><label for="gcText"><h1 style="font-size:22px">How’s it going?</h1></label><textarea class="text" id="gcText" style="min-height:90px;font-size:16px" placeholder="e.g. base plate done, clamps next · or type “achieved”"></textarea></div>';
       h += '<button type="button" class="btn solid" id="gcSave">Save update → breathe</button>';
       h += '<button type="button" class="btn" id="gcWin" style="background:var(--green);border-color:var(--green);color:#fff">✓ Achieved it · +20 XP</button>';
       h += '<button type="button" class="btn ghost" id="gcSkip">Skip the goal this time</button>';
     } else if (ci.stage === 'breathe') {
       h += '<div><h1>Pause here.</h1><p class="muted" style="margin:6px 0 0">Let whatever you were doing wait for a minute. Just follow the light.</p></div>';
-      h += '<div class="breath"><svg class="rings" id="orb" viewBox="0 0 260 260" width="260" height="260" aria-hidden="true"><g><circle cx="130" cy="130" r="24" fill="none" stroke="#2BD576" stroke-width="7" stroke-linecap="round" stroke-dasharray="18.1 7.0"/></g><g class="rev"><circle cx="130" cy="130" r="37" fill="none" stroke="#27C27A" stroke-width="7" stroke-linecap="round" stroke-dasharray="20.9 8.1"/></g><g><circle cx="130" cy="130" r="50" fill="none" stroke="#1FAE86" stroke-width="7" stroke-linecap="round" stroke-dasharray="22.6 8.8"/></g><g class="rev"><circle cx="130" cy="130" r="63" fill="none" stroke="#169A91" stroke-width="7" stroke-linecap="round" stroke-dasharray="23.8 9.2"/></g><g><circle cx="130" cy="130" r="76" fill="none" stroke="#10869A" stroke-width="7" stroke-linecap="round" stroke-dasharray="24.6 9.6"/></g><g class="rev"><circle cx="130" cy="130" r="89" fill="none" stroke="#1273A3" stroke-width="7" stroke-linecap="round" stroke-dasharray="25.2 9.8"/></g><g><circle cx="130" cy="130" r="102" fill="none" stroke="#1D5BD8" stroke-width="7" stroke-linecap="round" stroke-dasharray="25.6 10.0"/></g><g class="rev"><circle cx="130" cy="130" r="115" fill="none" stroke="#2A4BB0" stroke-width="7" stroke-linecap="round" stroke-dasharray="26.0 10.1"/></g></svg><svg class="prog" viewBox="0 0 260 260" width="260" height="260" aria-hidden="true"><circle id="ciRing" cx="130" cy="130" r="127" fill="none" stroke="#FFC23A" stroke-width="3" stroke-linecap="round" stroke-dasharray="798" stroke-dashoffset="798"/></svg>' +
+      h += '<div class="breath"><svg class="rings" id="orb" viewBox="0 0 260 260" width="260" height="260" aria-hidden="true"><g><circle cx="130" cy="130" r="24" fill="none" stroke="#FFD27A" stroke-width="7" stroke-linecap="round" stroke-dasharray="18.1 7.0"/></g><g class="rev"><circle cx="130" cy="130" r="37" fill="none" stroke="#FFB23F" stroke-width="7" stroke-linecap="round" stroke-dasharray="20.9 8.1"/></g><g><circle cx="130" cy="130" r="50" fill="none" stroke="#FF9A4D" stroke-width="7" stroke-linecap="round" stroke-dasharray="22.6 8.8"/></g><g class="rev"><circle cx="130" cy="130" r="63" fill="none" stroke="#FF6B57" stroke-width="7" stroke-linecap="round" stroke-dasharray="23.8 9.2"/></g><g><circle cx="130" cy="130" r="76" fill="none" stroke="#F0587A" stroke-width="7" stroke-linecap="round" stroke-dasharray="24.6 9.6"/></g><g class="rev"><circle cx="130" cy="130" r="89" fill="none" stroke="#C95B9A" stroke-width="7" stroke-linecap="round" stroke-dasharray="25.2 9.8"/></g><g><circle cx="130" cy="130" r="102" fill="none" stroke="#3FB3A6" stroke-width="7" stroke-linecap="round" stroke-dasharray="25.6 10.0"/></g><g class="rev"><circle cx="130" cy="130" r="115" fill="none" stroke="#12A39A" stroke-width="7" stroke-linecap="round" stroke-dasharray="26.0 10.1"/></g></svg><svg class="prog" viewBox="0 0 260 260" width="260" height="260" aria-hidden="true"><circle id="ciRing" cx="130" cy="130" r="127" fill="none" stroke="#FFB23F" stroke-width="3" stroke-linecap="round" stroke-dasharray="798" stroke-dashoffset="798"/></svg>' +
         '<div class="cue" aria-live="polite"><b id="cue">' + (ci.running ? 'Breathe in' : 'Ready') + '</b><span id="left">' + fmt(ci.left) + '</span></div></div>';
       if (!ci.running) {
         h += '<div class="seg" role="group" aria-label="Length"><button type="button" data-secs="60" class="' + (ci.secs === 60 ? 'on' : '') + '">1 minute</button><button type="button" data-secs="120" class="' + (ci.secs === 120 ? 'on' : '') + '">2 minutes</button></div>';
@@ -420,14 +427,14 @@
     } else {
       var g = todayGoal();
       if (g && !g.achievedAt && ci.asked) {
-        h += '<div class="notice"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V4M5 4h11l-2 4 2 4H5" fill="#FFC23A" stroke="#141414" stroke-width="1.4"/></svg><span>Goal: ' + esc(g.text) + (g.updates.length ? ' · last update ' + timeOf(g.updates[g.updates.length - 1].t) : '') + '</span></div>';
+        h += '<div class="notice"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V4M5 4h11l-2 4 2 4H5" fill="#FFB23F" stroke="#16302A" stroke-width="1.4"/></svg><span>Goal: ' + esc(g.text) + (g.updates.length ? ' · last update ' + timeOf(g.updates[g.updates.length - 1].t) : '') + '</span></div>';
       } else if (g && !g.achievedAt) {
         h += '<section class="card stack" style="gap:10px"><span class="eyebrow">Today’s goal</span><p style="margin:0;font-family:var(--serif);font-size:18px;line-height:1.3">' + esc(g.text) + '</p>' +
           '<label for="ciGoal" style="font-size:14px;color:var(--bone2)">How’s it going? <span class="muted">(type “achieved” when it’s done)</span></label>' +
           '<textarea class="text" id="ciGoal" placeholder="e.g. drafted two sections, stuck on the budget">' + esc(ci.gUpd) + '</textarea>' +
           '<button type="button" class="dchip" id="ciWin" aria-pressed="' + ci.gWin + '" style="align-self:flex-start">' + (ci.gWin ? '✓ Achieved' : 'Mark as achieved') + '</button></section>';
       } else if (g) {
-        h += '<div class="notice" style="color:var(--ember)"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V4M5 4h11l-2 4 2 4H5" fill="#E0312B" stroke="#E0312B" stroke-width="1.6"/></svg><span>Goal achieved at ' + timeOf(g.achievedAt) + '. Just the check-in now.</span></div>';
+        h += '<div class="notice" style="color:var(--ember)"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V4M5 4h11l-2 4 2 4H5" fill="#FF6B57" stroke="#FF6B57" stroke-width="1.6"/></svg><span>Goal achieved at ' + timeOf(g.achievedAt) + '. Just the check-in now.</span></div>';
       } else {
         h += '<section class="card stack" style="gap:8px"><label for="ciGoalNew" style="font-size:14px;color:var(--bone2)">No goal set for today. Add one? <span class="muted">(optional)</span></label><input class="text" id="ciGoalNew" type="text" value="' + esc(ci.gNew) + '" placeholder="the one thing you want to get done"></section>';
       }
@@ -515,7 +522,7 @@
         h += '<div class="stack" style="gap:8px"><label for="gUpd" style="font-size:14px;color:var(--bone2)">Add an update <span class="muted">(or type “achieved”)</span></label><textarea class="text" id="gUpd" placeholder="where you are with it"></textarea>' +
           '<div class="row"><button type="button" class="btn" id="gAdd" style="flex:1">Save update</button><button type="button" class="btn solid" id="gWin" style="flex:1">Achieved · +20</button></div></div>';
       } else {
-        h += '<div class="perfect on"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V4M5 4h11l-2 4 2 4H5" fill="#E0312B" stroke="#E0312B" stroke-width="1.6"/></svg><span style="font-size:14px">Done. Progress checks have stopped for today; mindful check-ins carry on.</span></div>';
+        h += '<div class="perfect on"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V4M5 4h11l-2 4 2 4H5" fill="#FF6B57" stroke="#FF6B57" stroke-width="1.6"/></svg><span style="font-size:14px">Done. Progress checks have stopped for today; mindful check-ins carry on.</span></div>';
       }
     }
     h += '</div>';
@@ -591,7 +598,7 @@
     var key = dkey(new Date()), done = movesOn(key), now = new Date(), nowM = now.getHours() * 60 + now.getMinutes();
     var byCat = { yoga: 0, cardio: 0, strength: 0, stretch: 0 }, secs = 0;
     done.forEach(function (m) { byCat[m.cat]++; secs += m.secs || 45; });
-    var h = '<section class="card stack body" style="gap:14px" aria-label="Movement today"><div class="row between"><div style="display:flex;flex-direction:column;gap:2px"><span class="eyebrow">Body clock · every 30 min</span><h1>Move</h1></div>' +
+    var h = '<section class="card stack body" style="gap:14px" aria-label="Movement today"><div class="row between"><div style="display:flex;flex-direction:column;gap:2px"><span class="cap">Body clock</span><span style="font-size:14px">a snack every 30 minutes</span></div>' +
       '<div class="bignum"><b>' + done.length + '</b><small>moves · ~' + Math.max(0, Math.round(secs / 60)) + ' min</small></div></div>';
     h += '<div class="clock" role="img" aria-label="' + done.length + ' movement snacks done today">';
     BODY_SLOTS.forEach(function (sm) {
@@ -657,7 +664,7 @@
     };
   }
   function stopMoveTimer() { if (mv && mv.iv) { clearInterval(mv.iv); mv.iv = null; } }
-  function closeMove() { stopMoveTimer(); mv = null; document.getElementById('overlay').hidden = true; document.body.style.overflow = ''; if (location.search) history.replaceState(null, '', location.pathname); }
+  function closeMove() { stopMoveTimer(); mv = null; document.getElementById('overlay').hidden = true; document.body.style.overflow = ''; if (location.search) history.replaceState(history.state, '', location.pathname); }
   function logMove(m, d, skipped) {
     state.moves = state.moves || [];
     state.moves.push({ t: new Date().toISOString(), id: m.id, cat: m.cat, secs: d.secs || null, reps: d.reps || null, skipped: !!skipped });
@@ -695,10 +702,10 @@
 
   // 12-week roadmap towards a first sprint triathlon (750 m swim · 20 km bike · 5 km run)
   var PHASES = [
-    { name: 'Foundation', color: '#0E9C95', weeks: [1, 2, 3, 4], food: 'Log everything. Hit your protein target every day; no other rules yet.' },
-    { name: 'Build', color: '#1D5BD8', weeks: [5, 6, 7, 8], food: 'Keep the calorie target. Eat carbs around training, protein at every meal.' },
-    { name: 'Race prep', color: '#FF5A1F', weeks: [9, 10, 11], food: 'Fuel the long sessions; practise what you’ll eat before a race.' },
-    { name: 'Taper & race', color: '#E0312B', weeks: [12], food: 'Eat at maintenance this week; sleep well; carbs the night before.' }
+    { name: 'Foundation', color: '#12A39A', weeks: [1, 2, 3, 4], food: 'Log everything. Hit your protein target every day; no other rules yet.' },
+    { name: 'Build', color: '#0F4D40', weeks: [5, 6, 7, 8], food: 'Keep the calorie target. Eat carbs around training, protein at every meal.' },
+    { name: 'Race prep', color: '#F28C28', weeks: [9, 10, 11], food: 'Fuel the long sessions; practise what you’ll eat before a race.' },
+    { name: 'Taper & race', color: '#E8457A', weeks: [12], food: 'Eat at maintenance this week; sleep well; carbs the night before.' }
   ];
   function weekPlan(w) {
     var S = function (day, sport, text, min) { return { day: day, sport: sport, text: text, min: min }; };
@@ -723,133 +730,212 @@
     return [S(1, 'swim', '400 m easy + 4 × 50 m brisk', 25), S(2, 'run', 'Easy 20 min with 4 short strides', 20), S(3, 'strength', 'Mobility only, 15 min', 15),
       S(4, 'bike', 'Easy 30 min', 30), S(5, 'rest', 'Rest; lay out your kit', 0), S(6, 'race', 'Your test: 750 m swim · 20 km bike · 5 km run', 90), S(0, 'rest', 'Recover. Well done.', 0)];
   }
-  var SPORT = { swim: ['Swim', '#1D5BD8'], bike: ['Bike', '#FF5A1F'], run: ['Run', '#E0312B'], strength: ['Strength', '#141414'], brick: ['Brick', '#7B3FE4'], rest: ['Rest', '#B3A999'], race: ['Race', '#E0312B'] };
+  var SPORT = { swim: ['Swim', '#12A39A'], bike: ['Bike', '#F28C28'], run: ['Run', '#FF6B57'], strength: ['Strength', '#0F4D40'], brick: ['Brick', '#E8457A'], rest: ['Rest', '#B9C4BD'], race: ['Race', '#FF6B57'] };
   function planStart() { if (!state.planStart) { var t = new Date(); t.setDate(t.getDate() - ((t.getDay() + 6) % 7)); state.planStart = dkey(t); save(); } return state.planStart; }
   function planWeek(d) { var s = new Date(planStart() + 'T00:00:00'), t = new Date(d.getFullYear(), d.getMonth(), d.getDate()); return Math.floor((t - s) / 86400000 / 7) + 1; }
   function trainDone(key, i) { return !!((state.train || {})[key] || {})[i]; }
   function trainingOn(key) { var t = (state.train || {})[key] || {}; return Object.keys(t).filter(function (k) { return t[k]; }).length; }
 
   function renderFit() {
-    var h = '<div class="stack"><header class="topbar"><span class="wordmark">FIT<i>.</i></span><span class="eyebrow">food · body · 12-week plan</span></header>';
-    h += '<div class="segtabs" role="tablist">' + [['food', 'Food'], ['body', 'Body'], ['plan', 'Plan']].map(function (t) {
+    var h = '<div class="stack">' + topbar('Fit') + '<div class="seg2" role="tablist" aria-label="Fit sections">' + [['food', 'Food'], ['body', 'Body'], ['plan', 'Plan']].map(function (t) {
       return '<button type="button" role="tab" aria-selected="' + (fitUi.view === t[0]) + '" data-fv="' + t[0] + '">' + t[1] + '</button>';
     }).join('') + '</div>';
-    if (fitUi.view === 'food') h += renderFood();
-    else if (fitUi.view === 'body') h += renderBody();
-    else h += renderPlan();
+    h += fitUi.view === 'food' ? foodMain() : fitUi.view === 'body' ? bodyMain() : planMain();
     return h + '</div>';
   }
+  function mealNow() { var hr = new Date().getHours(); return hr < 11 ? 'breakfast' : hr < 15 ? 'lunch' : hr < 18 ? 'snack' : 'dinner'; }
+  function sortedWeights() { return (state.weights || []).slice().sort(function (a, b) { return a.d < b.d ? -1 : 1; }); }
 
-  function macroBar(label, val, tgt, color, unit) {
-    var pct = tgt ? Math.min(100, Math.round(val / tgt * 100)) : 0, over = tgt && val > tgt * 1.05;
-    return '<div class="mbar"><div class="row between"><span>' + label + '</span><b>' + Math.round(val) + (tgt ? ' / ' + tgt : '') + ' ' + unit + '</b></div><span class="b"><i style="width:' + pct + '%;background:' + (over ? '#141414' : color) + '"></i></span></div>';
-  }
-  function renderFood() {
-    var key = fitUi.day || dkey(new Date()), items = foodDay(key), bc = bodyCalc();
+  function foodMain() {
+    var key = fitUi.day || dkey(new Date()), items = foodDay(key), bc = bodyCalc(), isToday = key === dkey(new Date());
     var eaten = sumItems(items.filter(function (i) { return !i.planned; })), planned = sumItems(items.filter(function (i) { return i.planned; }));
-    var d = new Date(key + 'T00:00:00'), isToday = key === dkey(new Date());
-    var h = '<div class="daynav"><button type="button" class="btn ghost small" data-fd="-1" aria-label="Previous day">‹</button><b>' + (isToday ? 'Today' : d.toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' })) + '</b><button type="button" class="btn ghost small" data-fd="1" aria-label="Next day">›</button></div>';
-    var tk = bc ? bc.kcal : 0, left = tk - eaten.kcal;
-    h += '<section class="fuel"><div class="row between" style="align-items:flex-end"><div><span class="lbl">EATEN</span><div class="racenum" style="font-size:64px">' + Math.round(eaten.kcal) + '</div><span class="lbl">KCAL' + (tk ? ' OF ' + tk : '') + '</span></div>' +
-      (tk ? '<div style="text-align:right"><span class="lbl">' + (left >= 0 ? 'LEFT' : 'OVER') + '</span><div style="font-family:var(--display);font-stretch:125%;font-weight:900;font-size:30px">' + Math.abs(Math.round(left)) + '</div></div>' : '') + '</div>' +
-      (planned.kcal ? '<span class="sub">+ ' + Math.round(planned.kcal) + ' kcal planned, not eaten yet</span>' : '') + '</section>';
-    if (!bc) h += '<div class="notice">Add your height, weight and age in <b>&nbsp;Body&nbsp;</b> to get daily targets.</div>';
-    h += '<section class="card stack" style="gap:10px">' + macroBar('Protein', eaten.p, bc && bc.protein, '#17A864', 'g') + macroBar('Fat', eaten.f, bc && bc.fat, '#FFC23A', 'g') + macroBar('Carbs', eaten.c, bc && bc.carbs, '#1D5BD8', 'g') + '</section>';
-    MEALS.forEach(function (m) {
-      var its = items.map(function (it, ix) { return { it: it, ix: ix }; }).filter(function (x) { return x.it.meal === m[0]; }), tot = sumItems(its.map(function (x) { return x.it; }));
-      h += '<section class="card meal"><div class="row between"><h2>' + m[1] + '</h2><span class="eyebrow">' + Math.round(tot.kcal) + ' kcal · ' + Math.round(tot.p) + 'g P</span></div>';
-      its.forEach(function (x) {
-        var it = x.it;
-        h += '<div class="fitem' + (it.planned ? ' planned' : '') + '"><button type="button" class="fchk" data-ftog="' + x.ix + '" aria-label="' + (it.planned ? 'Mark as eaten' : 'Mark as planned') + '" aria-pressed="' + !it.planned + '"></button>' +
-          '<div style="flex:1;min-width:0"><span class="t">' + esc(it.name) + '</span><span class="d">' + r1(it.qty) + ' × ' + esc(it.serving) + (it.planned ? ' · planned' : '') + '</span></div>' +
-          '<div class="fnum"><b>' + Math.round(it.kcal) + '</b><small>' + Math.round(it.p) + 'P · ' + Math.round(it.f) + 'F</small></div><button type="button" class="fx" data-fdel="' + x.ix + '" aria-label="Remove ' + esc(it.name) + '">×</button></div>';
-      });
-      var saved = (state.savedMeals || []).filter(function (s) { return s.meal === m[0]; });
-      h += '<div class="row" style="flex-wrap:wrap;gap:6px;margin-top:8px"><button type="button" class="btn small" data-fadd="' + m[0] + '">+ Add food</button>' +
-        saved.map(function (s, i) { return '<button type="button" class="btn small ghost" data-fsaved="' + (state.savedMeals.indexOf(s)) + '">↺ ' + esc(s.name) + '</button>'; }).join('') +
-        (its.length ? '<button type="button" class="link" data-fsave="' + m[0] + '" style="margin-left:auto">Save as usual meal</button>' : '') + '</div></section>';
-    });
-    h += '<p class="muted" style="font-size:12px;margin:0">Values are typical estimates; home recipes vary. Tap the circle to switch an item between planned and eaten.</p>';
+    var d = new Date(key + 'T00:00:00');
+    var h = '<div class="daynav"><button type="button" class="rb" data-fd="-1" aria-label="Previous day">‹</button><b>' + (isToday ? 'Today' : d.toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' })) + '</b><button type="button" class="rb" data-fd="1" aria-label="Next day">›</button></div>';
+    var tk = bc ? bc.kcal : 0, left = tk - eaten.kcal, pct = tk ? Math.min(100, Math.round(eaten.kcal / tk * 100)) : 0;
+    h += '<section class="hero w" style="background:' + T.mango + ';color:' + T.jungle + '">' + sun('rgba(255,255,255,.35)', 130, -30, -40) + wave('#FFFFFF', .25, 40, 20);
+    if (tk) {
+      h += '<span class="cap">' + (left >= 0 ? 'Kcal left' : 'Kcal over') + (isToday ? ' today' : '') + '</span><span class="display big">' + fmtN(Math.abs(left)) + '</span>' +
+        '<div class="bar" style="background:rgba(15,77,64,.18)"><i style="width:' + pct + '%;background:' + (left < 0 ? T.coral : T.jungle) + '"></i></div>' +
+        '<div class="row between small"><span>' + fmtN(eaten.kcal) + ' eaten</span><span>of ' + fmtN(tk) + '</span></div>';
+    } else {
+      h += '<span class="cap">Kcal eaten</span><span class="display big">' + fmtN(eaten.kcal) + '</span>';
+    }
+    if (planned.kcal) h += '<span class="small">+ ' + fmtN(planned.kcal) + ' kcal planned, not eaten yet</span>';
+    h += '</section>';
+    var chip = function (v, tgt, lab) { return '<div class="chip" style="background:#fff"><b class="display">' + Math.round(v) + '<span>g</span></b><small>' + lab + (tgt ? ' · ' + tgt : '') + '</small></div>'; };
+    h += '<div class="chips">' + chip(eaten.p, bc && bc.protein, 'protein') + chip(eaten.f, bc && bc.fat, 'fat') + chip(eaten.c, bc && bc.carbs, 'carbs') + '</div>';
+    h += '<div class="list">' + MEALS.map(function (m) {
+      var its = items.filter(function (i) { return i.meal === m[0]; });
+      return row({ t: m[1], v: its.length ? fmtN(sumItems(its).kcal) : '—', sheet: 'meal:' + m[0] });
+    }).join('') + (bc ? '' : row({ t: 'Set up your body stats', sub: 'for calorie and protein targets', dot: T.coral, sheet: 'about' })) + '</div>';
+    h += '<button type="button" class="btn coral" data-fadd="' + mealNow() + '">Add food</button>';
     return h;
   }
+  function mealSheet(meal) {
+    var key = fitUi.day || dkey(new Date()), items = foodDay(key), mn = MEALS.filter(function (m) { return m[0] === meal; })[0];
+    var its = items.map(function (it, ix) { return { it: it, ix: ix }; }).filter(function (x) { return x.it.meal === meal; }), tot = sumItems(its.map(function (x) { return x.it; }));
+    var h = '';
+    if (its.length) {
+      h += '<div class="list">' + its.map(function (x) {
+        var it = x.it;
+        return '<div class="r fitem' + (it.planned ? ' planned' : '') + '"><button type="button" class="fchk" data-ftog="' + x.ix + '" aria-label="' + (it.planned ? 'Mark as eaten' : 'Mark as planned') + '" aria-pressed="' + !it.planned + '"></button>' +
+          '<span class="t">' + esc(it.name) + '<small>' + r1(it.qty) + ' × ' + esc(it.serving) + (it.planned ? ' · planned' : '') + ' · ' + Math.round(it.p) + ' g protein</small></span>' +
+          '<span class="v strong">' + Math.round(it.kcal) + '</span><button type="button" class="fx" data-fdel="' + x.ix + '" aria-label="Remove ' + esc(it.name) + '">×</button></div>';
+      }).join('') + '</div>';
+      h += '<div class="chips"><div class="chip" style="background:#CDEFEA"><b class="display">' + Math.round(tot.p) + '<span>g</span></b><small>protein</small></div><div class="chip" style="background:#FFE6B8"><b class="display">' + Math.round(tot.f) + '<span>g</span></b><small>fat</small></div><div class="chip" style="background:#FFD9D3"><b class="display">' + Math.round(tot.c) + '<span>g</span></b><small>carbs</small></div></div>';
+    } else h += '<p class="muted" style="margin:0">Nothing logged for ' + mn[1].toLowerCase() + ' yet.</p>';
+    h += '<div class="row"><button type="button" class="btn coral" data-fadd="' + meal + '" style="flex:1">Add food</button>' + (its.length ? '<button type="button" class="btn line" data-fsave="' + meal + '" style="flex:1">Save as usual</button>' : '') + '</div>';
+    var saved = (state.savedMeals || []).filter(function (s) { return s.meal === meal; });
+    if (saved.length) h += '<div class="stack" style="gap:8px"><span class="lab">Your usual meals</span><div class="dchips">' + saved.map(function (s) { return '<button type="button" class="dchip" data-fsaved="' + state.savedMeals.indexOf(s) + '">↺ ' + esc(s.name) + '</button>'; }).join('') + '</div></div>';
+    h += '<p class="muted small">Tap the circle to switch between planned and eaten. Values are typical estimates; home recipes vary.</p>';
+    return { title: mn[1], cap: fmtN(tot.kcal) + ' kcal', html: h, bind: bindFit };
+  }
 
-  function renderBody() {
-    var p = prof(), bc = bodyCalc();
-    var h = '<section class="card stack" style="gap:12px"><h2>About you</h2><div class="formgrid">' +
+  function bodyMain() {
+    var bc = bodyCalc(), ws = sortedWeights(), p = prof(), h = '';
+    if (!bc) {
+      return '<button type="button" class="hero tall" data-sheet="about" style="background:' + T.lagoon + ';color:#fff">' + sun('rgba(255,255,255,.18)', 140, -40, -50) + wave('#FFFFFF', .15, 50, 24) +
+        '<span class="cap">Body</span><span class="display h1">Tell me<br><i>about you</i></span><span class="go">Age, height and weight give you daily targets →</span></button>' +
+        '<p class="muted small">General guidelines, not medical advice.</p>';
+    }
+    var last = ws[ws.length - 1], delta = null;
+    if (ws.length > 1) {
+      var cut = new Date(last.d + 'T00:00:00'); cut.setDate(cut.getDate() - 6);
+      var ref = ws.filter(function (x) { return x.d <= dkey(cut); }).pop() || ws[0];
+      delta = last.kg - ref.kg;
+    }
+    h += '<button type="button" class="hero" data-sheet="weight" style="background:' + T.lagoon + ';color:#fff;gap:6px">' + sun('rgba(255,255,255,.18)', 140, -40, -50) +
+      '<span class="row between"><span class="cap">Weight</span>' + (delta !== null ? '<span class="pill">' + (delta > 0 ? '+' : delta < 0 ? '−' : '±') + r1(Math.abs(delta)) + ' this week</span>' : '') + '</span>' +
+      '<span class="row" style="align-items:baseline;gap:8px"><span class="display big">' + Number(bc.w).toFixed(1) + '</span><span>kg</span></span>' + weightChart(ws, bc, true) + '</button>';
+    h += '<div class="list">' + row({ t: 'Daily targets', v: fmtN(bc.kcal) + ' kcal', sheet: 'targets' }) + row({ t: 'Healthy range', v: Math.round(bc.lo) + '–' + Math.round(bc.hi) + ' kg', sheet: 'targets' }) +
+      row({ t: 'About you', v: (p.age || '–') + ' · ' + (p.height || '–') + ' cm', sheet: 'about' }) + row({ t: 'Weight log', v: ws.length + (ws.length === 1 ? ' entry' : ' entries'), sheet: 'weight' }) + '</div>';
+    h += '<button type="button" class="btn line" data-sheet="weight">Log today’s weight</button>';
+    return h;
+  }
+  function aboutSheet() {
+    var p = prof();
+    var h = '<div class="formgrid">' +
       '<label>Sex<select id="bSex"><option value="">–</option><option value="m"' + (p.sex === 'm' ? ' selected' : '') + '>Male</option><option value="f"' + (p.sex === 'f' ? ' selected' : '') + '>Female</option></select></label>' +
       '<label>Age<input id="bAge" type="number" inputmode="numeric" value="' + (p.age || '') + '" placeholder="years"></label>' +
       '<label>Height<input id="bHeight" type="number" inputmode="decimal" value="' + (p.height || '') + '" placeholder="cm"></label>' +
       '<label>Weight<input id="bWeight" type="number" inputmode="decimal" step="0.1" value="' + (latestWeight() || '') + '" placeholder="kg"></label>' +
       '<label class="wide">How active are you (before training)?<select id="bAct">' + [[1.2, 'Mostly sitting'], [1.375, 'Lightly active'], [1.55, 'Active most days'], [1.725, 'Very active']].map(function (a) {
         return '<option value="' + a[0] + '"' + ((p.activity || 1.375) == a[0] ? ' selected' : '') + '>' + a[1] + '</option>';
-      }).join('') + '</select></label></div><button type="button" class="btn solid" id="bSave">Save</button></section>';
-    if (!bc) return h + '<div class="notice">Fill in all four to see your numbers and roadmap.</div>';
-    var pos = Math.max(0, Math.min(100, (bc.bmi - 15) / (35 - 15) * 100));
-    h += '<section class="card stack" style="gap:12px"><div class="row between"><h2>Your numbers</h2><span class="eyebrow">BMI ' + r1(bc.bmi) + '</span></div>' +
-      '<div class="bmiscale"><i style="left:' + pos + '%"></i></div><div class="clockax"><span>15</span><span>18.5</span><span>25</span><span>30</span><span>35</span></div>' +
-      '<div class="stat3"><div><b>' + Math.round(bc.lo) + '–' + Math.round(bc.hi) + '</b><small>healthy kg</small></div><div><b>' + Math.round(bc.ideal) + '</b><small>suggested target kg</small></div><div><b>' + r1(bc.m3) + '</b><small>3-month goal kg</small></div></div>' +
-      '<div class="tgrid"><div><b>' + bc.kcal + '</b><small>kcal / day</small></div><div><b>' + bc.protein + 'g</b><small>protein</small></div><div><b>' + bc.fat + 'g</b><small>fat</small></div><div><b>' + bc.carbs + 'g</b><small>carbs</small></div></div>' +
-      '<p class="muted" style="margin:0;font-size:13px">Burn ≈ ' + Math.round(bc.tdee) + ' kcal/day before training. ' + (bc.losing ? 'A ~500 kcal daily gap loses about 0.5 kg a week; training on top adds a little more. Fat loss, not crash dieting.' : 'You’re already in a healthy range: eat at maintenance and let training reshape you.') + ' Suggested target = BMI 23; the 3-month goal is capped at about 7 kg so it stays sustainable.</p></section>';
-    // weight log + chart
-    var ws = (state.weights || []).slice().sort(function (a, b) { return a.d < b.d ? -1 : 1; });
-    h += '<section class="card stack" style="gap:12px"><div class="row between"><h2>Weight</h2><span class="eyebrow">' + ws.length + ' entries</span></div>' +
-      '<div class="row"><input id="wIn" class="text" type="number" inputmode="decimal" step="0.1" placeholder="today’s weight, kg" style="flex:1"><button type="button" class="btn solid" id="wAdd">Log</button></div>' + weightChart(ws, bc) +
-      '<p class="muted" style="margin:0;font-size:12px">Weigh in once a week, same day, morning, before breakfast.</p></section>';
-    h += '<p class="muted" style="font-size:12px;margin:0">These are general guidelines, not medical advice. If you have a health condition, check with a doctor before starting.</p>';
-    return h;
+      }).join('') + '</select></label></div><button type="button" class="btn solid" id="bSave">Save</button>' +
+      '<p class="muted small">These are general guidelines, not medical advice. If you have a health condition, check with a doctor before starting.</p>';
+    return { title: 'About you', cap: 'Body', html: h, bind: bindFit };
   }
-  function weightChart(ws, bc) {
+  function targetsSheet() {
+    var bc = bodyCalc(); if (!bc) return aboutSheet();
+    var pos = Math.max(0, Math.min(100, (bc.bmi - 15) / (35 - 15) * 100));
+    var h = '<div class="stack" style="gap:8px"><div class="row between"><span class="lab">BMI</span><b class="display" style="font-size:22px">' + r1(bc.bmi) + '</b></div><div class="bmiscale"><i style="left:' + pos + '%"></i></div><div class="clockax"><span>15</span><span>18.5</span><span>25</span><span>30</span><span>35</span></div></div>' +
+      '<div class="tgrid"><div><b>' + bc.kcal + '</b><small>kcal / day</small></div><div><b>' + bc.protein + 'g</b><small>protein</small></div><div><b>' + bc.fat + 'g</b><small>fat</small></div><div><b>' + bc.carbs + 'g</b><small>carbs</small></div></div>' +
+      '<div class="list">' + row({ t: 'Healthy range', v: Math.round(bc.lo) + '–' + Math.round(bc.hi) + ' kg' }) + row({ t: 'Suggested target', v: Math.round(bc.ideal) + ' kg' }) + row({ t: '3-month goal', v: r1(bc.m3) + ' kg' }) + row({ t: 'You burn before training', v: '≈ ' + fmtN(bc.tdee) + ' kcal' }) + '</div>' +
+      '<p class="muted small">' + (bc.losing ? 'A ~500 kcal daily gap loses about 0.5 kg a week; training on top adds a little more. Fat loss, not crash dieting.' : 'You’re already in a healthy range: eat at maintenance and let training reshape you.') + ' Suggested target = BMI 23; the 3-month goal is capped at about 7 kg so it stays sustainable. General guidelines, not medical advice.</p>';
+    return { title: 'Daily targets', cap: 'Body', html: h, bind: bindFit };
+  }
+  function weightSheet() {
+    var bc = bodyCalc(), ws = sortedWeights();
+    var h = '<div class="row"><input id="wIn" class="text" type="number" inputmode="decimal" step="0.1" placeholder="today’s weight, kg" style="flex:1"><button type="button" class="btn solid" id="wAdd">Log</button></div>';
+    if (bc && ws.length) h += '<div class="chartbox">' + weightChart(ws, bc, false) + '</div>';
+    if (ws.length) h += '<div class="list">' + ws.slice().reverse().slice(0, 12).map(function (x) {
+      return '<div class="r"><span class="t">' + new Date(x.d + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + '</span><span class="v strong">' + Number(x.kg).toFixed(1) + ' kg</span><button type="button" class="fx" data-wdel="' + x.d + '" aria-label="Delete this entry">×</button></div>';
+    }).join('') + '</div>';
+    h += '<p class="muted small">Weigh in once a week, same day, in the morning before breakfast.</p>';
+    return { title: 'Weight', cap: ws.length + ' entries', html: h, bind: bindFit };
+  }
+  function weightChart(ws, bc, light) {
     if (!ws.length) return '';
-    var s0 = new Date(planStart() + 'T00:00:00'), W = 320, H = 150, days = 84;
+    var s0 = new Date(planStart() + 'T00:00:00'), W = 320, H = light ? 110 : 150, days = 84;
+    var ink = light ? '#FFFFFF' : T.ink, line = light ? '#FFFFFF' : T.coral, dot = light ? T.mango : T.coral, goal = light ? '#FFFFFF' : T.lagoon;
     var ys = ws.map(function (x) { return x.kg; }).concat([bc.m3, bc.start]), ymin = Math.floor(Math.min.apply(null, ys) - 1), ymax = Math.ceil(Math.max.apply(null, ys) + 1);
     var X = function (d) { return 30 + Math.max(0, Math.min(days, (new Date(d + 'T00:00:00') - s0) / 86400000)) / days * (W - 40); };
     var Y = function (kg) { return 10 + (ymax - kg) / (ymax - ymin) * (H - 30); };
     var e = new Date(s0); e.setDate(e.getDate() + days);
     var path = ws.map(function (x, i) { return (i ? 'L' : 'M') + X(x.d).toFixed(1) + ' ' + Y(x.kg).toFixed(1); }).join(' ');
-    var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" class="wchart" role="img" aria-label="Weight over the 12 weeks">' +
-      '<line x1="30" x2="' + (W - 10) + '" y1="' + Y(bc.m3) + '" y2="' + Y(bc.m3) + '" stroke="#17A864" stroke-width="1.5" stroke-dasharray="4 4"/>' +
-      '<text x="' + (W - 10) + '" y="' + (Y(bc.m3) - 4) + '" text-anchor="end" class="ax" fill="#0B7A47">goal ' + r1(bc.m3) + '</text>' +
-      '<line x1="' + X(planStart()) + '" y1="' + Y(bc.start) + '" x2="' + X(dkey(e)) + '" y2="' + Y(bc.m3) + '" stroke="#B3A999" stroke-width="1.5" stroke-dasharray="2 4"/>' +
-      '<path d="' + path + '" fill="none" stroke="#E0312B" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>' +
-      ws.map(function (x) { return '<circle cx="' + X(x.d).toFixed(1) + '" cy="' + Y(x.kg).toFixed(1) + '" r="3.5" fill="#E0312B"/>'; }).join('') +
-      '<text x="4" y="' + (Y(ymax) + 4) + '" class="ax">' + ymax + '</text><text x="4" y="' + (Y(ymin) + 4) + '" class="ax">' + ymin + '</text>' +
-      '<text x="30" y="' + (H - 4) + '" class="ax">wk 1</text><text x="' + (W - 10) + '" y="' + (H - 4) + '" text-anchor="end" class="ax">wk 12</text></svg>';
-    return svg;
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" class="wchart" role="img" aria-label="Weight over the 12 weeks">' +
+      '<line x1="30" x2="' + (W - 10) + '" y1="' + Y(bc.m3) + '" y2="' + Y(bc.m3) + '" stroke="' + goal + '" stroke-opacity=".8" stroke-width="1.3" stroke-dasharray="3 5"/>' +
+      '<text x="' + (W - 10) + '" y="' + (Y(bc.m3) - 5) + '" text-anchor="end" class="ax" fill="' + ink + '">goal ' + r1(bc.m3) + ' kg</text>' +
+      '<line x1="' + X(planStart()) + '" y1="' + Y(bc.start) + '" x2="' + X(dkey(e)) + '" y2="' + Y(bc.m3) + '" stroke="' + ink + '" stroke-opacity=".45" stroke-width="1.5" stroke-dasharray="2 5"/>' +
+      '<path d="' + path + '" fill="none" stroke="' + line + '" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"/>' +
+      ws.map(function (x) { return '<circle cx="' + X(x.d).toFixed(1) + '" cy="' + Y(x.kg).toFixed(1) + '" r="3.5" fill="' + dot + '"/>'; }).join('') +
+      '<text x="4" y="' + (Y(ymax) + 4) + '" class="ax" fill="' + ink + '">' + ymax + '</text><text x="4" y="' + (Y(ymin) + 4) + '" class="ax" fill="' + ink + '">' + ymin + '</text>' +
+      '<text x="30" y="' + (H - 4) + '" class="ax" fill="' + ink + '">wk 1</text><text x="' + (W - 10) + '" y="' + (H - 4) + '" text-anchor="end" class="ax" fill="' + ink + '">wk 12</text></svg>';
   }
 
-  function renderPlan() {
-    var wk = Math.max(1, Math.min(12, planWeek(new Date()))), ph = PHASES.filter(function (p) { return p.weeks.indexOf(wk) >= 0; })[0], bc = bodyCalc();
-    var sel = fitUi.week || wk, plan = weekPlan(sel), s0 = new Date(planStart() + 'T00:00:00');
-    var h = '<section class="planhero" style="background:' + ph.color + '"><span class="lbl">12-WEEK ROADMAP → FIRST SPRINT TRIATHLON</span><div class="racenum" style="font-size:72px">W' + String(wk).padStart(2, '0') + '<small>/12</small></div>' +
-      '<span class="lvl">' + ph.name + '</span><span class="sub">750 m swim · 20 km bike · 5 km run' + (bc && bc.losing ? ' · ' + r1(bc.start) + ' → ' + r1(bc.m3) + ' kg' : '') + '</span></section>';
-    h += '<div class="weeks">' + [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(function (w) {
+  var DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  function weekDates(w) {
+    var s0 = new Date(planStart() + 'T00:00:00'), plan = weekPlan(w);
+    return plan.slice().sort(function (a, b) { return ((a.day + 6) % 7) - ((b.day + 6) % 7); }).map(function (s) {
+      var dt = new Date(s0); dt.setDate(dt.getDate() + (w - 1) * 7 + (s.day + 6) % 7);
+      return { s: s, i: plan.indexOf(s), dt: dt, key: dkey(dt) };
+    });
+  }
+  function planMain() {
+    var wk = planWeek(new Date()), tk = dkey(new Date()), h = '';
+    if (wk > 12) {
+      h += '<section class="hero tall" style="background:' + T.coral + ';color:#fff">' + sun(T.mango, 120, -30, -36) + wave('#FFFFFF', .18, 60, 30) +
+        '<span class="cap">12-week road map</span><span class="display h1">Road map<br><i>complete</i></span><span style="font-size:15px;max-width:250px">Twelve weeks done. Keep training the way you enjoyed most.</span></section>';
+      return h + '<div class="list">' + row({ t: '12-week road map', v: 'done', sheet: 'roadmap' }) + row({ t: 'Garmin', v: garminStatus(), sheet: 'garmin', dot: garminDot() }) + '</div>';
+    }
+    var ph = PHASES.filter(function (p) { return p.weeks.indexOf(wk) >= 0; })[0], days = weekDates(wk);
+    var t = days.filter(function (x) { return x.key === tk; })[0];
+    if (!t) return '<div class="list">' + row({ t: 'Your 12-week plan starts ' + new Date(planStart() + 'T00:00:00').toLocaleDateString('en', { weekday: 'long', day: 'numeric', month: 'short' }), sheet: 'week' }) + '</div>';
+    var s = t.s, sp = SPORT[s.sport], done = trainDone(tk, t.i);
+    var title = s.sport === 'rest' ? 'Rest day,<br><i>recover</i>' : s.sport === 'race' ? 'Race day,<br><i>you’ve got this</i>' : sp[0] + ',<br><i>' + s.min + ' minutes</i>';
+    h += '<section class="hero tall" style="background:' + T.coral + ';color:#fff">' + sun(T.mango, 120, -30, -36) + wave('#FFFFFF', .18, 60, 30) +
+      '<span class="cap">Today · Week ' + wk + ' · ' + ph.name + '</span><span class="display h1">' + title + '</span><span style="font-size:15px;line-height:1.45;max-width:260px">' + s.text + '</span></section>';
+    if (s.sport !== 'rest') h += '<button type="button" class="btn ' + (done ? 'lagoon' : 'jungle') + '" data-tr="' + tk + '|' + t.i + '">' + (done ? '✓ Done · nice work' : 'Mark done · +10 XP') + '</button>';
+    var nDone = 0, nAll = 0;
+    h += '<div class="list weekstrip" aria-label="This week">' + days.map(function (x) {
+      var rest = x.s.sport === 'rest', dn = trainDone(x.key, x.i); if (!rest) { nAll++; if (dn) nDone++; }
+      var st = rest ? 'rest' : dn ? 'done' : x.key === tk ? 'today' : x.key < tk ? 'miss' : '';
+      return '<span class="wd"><span class="cap">' + DOW[x.dt.getDay()].charAt(0) + '</span><i class="' + st + '" style="' + (st === 'done' ? 'background:' + (SPORT[x.s.sport] || sp)[1] : '') + '"></i></span>';
+    }).join('') + '</div>';
+    h += '<div class="list">' + row({ t: 'This week', v: nDone + ' of ' + nAll, sheet: 'week' }) + row({ t: '12-week road map', v: 'Week ' + wk, sheet: 'roadmap' }) + row({ t: 'Garmin', v: garminStatus(), sheet: 'garmin', dot: garminDot() }) + '</div>';
+    return h;
+  }
+  function garminStatus() { var sv = state.strava || {}; return !sv.pass ? 'set up' : sv.error ? 'needs a look' : sv.syncedAt ? ago(sv.syncedAt) : 'waiting'; }
+  function garminDot() { var sv = state.strava || {}; return !sv.pass ? '#C8D3CC' : sv.error ? T.coral : T.lagoon; }
+
+  function weekSheet() {
+    var wk = Math.max(1, Math.min(12, planWeek(new Date()))), sel = fitUi.week || wk, tk = dkey(new Date());
+    var sph = PHASES.filter(function (x) { return x.weeks.indexOf(sel) >= 0; })[0];
+    var h = '<div class="weeks">' + [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(function (w) {
       var p = PHASES.filter(function (x) { return x.weeks.indexOf(w) >= 0; })[0];
       return '<button type="button" data-pw="' + w + '" aria-label="Week ' + w + '" aria-pressed="' + (w === sel) + '" style="--c:' + p.color + '" class="' + (w < wk ? 'past' : w === wk ? 'now' : '') + '">' + w + '</button>';
     }).join('') + '</div>';
-    var sph = PHASES.filter(function (x) { return x.weeks.indexOf(sel) >= 0; })[0];
-    h += '<section class="card stack" style="gap:6px"><div class="row between"><h2>Week ' + sel + ' · ' + sph.name + '</h2><span class="eyebrow">' + (sel === wk ? 'this week' : '') + '</span></div>';
-    plan.slice().sort(function (a, b) { return ((a.day + 6) % 7) - ((b.day + 6) % 7); }).forEach(function (s) {
-      var dt = new Date(s0); dt.setDate(dt.getDate() + (sel - 1) * 7 + (s.day + 6) % 7);
-      var key = dkey(dt), i = plan.indexOf(s), done = trainDone(key, i), isToday = key === dkey(new Date()), sp = SPORT[s.sport];
-      h += '<div class="sess' + (isToday ? ' today' : '') + '">' + (s.sport === 'rest' ? '<span class="fchk rest"></span>' : '<button type="button" class="fchk" data-tr="' + key + '|' + i + '" aria-pressed="' + done + '" aria-label="Mark ' + sp[0] + ' done"></button>') +
-        '<div style="flex:1;min-width:0"><span class="d">' + dt.toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + (isToday ? ' · TODAY' : '') + '</span><span class="t"><i style="background:' + sp[1] + '"></i>' + sp[0] + (s.min ? ' · ' + s.min + ' min' : '') + '</span><span class="d" style="font-family:var(--sans)">' + s.text + '</span></div></div>';
-    });
-    h += '<div class="notice" style="margin-top:8px">Food this phase: ' + sph.food + '</div></section>';
-    // milestones
+    h += '<div class="list">' + weekDates(sel).map(function (x) {
+      var s = x.s, sp = SPORT[s.sport], dn = trainDone(x.key, x.i), isT = x.key === tk;
+      return '<div class="r sess' + (isT ? ' today' : '') + '">' + (s.sport === 'rest' ? '<span class="fchk rest"></span>' : '<button type="button" class="fchk" data-tr="' + x.key + '|' + x.i + '" aria-pressed="' + dn + '" aria-label="Mark ' + sp[0] + ' done"></button>') +
+        '<span class="t"><span class="st"><i style="background:' + sp[1] + '"></i>' + sp[0] + (s.min ? ' · ' + s.min + ' min' : '') + '</span><small>' + s.text + '</small></span><span class="cap"' + (isT ? ' style="color:' + T.coral + '"' : '') + '>' + DOW[x.dt.getDay()] + '</span></div>';
+    }).join('') + '</div>';
+    h += '<div class="notice">Food this phase: ' + sph.food + '</div>';
+    return { title: 'Week ' + sel, cap: sph.name, html: h, bind: bindFit };
+  }
+  function roadmapSheet() {
+    var wk = Math.max(1, Math.min(12, planWeek(new Date()))), bc = bodyCalc();
+    var h = '<p class="muted" style="margin:0">Towards a first sprint triathlon: 750 m swim · 20 km bike · 5 km run' + (bc && bc.losing ? ', and ' + r1(bc.start) + ' → ' + r1(bc.m3) + ' kg' : '') + '.</p>';
+    h += '<h3 class="sh">Phases</h3><div class="list">' + PHASES.map(function (p) {
+      var now = p.weeks.indexOf(wk) >= 0, past = p.weeks[p.weeks.length - 1] < wk;
+      return row({ t: p.name, sub: 'Week' + (p.weeks.length > 1 ? 's ' + p.weeks[0] + '–' + p.weeks[p.weeks.length - 1] : ' ' + p.weeks[0]) + ' · ' + p.food, v: now ? 'now' : past ? '✓' : '', dot: p.color });
+    }).join('') + '</div>';
     var ms = [[4, 'Swim 200 m non-stop · run 20 min without walking'], [8, 'Swim 500 m · ride 20 km · first brick session'], [11, 'Swim 750 m · run 5 km continuously'], [12, 'Sprint triathlon distance, done']];
-    h += '<section class="card stack" style="gap:8px"><h2>Checkpoints</h2>' + ms.map(function (m) {
+    h += '<h3 class="sh">Checkpoints</h3><div class="list">' + ms.map(function (m) {
       var kg = bc && bc.losing ? r1(bc.start - (bc.start - bc.m3) * m[0] / 12) : null;
-      return '<div class="row" style="align-items:flex-start"><span class="chip" style="background:' + (m[0] <= wk ? 'var(--green)' : 'var(--raised)') + ';color:' + (m[0] <= wk ? '#fff' : 'var(--bone)') + '">WK ' + m[0] + '</span><span style="font-size:14px">' + m[1] + (kg ? ' · ~' + kg + ' kg' : '') + '</span></div>';
-    }).join('') + '</section>';
-    // garmin
-    h += stravaCard();
-    var acts = activitiesDeduped(), wkActs = acts.filter(function (a) { return planWeek(new Date(a.d + 'T00:00:00')) === sel; });
+      return row({ t: m[1], sub: 'Week ' + m[0] + (kg ? ' · ~' + kg + ' kg' : ''), v: m[0] <= wk ? '✓' : '', dot: m[0] <= wk ? T.lagoon : '#C8D3CC' });
+    }).join('') + '</div>';
+    return { title: '12-week road map', cap: 'Week ' + wk, html: h, bind: bindFit };
+  }
+  function garminSheet() {
+    var wk = Math.max(1, Math.min(12, planWeek(new Date()))), acts = activitiesDeduped(), wkActs = acts.filter(function (a) { return planWeek(new Date(a.d + 'T00:00:00')) === wk; });
     var bySport = {}; wkActs.forEach(function (a) { bySport[a.sport] = (bySport[a.sport] || 0) + a.min; });
-    h += '<section class="card stack" style="gap:10px"><div class="row between"><h2>This week’s training</h2><span class="eyebrow">' + acts.length + ' activities</span></div>' +
-      (wkActs.length ? '<div class="cats">' + Object.keys(bySport).map(function (k) { return '<span class="cat" style="--c:' + (SPORT[k] ? SPORT[k][1] : '#6B645B') + '"><i></i>' + (SPORT[k] ? SPORT[k][0] : k) + ' <b>' + Math.round(bySport[k]) + ' min</b></span>'; }).join('') + '</div>' : '<span class="muted" style="font-size:13px">No Garmin activities for week ' + sel + ' yet.</span>') +
-      '<button type="button" class="btn ghost" id="gImp">Or import a Garmin Connect CSV</button><input type="file" id="gFile" accept=".csv,text/csv" hidden>' +
-      '<details><summary class="muted" style="font-size:13px">How to get the file</summary><ol class="steps" style="margin-top:8px"><li>On a computer, open <b>connect.garmin.com</b> and sign in.</li><li>Go to <b>Activities → All Activities</b>.</li><li>Scroll to load the weeks you want, then click <b>Export CSV</b> (top right).</li><li>Send the file to your phone (e.g. email or Drive) and tap Import above.</li></ol><p class="muted" style="font-size:12px;margin:6px 0 0">Garmin only lets approved companies pull data automatically, so a file import is the way for a personal app. Re-importing is safe: duplicates are skipped.</p></details></section>';
-    return h;
+    var h = stravaCard();
+    h += '<section class="card stack" style="gap:10px"><div class="row between"><h2>This week’s training</h2><span class="cap">' + acts.length + ' in total</span></div>' +
+      (wkActs.length ? '<div class="cats">' + Object.keys(bySport).map(function (k) { return '<span class="cat" style="--c:' + (SPORT[k] ? SPORT[k][1] : '#6F7D74') + '"><i></i>' + (SPORT[k] ? SPORT[k][0] : k) + ' <b>' + Math.round(bySport[k]) + ' min</b></span>'; }).join('') + '</div>' : '<span class="muted" style="font-size:13px">No Garmin activities for week ' + wk + ' yet.</span>') +
+      '<button type="button" class="btn line" id="gImp">Or import a Garmin Connect CSV</button><input type="file" id="gFile" accept=".csv,text/csv" hidden>' +
+      '<details><summary class="muted" style="font-size:13px">How to get the file</summary><ol class="steps" style="margin-top:8px"><li>On a computer, open <b>connect.garmin.com</b> and sign in.</li><li>Go to <b>Activities → All Activities</b>.</li><li>Scroll to load the weeks you want, then click <b>Export CSV</b> (top right).</li><li>Send the file to your phone (e.g. email or Drive) and tap Import above.</li></ol><p class="muted" style="font-size:12px;margin:6px 0 0">Re-importing is safe: duplicates are skipped.</p></details></section>';
+    return { title: 'Garmin', cap: garminStatus(), html: h, bind: bindFit };
   }
 
   function parseCsv(text) {
@@ -914,7 +1000,7 @@
       var v = function (id) { return view.querySelector(id).value; };
       state.profile = { sex: v('#bSex'), age: +v('#bAge') || null, height: +v('#bHeight') || null, weight: +v('#bWeight') || null, activity: +v('#bAct') };
       if (state.profile.weight && !(state.weights || []).length) state.weights = [{ d: dkey(new Date()), kg: state.profile.weight }];
-      planStart(); save(); render(); toast('Saved');
+      planStart(); save(); closeSheet(); render(); toast('Saved');
     };
     var wa = view.querySelector('#wAdd');
     if (wa) wa.onclick = function () {
@@ -922,6 +1008,7 @@
       state.weights = (state.weights || []).filter(function (x) { return x.d !== dkey(new Date()); });
       state.weights.push({ d: dkey(new Date()), kg: kg }); save(); render(); toast('Logged ' + kg + ' kg');
     };
+    view.querySelectorAll('[data-wdel]').forEach(function (b) { b.onclick = function () { if (!confirm('Delete this weight entry?')) return; state.weights = (state.weights || []).filter(function (x) { return x.d !== b.dataset.wdel; }); save(); render(); }; });
     view.querySelectorAll('[data-pw]').forEach(function (b) { b.onclick = function () { fitUi.week = +b.dataset.pw; render(); }; });
     view.querySelectorAll('[data-tr]').forEach(function (b) {
       b.onclick = function () {
@@ -1031,8 +1118,8 @@
         state.activities = mine.concat(data.activities);
         sv.syncedAt = data.at; sv.count = data.activities.length; sv.error = null; save(); syncing = false;
         if (manual) toast('Synced ' + data.activities.length + ' Garmin activities');
-        if (ui.tab === 'fit') render();
-      }).catch(function (e) { syncing = false; sv.error = e.message; save(); if (manual) toast('Sync failed: ' + e.message); if (ui.tab === 'fit') render(); });
+        render();
+      }).catch(function (e) { syncing = false; sv.error = e.message; save(); if (manual) toast('Sync failed: ' + e.message); render(); });
   }
   // CSV and the automatic sync may both hold the same workout: prefer the sync, drop near-identical CSV rows.
   function isSynced(a) { return /^(sync|strava):/.test(String(a.id)); }
@@ -1050,12 +1137,12 @@
         '<div class="formgrid"><label class="wide">Sync passphrase<input id="svPass" type="text" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" placeholder="same as SYNC_PASSPHRASE on GitHub"></label></div>' +
         '<button type="button" class="btn solid" id="svSave">Save passphrase & sync</button>';
     } else {
-      h += '<div class="notice" style="' + (sv.error ? 'background:#FFE3DF' : '') + '">' + (sv.error ? 'Last sync failed: ' + esc(sv.error) : sv.syncedAt ? '✓ ' + sv.count + ' activities · updated ' + new Date(sv.syncedAt).toLocaleString('en', { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : 'Waiting for the first sync from GitHub.') + '</div>' +
+      h += '<div class="notice" style="' + (sv.error ? 'background:#FFE1DB' : '') + '">' + (sv.error ? 'Last sync failed: ' + esc(sv.error) : sv.syncedAt ? '✓ ' + sv.count + ' activities · updated ' + new Date(sv.syncedAt).toLocaleString('en', { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : 'Waiting for the first sync from GitHub.') + '</div>' +
         '<div class="row"><button type="button" class="btn solid" id="svSync" style="flex:1">Sync now</button><button type="button" class="btn ghost" id="svReset">Passphrase</button></div>' +
         '<a class="link" href="' + repoActions() + '" target="_blank" rel="noopener">Open the Garmin sync page on GitHub</a>';
       var recent = (state.activities || []).filter(isSynced).sort(function (a, b) { return a.d < b.d ? 1 : -1; }).slice(0, 4);
       recent.forEach(function (a) {
-        var sp = SPORT[a.sport] || [a.type, '#6B645B'];
+        var sp = SPORT[a.sport] || [a.type, '#6F7D74'];
         h += '<div class="sess"><span class="fchk" aria-hidden="true" style="border:0;background:' + sp[1] + '"></span><div style="flex:1;min-width:0"><span class="d">' + new Date(a.d + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + '</span><span class="t">' + esc(a.title || sp[0]) + '</span><span class="d" style="font-family:var(--sans)">' + a.min + ' min' + (a.dist ? ' · ' + a.dist + ' km' : '') + (a.hr ? ' · ' + a.hr + ' bpm' : '') + (a.kcal ? ' · ' + a.kcal + ' kcal' : '') + '</span></div></div>';
       });
     }
@@ -1071,51 +1158,74 @@
     var r = view.querySelector('#svReset'); if (r) r.onclick = function () { delete state.strava.pass; save(); render(); };
   }
   // ---------- insights ----------
-  function renderLog() {
-    var list = state.checkins.slice().reverse(), counts = {};
+  function distCounts() {
+    var counts = {};
     state.checkins.forEach(function (c) { c.distractions.forEach(function (d) { counts[d] = (counts[d] || 0) + 1; }); });
-    var top = Object.keys(counts).sort(function (a, b) { return counts[b] - counts[a]; }).slice(0, 6);
-    var max = top.length ? counts[top[0]] : 1;
+    return counts;
+  }
+  function hourLabel(h) { return (h % 12 || 12) + (h < 12 ? ' am' : ' pm'); }
+  function renderLog() {
+    var counts = distCounts(), top = Object.keys(counts).filter(function (d) { return d !== 'Nothing, I was present'; }).sort(function (a, b) { return counts[b] - counts[a]; })[0];
     var pres = state.checkins.filter(function (c) { return c.presence; });
     var avg = pres.length ? (pres.reduce(function (a, c) { return a + c.presence; }, 0) / pres.length).toFixed(1) : '–';
-    var todayC = checkinsOn(dayNumFor(new Date())).length;
-    var h = '<div class="stack"><header><h1>Insights</h1><p class="muted" style="margin:4px 0 0;font-size:14px">What keeps pulling you away, from your check-ins.</p></header>';
-    h += '<div class="stat3"><div><b>' + todayC + '</b><small>check-ins today</small></div><div><b>' + state.checkins.length + '</b><small>all time</small></div><div><b>' + avg + '</b><small>avg presence /5</small></div></div>';
-    h += '<section class="card stack" style="gap:12px"><h2>Top distractions</h2>';
-    if (!top.length) h += '<p class="muted" style="margin:0;font-size:14px">Nothing yet. Your first check-in will start this chart.</p>';
-    top.forEach(function (d) { var ix = DISTRACTIONS.indexOf(d); h += '<div class="hbar"><span>' + esc(d) + '</span><span class="b"><i style="background:' + (ix >= 0 ? DCOL[ix] : '#141414') + ';width:' + Math.round(counts[d] / max * 100) + '%"></i></span><span style="text-align:right">' + counts[d] + '</span></div>'; });
-    h += '</section>';
+    var gk = Object.keys(state.goals || {}), won = gk.filter(function (k) { return state.goals[k].achievedAt; }).length;
+    var h = '<div class="stack">' + topbar('Insights');
+    var title;
+    if (top) {
+      var hrs = {}; state.checkins.forEach(function (c) { if (c.distractions.indexOf(top) >= 0) { var x = new Date(c.t).getHours(); hrs[x] = (hrs[x] || 0) + 1; } });
+      var ph = +Object.keys(hrs).sort(function (a, b) { return hrs[b] - hrs[a]; })[0];
+      title = esc(top.split(' / ')[0]) + ',<br><i>around ' + hourLabel(ph) + '</i>';
+    } else title = state.checkins.length ? 'Nothing much,<br><i>well done</i>' : 'Nothing yet,<br><i>check in to start</i>';
+    h += '<button type="button" class="hero w" data-sheet="dist" style="background:' + T.hib + ';color:#fff">' + sun('rgba(255,255,255,.16)', 150, -50, -50) + wave('#FFFFFF', .15, 44, 22) +
+      '<span class="cap">Most pulled away by</span><span class="display h2">' + title + '</span></button>';
+    h += '<div class="chips"><div class="chip" style="background:#fff"><b class="display">' + avg + '</b><small>avg presence</small></div><div class="chip" style="background:#fff"><b class="display">' + state.checkins.length + '</b><small>check-ins</small></div><div class="chip" style="background:#fff"><b class="display">' + won + '<span>/' + gk.length + '</span></b><small>targets hit</small></div></div>';
+    var nMv = (state.moves || []).filter(function (m) { return !m.skipped; }).length;
+    h += '<div class="list">' + row({ t: 'Distractions', v: Object.keys(counts).length + ' kinds', dot: T.hib, sheet: 'dist' }) + row({ t: 'Movement', v: nMv + ' snacks', dot: T.mango, sheet: 'mvstat' }) +
+      row({ t: 'Daily targets', v: won + ' of ' + gk.length, dot: T.coral, sheet: 'goals' }) + row({ t: 'Check-in history', v: state.checkins.length, dot: T.lagoon, sheet: 'history' }) + '</div>';
+    return h + '</div>';
+  }
+  function distSheet() {
+    var counts = distCounts(), top = Object.keys(counts).sort(function (a, b) { return counts[b] - counts[a]; });
+    var max = top.length ? counts[top[0]] : 1, todayC = checkinsOn(dayNumFor(new Date())).length;
+    var h = '<p class="muted" style="margin:0">What keeps pulling you away, from ' + state.checkins.length + ' check-ins (' + todayC + ' today).</p>';
+    if (!top.length) h += '<p class="muted">Nothing yet. Your first check-in will start this chart.</p>';
+    else h += '<div class="card stack" style="gap:12px">' + top.map(function (d) { var ix = DISTRACTIONS.indexOf(d); return '<div class="hbar"><span>' + esc(d) + '</span><span class="b"><i style="background:' + (ix >= 0 ? DCOL[ix] : T.ink) + ';width:' + Math.round(counts[d] / max * 100) + '%"></i></span><span style="text-align:right">' + counts[d] + '</span></div>'; }).join('') + '</div>';
+    return { title: 'Distractions', cap: top.length + ' kinds', html: h, bind: bindLog };
+  }
+  function mvstatSheet() {
+    var h = '';
     if (LIB) {
       var all = (state.moves || []).filter(function (m) { return !m.skipped; }), tk = dkey(new Date()), tmv = all.filter(function (m) { return dkey(new Date(m.t)) === tk; });
       var sk = (state.moves || []).filter(function (m) { return m.skipped && dkey(new Date(m.t)) === tk; }).length;
       var cc = { yoga: 0, cardio: 0, strength: 0, stretch: 0 }; all.forEach(function (m) { cc[m.cat]++; });
       var mx = Math.max(1, cc.yoga, cc.cardio, cc.strength, cc.stretch);
-      h += '<section class="card stack" style="gap:12px"><div class="row between"><h2>Movement</h2><span class="muted" style="font-size:12px">today ' + tmv.length + ' done · ' + sk + ' skipped</span></div>';
+      h += '<p class="muted" style="margin:0">Today: ' + tmv.length + ' done, ' + sk + ' skipped. ' + all.length + ' movement snacks in total.</p><div class="card stack" style="gap:12px">';
       Object.keys(cc).forEach(function (c) { h += '<div class="hbar"><span>' + LIB.categories[c].name + '</span><span class="b"><i style="background:' + LIB.categories[c].color + ';width:' + Math.round(cc[c] / mx * 100) + '%"></i></span><span style="text-align:right">' + cc[c] + '</span></div>'; });
-      h += '<span class="muted" style="font-size:12px">' + all.length + ' movement snacks in total</span></section>';
+      h += '</div><button type="button" class="btn coral" data-sheet="move">Today’s movement</button>';
     }
-    var gk = Object.keys(state.goals || {}).sort().reverse();
-    var won = gk.filter(function (k) { return state.goals[k].achievedAt; }).length;
-    h += '<section class="card"><div class="row between" style="margin-bottom:6px"><h2>Daily goals</h2><span class="muted" style="font-size:12px">' + won + ' of ' + gk.length + ' achieved</span></div>';
-    if (!gk.length) h += '<p class="muted" style="margin:0;font-size:14px">Set a target on the Today tab and it will show up here.</p>';
-    gk.slice(0, 20).forEach(function (k) {
+    return { title: 'Movement', cap: 'all time', html: h, bind: bindLog };
+  }
+  function goalsSheet() {
+    var gk = Object.keys(state.goals || {}).sort().reverse(), won = gk.filter(function (k) { return state.goals[k].achievedAt; }).length;
+    var h = '';
+    if (!gk.length) h += '<p class="muted">Set a target on the Today tab and it will show up here.</p>';
+    else h += '<div class="list">' + gk.slice(0, 30).map(function (k) {
       var g = state.goals[k], d = new Date(k + 'T00:00:00');
-      h += '<div class="entry"><div class="row between"><span style="font-size:13px;color:var(--bone2)">' + d.toLocaleDateString('en', { weekday: 'short', month: 'short', day: 'numeric' }) + '</span>' +
-        (g.achievedAt ? '<span class="xp done">Achieved ' + timeOf(g.achievedAt) + '</span>' : '<span class="xp" style="background:var(--raised);color:var(--dim)">Not marked</span>') + '</div>' +
-        '<span style="font-size:14px">' + esc(g.text) + '</span>' + '<button type="button" class="del" data-delgoal="' + k + '" aria-label="Delete this goal">Delete</button>' + (g.updates.length ? '<span class="muted" style="font-size:12px">' + g.updates.length + ' update' + (g.updates.length === 1 ? '' : 's') + ' · last: “' + esc(g.updates[g.updates.length - 1].text) + '”</span>' : '') + '</div>';
-    });
-    h += '</section><section class="card"><h2 style="margin-bottom:6px">Recent check-ins</h2>';
-    if (!list.length) h += '<p class="muted" style="margin:0;font-size:14px">Tap <b style="color:var(--ember)">Check in</b> below, or wait for your next ping.</p>';
-    list.slice(0, 40).forEach(function (c) {
+      return '<div class="r entry"><span class="t">' + esc(g.text) + '<small>' + d.toLocaleDateString('en', { weekday: 'short', month: 'short', day: 'numeric' }) + ' · ' + (g.achievedAt ? 'hit at ' + timeOf(g.achievedAt) : 'not marked') +
+        (g.updates.length ? ' · ' + g.updates.length + ' update' + (g.updates.length === 1 ? '' : 's') : '') + '</small></span>' +
+        '<span class="dot" style="background:' + (g.achievedAt ? T.lagoon : '#C8D3CC') + '"></span><button type="button" class="fx" data-delgoal="' + k + '" aria-label="Delete this goal">×</button></div>';
+    }).join('') + '</div>';
+    return { title: 'Daily targets', cap: won + ' of ' + gk.length + ' hit', html: h, bind: bindLog };
+  }
+  function historySheet() {
+    var list = state.checkins.slice().reverse(), h = '';
+    if (!list.length) h += '<p class="muted">Tap the coral button below, or wait for your next ping.</p>';
+    else h += '<div class="list">' + list.slice(0, 50).map(function (c) {
       var t = new Date(c.t);
-      h += '<div class="entry"><div class="row between"><span style="font-size:13px;color:var(--bone2)">' + t.toLocaleDateString('en', { weekday: 'short', month: 'short', day: 'numeric' }) + ' · ' + t.toLocaleTimeString('en', { hour: 'numeric', minute: '2-digit' }) + '</span>' +
-        (c.presence ? '<span class="xp">' + c.presence + '/5</span>' : '') + '</div>' +
-        (c.distractions.length ? '<span style="font-size:14px">' + esc(c.distractions.join(', ')) + '</span>' : '') +
-        (c.note ? '<span class="muted" style="font-size:13px">“' + esc(c.note) + '”</span>' : '') +
-        '<button type="button" class="del" data-delci="' + esc(c.t) + '" aria-label="Delete this check-in">Delete</button></div>';
-    });
-    h += '</section></div>';
-    return h;
+      return '<div class="r entry"><span class="t">' + (c.distractions.length ? esc(c.distractions.join(', ')) : 'Check-in') + '<small>' + t.toLocaleDateString('en', { weekday: 'short', month: 'short', day: 'numeric' }) + ' · ' + t.toLocaleTimeString('en', { hour: 'numeric', minute: '2-digit' }) + (c.note ? ' · “' + esc(c.note) + '”' : '') + '</small></span>' +
+        (c.presence ? '<span class="v">' + c.presence + '/5</span>' : '') + '<button type="button" class="fx" data-delci="' + esc(c.t) + '" aria-label="Delete this check-in">×</button></div>';
+    }).join('') + '</div>';
+    return { title: 'Check-ins', cap: list.length + ' in total', html: h, bind: bindLog };
   }
 
   function bindLog(view) {
@@ -1147,45 +1257,67 @@
       return state.keys;
     });
   }
-  function renderSettings() {
+  function pushState() {
     var supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
-    var perm = supported ? Notification.permission : 'unsupported';
-    var standalone = window.matchMedia('(display-mode: standalone)').matches;
-    var h = '<div class="stack"><header><h1>Reminders</h1><p class="muted" style="margin:4px 0 0;font-size:14px">' + esc(PING_INFO) + '</p></header>';
-    if (!standalone) h += '<section class="card stack" style="gap:10px"><h2>1 · Put the app on your home screen</h2><ol class="steps"><li>In Chrome, tap the <b>⋮</b> menu (top right).</li><li>Tap <b>Add to Home screen</b> (or <b>Install app</b>), then <b>Install</b>.</li><li>Open <b>Attention</b> from your home screen and come back to this tab.</li></ol></section>';
-    h += '<section class="card stack" style="gap:12px"><h2>' + (standalone ? '1' : '2') + ' · Turn on notifications</h2>';
-    if (!supported) h += '<p class="muted" style="margin:0">This browser can’t receive reminders. Open the app in Chrome.</p>';
-    else if (perm === 'denied') h += '<p style="margin:0;color:var(--bone2)">Notifications are blocked. Long-press the Attention icon → <b>App info</b> → <b>Notifications</b> → turn on, then reopen the app.</p>';
+    return { supported: supported, perm: supported ? Notification.permission : 'unsupported', on: supported && Notification.permission === 'granted' && !!state.code };
+  }
+  function renderSettings() {
+    var ps = pushState(), sv = state.strava || {}, garminBad = sv.pass && sv.error;
+    var ok = ps.on && !garminBad;
+    var h = '<div class="stack">' + topbar('Settings');
+    h += '<section class="hero" style="background:' + (ok ? T.jungle : T.coral) + ';color:#fff">' + sun(ok ? T.mango : 'rgba(255,255,255,.2)', 110, -26, -34) +
+      '<span class="cap">Status</span><span class="display h2">' + (ok ? 'All systems<br><i>running</i>' : !ps.on ? 'Reminders<br><i>are off</i>' : 'Garmin sync<br><i>needs a look</i>') + '</span></section>';
+    var last = state.lastBackup ? ago(state.lastBackup) : 'never';
+    h += '<div class="list">' + row({ t: 'Reminders', v: ps.on ? 'connected' : 'off', dot: ps.on ? T.lagoon : T.coral, sheet: 'reminders' }) +
+      row({ t: 'Garmin sync', v: garminStatus(), dot: garminDot(), sheet: 'garmin' }) +
+      row({ t: 'Backup', v: last, dot: state.lastBackup && Date.now() - new Date(state.lastBackup) < 8 * 86400000 ? T.lagoon : T.mango, sheet: 'data' }) +
+      row({ t: 'Ping schedule', v: '9 am – 9 pm', sheet: 'schedule' }) + row({ t: 'App version', v: APP_VERSION }) + '</div>';
+    return h + '</div>';
+  }
+  function remindersSheet() {
+    var ps = pushState(), standalone = window.matchMedia('(display-mode: standalone)').matches, n = 1;
+    var h = '';
+    if (!standalone) h += '<section class="card stack" style="gap:10px"><h2>' + (n++) + ' · Put the app on your home screen</h2><ol class="steps"><li>In Chrome, tap the <b>⋮</b> menu (top right).</li><li>Tap <b>Add to Home screen</b> (or <b>Install app</b>), then <b>Install</b>.</li><li>Open <b>Attention</b> from your home screen and come back here.</li></ol></section>';
+    h += '<section class="card stack" style="gap:12px"><h2>' + (n++) + ' · Turn on notifications</h2>';
+    if (!ps.supported) h += '<p class="muted" style="margin:0">This browser can’t receive reminders. Open the app in Chrome.</p>';
+    else if (ps.perm === 'denied') h += '<p style="margin:0">Notifications are blocked. Long-press the Attention icon → <b>App info</b> → <b>Notifications</b> → turn on, then reopen the app.</p>';
     else h += '<p class="muted" style="margin:0;font-size:14px">Tap the button and choose <b>Allow</b>. You’ll get a private setup code to paste into GitHub.</p><button type="button" class="btn solid" id="subBtn">' + (state.code ? 'Refresh my code' : 'Turn on reminders') + '</button>';
     if (state.code) {
-      try { var ep = JSON.parse(atob(state.code.slice(6))).s.endpoint; h += '<span class="eyebrow">Connection ID …' + esc(ep.slice(-6)) + '</span>'; } catch (e) {}
+      try { var ep = JSON.parse(atob(state.code.slice(6))).s.endpoint; h += '<span class="cap">Connection ID …' + esc(ep.slice(-6)) + '</span>'; } catch (e) {}
       h += '<div id="connCheck" class="notice">Checking this phone’s connection…</div>';
-      h += '<label for="code" style="font-size:13px;color:var(--bone2)">Your private setup code</label><textarea class="code" id="code" readonly>' + esc(state.code) + '</textarea><button type="button" class="btn" id="copyBtn">Copy code</button>' +
-        '<p class="muted" style="margin:0;font-size:13px">Paste it only into GitHub: your <b>attention</b> project → <b>Settings</b> → <b>Secrets and variables</b> → <b>Actions</b> → <b>New repository secret</b>. Name: <b>PUSH_SETUP</b>. Don’t share it anywhere else.</p>';
+      h += '<label for="code" class="lab">Your private setup code</label><textarea class="code" id="code" readonly>' + esc(state.code) + '</textarea><button type="button" class="btn line" id="copyBtn">Copy code</button>' +
+        '<p class="muted" style="margin:0;font-size:13px">Paste it only into GitHub: your <b>attention</b> project → <b>Settings</b> → <b>Secrets and variables</b> → <b>Actions</b> → secret <b>PUSH_SETUP</b>. Don’t share it anywhere else.</p>';
     }
     h += '</section>';
-    if (supported && perm === 'granted') h += '<section class="card stack" style="gap:10px"><h2>Test on this phone</h2><p class="muted" style="margin:0;font-size:14px">Shows a sample reminder right now, to check that notifications appear. Tap it to open a check-in.</p><button type="button" class="btn" id="testBtn">Show a sample reminder</button></section>';
+    if (ps.supported && ps.perm === 'granted') h += '<section class="card stack" style="gap:10px"><h2>Test on this phone</h2><p class="muted" style="margin:0;font-size:14px">Shows a sample reminder right now. Tap it to open a check-in.</p><button type="button" class="btn line" id="testBtn">Show a sample reminder</button></section>';
+    return { title: 'Reminders', cap: ps.on ? 'connected' : 'off', html: h, bind: bindSettings };
+  }
+  function dataSheet() {
     var last = state.savedAt ? new Date(state.savedAt) : null;
-    h += '<section class="card stack" style="gap:12px" id="dataCard"><h2>Your data</h2>' +
-      '<div class="notice" style="color:var(--sage-hi)"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Auto-save is on' + (last ? ' · last saved ' + last.toLocaleTimeString('en', { hour: 'numeric', minute: '2-digit' }) : '') + '</span></div>' +
-      '<p class="muted" style="margin:0;font-size:13px">Every tap and every letter you type is saved instantly, in two places on this phone, plus a daily snapshot (last 14 days). It stays on this phone only; clearing Chrome’s data or uninstalling would erase it, so save a backup file once a week.</p>' +
-      '<div class="row" style="flex-wrap:wrap"><button type="button" class="btn" id="expBtn">Save backup file</button><button type="button" class="btn" id="impBtn">Restore from file</button><input type="file" id="impFile" accept="application/json,.json" hidden></div>' +
-      '<div class="stack" style="gap:8px"><span style="font-size:14px;color:var(--bone2)">Go back to an earlier day</span><div id="snaps" class="row" style="flex-wrap:wrap;gap:8px"><span class="muted" style="font-size:13px">Loading…</span></div></div>' +
-      '<div class="stack" style="gap:8px;padding-top:12px;border-top:1px solid var(--line2)"><span style="font-size:14px;color:var(--bone2)">Delete</span>' +
-      '<p class="muted" style="margin:0;font-size:13px">Remove single check-ins or goals from the Insights tab. Or:</p>' +
-      '<div class="row" style="flex-wrap:wrap"><button type="button" class="btn ghost" id="delCi">Delete all check-ins</button><button type="button" class="btn ghost" id="resetBtn" style="border-color:#E0312B;color:#C0261F">Erase everything</button></div></div></section>' +
-      '<p class="eyebrow" style="text-align:center;margin:0">App version ' + APP_VERSION + '</p></div>';
-    return h;
+    var h = '<div class="notice ok"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Auto-save is on' + (last ? ' · last saved ' + last.toLocaleTimeString('en', { hour: 'numeric', minute: '2-digit' }) : '') + '</span></div>' +
+      '<p class="muted" style="margin:0;font-size:13px">Every tap is saved instantly on this phone, plus a daily snapshot (last 14 days). Clearing Chrome’s data or uninstalling would erase it, so save a backup file once a week.</p>' +
+      '<div class="row"><button type="button" class="btn coral" id="expBtn" style="flex:1">Save backup</button><button type="button" class="btn line" id="impBtn" style="flex:1">Restore file</button><input type="file" id="impFile" accept="application/json,.json" hidden></div>' +
+      '<div class="stack" style="gap:8px"><span class="lab">Go back to an earlier day</span><div id="snaps" class="dchips"><span class="muted" style="font-size:13px">Loading…</span></div></div>' +
+      '<div class="stack" style="gap:8px;padding-top:12px;border-top:1px solid #EADCC6"><span class="lab">Delete</span>' +
+      '<p class="muted" style="margin:0;font-size:13px">Remove single check-ins or targets from Insights. Or:</p>' +
+      '<div class="row" style="flex-wrap:wrap"><button type="button" class="btn line small" id="delCi">Delete all check-ins</button><button type="button" class="btn line small danger" id="resetBtn">Erase everything</button></div></div>';
+    return { title: 'Your data', cap: state.lastBackup ? 'backup ' + ago(state.lastBackup) : 'no backup yet', html: h, bind: bindSettings };
+  }
+  function scheduleSheet() {
+    var h = '<div class="list">' + row({ t: 'Morning target', sub: 'set your one thing for the day', v: '9 am', dot: T.coral }) + row({ t: 'Mindful pings', sub: 'random times, at least a little apart', v: PINGS + ' a day', dot: T.lagoon }) +
+      row({ t: 'Movement snacks', sub: 'yoga, cardio, strength or stretching', v: 'every 30 min', dot: T.mango }) + row({ t: 'Last ping', v: '9 pm', dot: T.jungle }) + '</div>' +
+      '<p class="muted small">' + esc(PING_INFO) + ' GitHub sends them, so a ping can arrive a few minutes late.</p>';
+    return { title: 'Ping schedule', cap: '9 am – 9 pm', html: h, bind: bindSettings };
   }
   function bindSettings(view) {
     var cc = view.querySelector('#connCheck');
     if (cc && 'serviceWorker' in navigator) {
       navigator.serviceWorker.ready.then(function (reg) { return reg.pushManager.getSubscription(); }).then(function (sub) {
         var stored = null; try { stored = JSON.parse(atob(state.code.slice(6))).s.endpoint; } catch (e) {}
-        if (!sub) { cc.style.background = '#FFE3DF'; cc.innerHTML = '<b>Not connected.</b>&nbsp;This phone has no active reminder connection. Tap the button above, then update PUSH_SETUP on GitHub with the new code.'; state.code = null; save(); return; }
+        if (!sub) { cc.style.background = '#FFE1DB'; cc.innerHTML = '<b>Not connected.</b>&nbsp;This phone has no active reminder connection. Tap the button above, then update PUSH_SETUP on GitHub with the new code.'; state.code = null; save(); return; }
         if (sub.endpoint !== stored) {
           state.code = 'ATTN2.' + btoa(JSON.stringify({ s: sub.toJSON(), k: state.keys.pub, p: state.keys.priv })); save();
-          cc.style.background = '#FFE3DF'; cc.innerHTML = '<b>Your code changed.</b>&nbsp;Copy the new code below and update PUSH_SETUP on GitHub.'; setTimeout(render, 2500); return;
+          cc.style.background = '#FFE1DB'; cc.innerHTML = '<b>Your code changed.</b>&nbsp;Copy the new code below and update PUSH_SETUP on GitHub.'; setTimeout(render, 2500); return;
         }
         cc.style.background = 'rgba(23,168,100,.14)'; cc.innerHTML = '✓ This phone is connected. If GitHub still says 410, the code saved on GitHub is an older one: copy this one and update PUSH_SETUP.';
       }).catch(function () { cc.textContent = 'Could not check the connection.'; });
@@ -1223,13 +1355,16 @@
         reg.showNotification('Pause for a minute', { body: 'Where is your attention right now? Tap to check in.', icon: 'icons/icon-192.png', badge: 'icons/badge-96.png', tag: 'attention-ping', data: { url: './?checkin=1' } });
       });
     };
-    view.querySelector('#expBtn').onclick = function () {
+    var eb = view.querySelector('#expBtn');
+    if (eb) eb.onclick = function () {
+      state.lastBackup = new Date().toISOString(); save(); setTimeout(render, 300);
       var a = document.createElement('a'), copy = JSON.parse(JSON.stringify(state));
       delete copy.keys; delete copy.code;
       a.href = URL.createObjectURL(new Blob([JSON.stringify(copy, null, 2)], { type: 'application/json' }));
       a.download = 'attention-backup-' + new Date().toISOString().slice(0, 10) + '.json'; a.click();
     };
     var imp = view.querySelector('#impFile');
+    if (!imp) return;
     view.querySelector('#impBtn').onclick = function () { imp.click(); };
     imp.onchange = function () {
       var f = imp.files[0]; if (!f) return;
@@ -1271,21 +1406,96 @@
       var code = state.code, keys = state.keys; state = fresh(); state.code = code; state.keys = keys;
       state.days[1].sit = false; state.days[1].note = '';
       var t = new Date(); state.startDate = t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0');
-      save(); ui.sel = null; ui.tab = 'trail'; render();
+      save(); ui.sel = null; ui.tab = 'trail'; closeSheet(); render();
     };
   }
+
+  // ---------- detail sheets (slide up from the bottom) ----------
+  function sheetFor(kind, arg) {
+    switch (kind) {
+      case 'progress': return progressSheet();
+      case 'day': return daySheet(ui.sel || todayNum());
+      case 'move': return { title: 'Movement', cap: 'every 30 min', html: bodyCard(), bind: function (r) { bindTrail(r, todayNum()); } };
+      case 'meal': return mealSheet(arg || 'breakfast');
+      case 'about': return aboutSheet();
+      case 'targets': return targetsSheet();
+      case 'weight': return weightSheet();
+      case 'week': return weekSheet();
+      case 'roadmap': return roadmapSheet();
+      case 'garmin': return garminSheet();
+      case 'dist': return distSheet();
+      case 'mvstat': return mvstatSheet();
+      case 'goals': return goalsSheet();
+      case 'history': return historySheet();
+      case 'reminders': return remindersSheet();
+      case 'data': return dataSheet();
+      case 'schedule': return scheduleSheet();
+    }
+    return null;
+  }
+  function drawSheet() {
+    var w = document.getElementById('sheet');
+    if (!ui.sheet) { w.hidden = true; return; }
+    var s = sheetFor(ui.sheet.kind, ui.sheet.arg);
+    if (!s) { ui.sheet = null; w.hidden = true; return; }
+    var body = w.querySelector('.sbody'), top = body.scrollTop;
+    w.querySelector('.stitle').innerHTML = s.title;
+    w.querySelector('.scap').innerHTML = s.cap || '';
+    body.innerHTML = s.html;
+    body.scrollTop = top;
+    w.hidden = false;
+    document.body.style.overflow = 'hidden';
+    s.bind(body);
+  }
+  function openSheet(spec) {
+    var p = String(spec).split(':'), w = document.getElementById('sheet'), first = !ui.sheet;
+    ui.sheet = { kind: p[0], arg: p.slice(1).join(':') };
+    w.querySelector('.sbody').scrollTop = 0;
+    if (first) { try { history.pushState({ sheet: 1 }, ''); } catch (e) {} w.classList.remove('in'); }
+    drawSheet();
+    if (first) requestAnimationFrame(function () { requestAnimationFrame(function () { w.classList.add('in'); }); });
+    if (p[0] === 'garmin') stravaSync(false);
+  }
+  function closeSheet(fromPop) {
+    if (!ui.sheet) return;
+    ui.sheet = null;
+    var w = document.getElementById('sheet');
+    w.classList.remove('in'); w.hidden = true; w.querySelector('.panel').style.transform = '';
+    document.body.style.overflow = '';
+    if (!fromPop && history.state && history.state.sheet) { try { history.back(); } catch (e) {} }
+  }
+  window.addEventListener('popstate', function () { if (ui.sheet) closeSheet(true); });
+  (function () {
+    var w = document.getElementById('sheet'), panel = w.querySelector('.panel'), y0 = null, dy = 0;
+    w.querySelector('.dim').addEventListener('click', function () { closeSheet(); });
+    w.querySelector('.sclose').addEventListener('click', function () { closeSheet(); });
+    var head = w.querySelector('.shead');
+    head.addEventListener('touchstart', function (e) { y0 = e.touches[0].clientY; dy = 0; panel.style.transition = 'none'; }, { passive: true });
+    head.addEventListener('touchmove', function (e) { if (y0 === null) return; dy = Math.max(0, e.touches[0].clientY - y0); panel.style.transform = 'translateY(' + dy + 'px)'; }, { passive: true });
+    head.addEventListener('touchend', function () { panel.style.transition = ''; if (dy > 90) closeSheet(); else panel.style.transform = ''; y0 = null; });
+  })();
+  // rows and cards that open a sheet or jump to another tab
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest && e.target.closest('[data-sheet],[data-tab-go]');
+    if (!t) return;
+    if (t.dataset.sheet) { openSheet(t.dataset.sheet); return; }
+    var g = t.dataset.tabGo.split(':');
+    closeSheet(); ui.tab = g[0]; if (g[1]) fitUi.view = g[1];
+    render(); window.scrollTo(0, 0);
+  });
 
   // ---------- shell ----------
   function render() {
     var view = document.getElementById('view');
-    if (ui.tab === 'trail') { view.innerHTML = renderTrail(); bindTrail(view); }
+    if (ui.tab === 'trail') { view.innerHTML = renderToday(); bindTrail(view, todayNum()); }
     else if (ui.tab === 'log') { view.innerHTML = renderLog(); bindLog(view); }
     else if (ui.tab === 'fit') { view.innerHTML = renderFit(); bindFit(view); if (fitUi.view === 'plan') stravaSync(false); }
-    else { view.innerHTML = renderSettings(); bindSettings(view); }
+    else { view.innerHTML = renderSettings(); bindSettings(view); stravaSync(false); }
     document.querySelectorAll('.tab[data-tab]').forEach(function (t) { t.classList.toggle('on', t.dataset.tab === ui.tab); t.setAttribute('aria-current', t.dataset.tab === ui.tab ? 'page' : 'false'); });
+    drawSheet();
   }
   document.querySelectorAll('.tab[data-tab]').forEach(function (t) {
-    t.addEventListener('click', function () { ui.tab = t.dataset.tab; render(); window.scrollTo(0, 0); });
+    t.addEventListener('click', function () { closeSheet(); ui.tab = t.dataset.tab; render(); window.scrollTo(0, 0); });
   });
   document.getElementById('checkinBtn').addEventListener('click', openCheckin);
 

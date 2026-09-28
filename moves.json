@@ -1,9 +1,9 @@
 {
   "categories": {
-    "yoga": { "name": "Yoga", "color": "#1D5BD8" },
-    "cardio": { "name": "Cardio", "color": "#FF5A1F" },
-    "strength": { "name": "Strength", "color": "#E0312B" },
-    "stretch": { "name": "Stretch", "color": "#0E9C95" }
+    "yoga": { "name": "Yoga", "color": "#12A39A" },
+    "cardio": { "name": "Cardio", "color": "#FF6B57" },
+    "strength": { "name": "Strength", "color": "#0F4D40" },
+    "stretch": { "name": "Stretch", "color": "#F28C28" }
   },
   "moves": [
     { "id": "neck", "cat": "stretch", "name": "Neck release", "secs": 40, "inc": 0, "cue": "Right at your desk.", "how": ["Sit tall, shoulders heavy.", "Tip your right ear towards your right shoulder and take 3 slow breaths.", "Switch sides."] },
