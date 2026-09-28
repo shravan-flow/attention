@@ -3,9 +3,9 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '17';
+  var APP_VERSION = '18';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
-  var PING_INFO = 'A good-morning ping at 9am to set your daily goal, then 10 mindful pings at random times until 9pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
+  var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
   // ---------- state ----------
   function blankDays() {
@@ -101,29 +101,50 @@
     4: { name: 'Ring 4 · Stack', desc: 'Stack it, and start noticing your triggers.', first: 21, last: 30 }
   };
   function checkinsOn(n) { return state.checkins.filter(function (c) { return dayNumFor(new Date(c.t)) === n; }); }
-  // ---------- daily goal ----------
+  // ---------- daily targets: several a day; tonight you can plan tomorrow's ----------
   function dkey(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
   function dayDate(n) { var d = startDate(); d.setDate(d.getDate() + n - 1); return d; }
-  function goalFor(key) { return (state.goals || {})[key]; }
-  function todayGoal() { return goalFor(dkey(new Date())); }
-  function isAchievedText(t) { return /^\s*achieved[.!\s]*$/i.test(t || ''); }
-  function setGoal(text) {
-    state.goals = state.goals || {};
-    var k = dkey(new Date()), g = state.goals[k];
-    if (g) g.text = text; else state.goals[k] = { text: text, setAt: new Date().toISOString(), updates: [], achievedAt: null };
+  // older versions kept one "goal" per day: turn those into targets
+  function migrate(st) {
+    if (!st) return;
+    if (!st.targets) {
+      st.targets = {};
+      Object.keys(st.goals || {}).forEach(function (k) {
+        var g = st.goals[k];
+        if (g && g.text) st.targets[k] = [{ id: 'g' + k.replace(/-/g, ''), text: g.text, setAt: g.setAt, updates: g.updates || [], achievedAt: g.achievedAt || null }];
+      });
+      delete st.goals;
+    }
+    st.journal = st.journal || {};
   }
-  function goalUpdate(text, achieved) {
-    var g = todayGoal(); if (!g) return;
+  migrate(state);
+  function targetsFor(key) { return (state.targets || {})[key] || []; }
+  function todayTargets() { return targetsFor(dkey(new Date())); }
+  function openTargets() { return todayTargets().filter(function (t) { return !t.achievedAt; }); }
+  function tomorrowKey() { var d = new Date(); d.setDate(d.getDate() + 1); return dkey(d); }
+  function findTarget(id) {
+    var ks = Object.keys(state.targets || {});
+    for (var i = 0; i < ks.length; i++) { var a = state.targets[ks[i]]; for (var j = 0; j < a.length; j++) if (a[j].id === id) return { t: a[j], key: ks[i], list: a }; }
+    return null;
+  }
+  function addTarget(key, text) {
+    state.targets = state.targets || {};
+    (state.targets[key] = state.targets[key] || []).push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), text: text, setAt: new Date().toISOString(), updates: [], achievedAt: null, planned: key > dkey(new Date()) });
+  }
+  function isAchievedText(t) { return /^\s*(achieved|done|hit)[.!\s]*$/i.test(t || ''); }
+  function targetUpdate(t, text, achieved) {
     text = (text || '').trim();
     if (isAchievedText(text)) { achieved = true; text = ''; }
-    if (text) g.updates.push({ t: new Date().toISOString(), text: text });
-    if (achieved && !g.achievedAt) g.achievedAt = new Date().toISOString();
+    if (text) t.updates.push({ t: new Date().toISOString(), text: text });
+    if (achieved && !t.achievedAt) t.achievedAt = new Date().toISOString();
   }
+  function hitCount(key) { return targetsFor(key).filter(function (t) { return t.achievedAt; }).length; }
+  // the service worker adds the open targets to each ping
   function syncGoal() {
     try {
-      var g = todayGoal();
+      var o = openTargets();
       caches.open('attention-data').then(function (c) {
-        return c.put('goal.json', new Response(JSON.stringify(g && !g.achievedAt ? { day: dkey(new Date()), text: g.text } : {}), { headers: { 'Content-Type': 'application/json' } }));
+        return c.put('goal.json', new Response(JSON.stringify(o.length ? { day: dkey(new Date()), text: o.map(function (t) { return t.text; }).join(' · '), n: o.length } : {}), { headers: { 'Content-Type': 'application/json' } }));
       }).catch(function () {});
     } catch (e) {}
   }
@@ -137,10 +158,11 @@
     if (pn >= 3) { need++; if (d.sprint) { xp += 20; got++; } }
     if (got === need) xp += 10;
     xp += Math.min(checkinsOn(n).length, PINGS) * 5;
-    var g = goalFor(dkey(dayDate(n)));
-    if (g) { xp += 5; if (g.achievedAt) xp += 20; }
+    var dk = dkey(dayDate(n)), ts = targetsFor(dk);
+    xp += Math.min(ts.length, 5) * 5 + Math.min(hitCount(dk), 5) * 20;
+    if ((state.vizDone || {})[dk]) xp += 5;
     xp += Math.min(movesOn(dkey(dayDate(n))).length, 12) * 5;
-    xp += Math.min(trainingOn(dkey(dayDate(n))), 2) * 10;
+    xp += Math.min(trainingOn(dkey(dayDate(n))) + badmintonOn(dkey(dayDate(n))), 2) * 10;
     return xp;
   }
   function totalXp() { var t = 0; for (var i = 1; i <= 30; i++) t += dayXp(i); return t; }
@@ -256,8 +278,10 @@
     h += goalCard();
     h += timerBlock();
     var hasNote = !!(d.note || '').trim();
-    h += '<div class="list">' + questsFor(today).map(function (q) { return questRow(q, d, today, false); }).join('') +
-      row({ t: 'Journal', sub: hasNote ? esc(d.note) : 'what pulled you away today?', v: hasNote ? '✓' : '+5', sheet: 'day' }) + '</div>';
+    var vd = (state.vizDone || {})[key], vs = vizSettings(), jn = state.journal[key] || {};
+    h += '<div class="list"><button type="button" class="r" data-viz="1"><span class="gob sm" aria-hidden="true">' + PLAY + '</span><span class="t' + (vd ? ' done' : '') + '">Visualize<small>' + vs.mins + ' min · ' + esc(vizTopicName(vs)) + '</small></span><span class="v">' + (vd ? '✓' : '+5') + '</span></button>' +
+      questsFor(today).map(function (q) { return questRow(q, d, today, false); }).join('') +
+      row({ t: 'Journal', sub: jn.well ? esc(jn.well) : hasNote ? esc(d.note) : 'tonight: your day, and tomorrow’s targets', v: hasNote || jn.well ? '✓' : '+5', sheet: 'tonight' }) + '</div>';
     var mvN = LIB ? movesOn(key).length : 0, cN = checkinsOn(today).length, bc = bodyCalc(), eaten = sumItems(foodDay(key).filter(function (i) { return !i.planned; }));
     h += '<div class="chips">' +
       '<button type="button" class="chip" data-sheet="move" style="background:#FFE6B8"><b class="display">' + mvN + '</b><small>moves today</small></button>' +
@@ -266,16 +290,118 @@
     return h + '</div>';
   }
 
+  var TICK = '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  function tsub(t) {
+    var lu = t.updates[t.updates.length - 1];
+    return t.achievedAt ? 'hit at ' + timeOf(t.achievedAt) : lu ? 'Latest: ' + esc(lu.text) + ' · ' + timeOf(lu.t) : t.planned ? 'planned the night before' : 'no update yet';
+  }
+  function tickBtn(t, cls) { return '<button type="button" class="tck ' + (cls || '') + (t.achievedAt ? ' on' : '') + '" data-thit="' + t.id + '" aria-pressed="' + !!t.achievedAt + '" aria-label="' + (t.achievedAt ? 'Mark as not hit: ' : 'Mark as hit: ') + esc(t.text) + '">' + (t.achievedAt ? TICK : '') + '</button>'; }
   function goalCard() {
-    var g = todayGoal();
-    var open = function (bg, cap, text, extra, go) {
-      return '<button type="button" class="hero goalc" data-goal="open" style="background:' + bg + ';color:#fff">' + sun('rgba(255,255,255,.18)', 90, -26, -30) +
-        '<span class="cap">' + cap + '</span><span class="display gt">' + text + '</span>' + (extra || '') + '<span class="go">' + go + '</span></button>';
+    var ts = todayTargets(), hit = ts.filter(function (t) { return t.achievedAt; }).length;
+    if (!ts.length) return '<button type="button" class="hero goalc" data-sheet="targets" style="background:' + T.coral + ';color:#fff">' + sun('rgba(255,255,255,.18)', 90, -26, -30) +
+      '<span class="cap">Today’s targets · +5 XP each</span><span class="display gt">What do you want to get done today?</span><span class="go">Set today’s targets →</span></button>';
+    var h = '<div class="hero goalc" role="button" tabindex="0" data-sheet="targets" aria-label="Today’s targets" style="background:' + (hit === ts.length ? T.lagoon : T.coral) + ';color:#fff">' + sun('rgba(255,255,255,.18)', 90, -26, -30) +
+      '<span class="row between"><span class="cap">Today’s targets</span><span class="pill">' + hit + ' of ' + ts.length + ' hit</span></span><div class="tgl">';
+    ts.slice(0, 4).forEach(function (t) { h += '<div class="tg">' + tickBtn(t, 'w') + '<span class="tt' + (t.achievedAt ? ' done' : '') + '">' + esc(t.text) + '<small>' + tsub(t) + '</small></span></div>'; });
+    if (ts.length > 4) h += '<span class="small">+ ' + (ts.length - 4) + ' more</span>';
+    return h + '</div><span class="go">Update or add →</span></div>';
+  }
+  function bindTargets(root) {
+    root.querySelectorAll('[data-thit]').forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var f = findTarget(b.dataset.thit); if (!f) return;
+        var was = !!f.t.achievedAt;
+        mutate(function () { if (was) f.t.achievedAt = null; else targetUpdate(f.t, '', true); });
+        if (!was) toast('Target hit · +20 XP');
+      });
+    });
+    var add = root.querySelector('#tAdd'), inp = root.querySelector('#tNew');
+    if (add) {
+      var go = function () { var v = inp.value.trim(); if (!v) { inp.focus(); return; } var k = inp.dataset.key; mutate(function () { addTarget(k, v); }); var n = document.getElementById('tNew'); if (n) try { n.focus(); } catch (e) {} };
+      add.onclick = go;
+      inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); go(); } });
+    }
+    root.querySelectorAll('[data-tdel]').forEach(function (b) {
+      b.onclick = function () { var f = findTarget(b.dataset.tdel); if (!f || !confirm('Delete “' + f.t.text + '”?')) return; f.list.splice(f.list.indexOf(f.t), 1); if (!f.list.length) delete state.targets[f.key]; save(); syncGoal(); if (ui.sheet && ui.sheet.kind === 'target') closeSheet(); render(); };
+    });
+    var tu = root.querySelector('#tuText');
+    if (tu) {
+      var id = tu.dataset.tid;
+      if (state.tuDraft && state.tuDraft.id === id && !tu.value) tu.value = state.tuDraft.text;
+      tu.addEventListener('input', function () { state.tuDraft = { id: id, text: tu.value }; save(); });
+      var sv = function (win) {
+        var f = findTarget(id); if (!f) return; var tx = tu.value; if (!tx.trim() && !win) { tu.focus(); return; }
+        var hitNow = win || isAchievedText(tx);
+        delete state.tuDraft; mutate(function () { targetUpdate(f.t, tx, win); });
+        toast(hitNow ? 'Target hit · +20 XP' : 'Update saved');
+      };
+      root.querySelector('#tuSave').onclick = function () { sv(false); };
+      root.querySelector('#tuWin').onclick = function () { sv(true); };
+    }
+    var un = root.querySelector('#tuUndo'); if (un) un.onclick = function () { var f = findTarget(un.dataset.tid); if (f) mutate(function () { f.t.achievedAt = null; }); };
+    var ed = root.querySelector('#tuEdit'); if (ed) ed.onclick = function () { var f = findTarget(ed.dataset.tid); if (!f) return; var v = prompt('Edit target', f.t.text); if (v && v.trim()) mutate(function () { f.t.text = v.trim(); }); };
+  }
+  function targetsSheet() {
+    var tk = dkey(new Date()), ts = todayTargets(), hit = hitCount(tk), tom = targetsFor(tomorrowKey());
+    var h = ts.length ? '<div class="list">' + ts.map(function (t) {
+      var st = t.achievedAt ? ['hit', '#CDEFEA'] : t.updates.length ? ['going', '#FFE6B8'] : ['to do', '#F1E6D6'];
+      return '<div class="r">' + tickBtn(t) + '<button type="button" class="rt" data-sheet="target:' + t.id + '"><span class="t">' + esc(t.text) + '<small>' + tsub(t) + '</small></span><span class="pill" style="background:' + st[1] + '">' + st[0] + '</span>' + CHEV + '</button></div>';
+    }).join('') + '</div>' : '<p class="muted" style="margin:0">No targets yet. What matters most today? Add one, two or three.</p>';
+    h += '<div class="row"><input id="tNew" data-key="' + tk + '" class="text" placeholder="Add a target for today" style="flex:1" enterkeyhint="done"><button type="button" class="btn coral" id="tAdd">Add</button></div>';
+    h += '<div class="list">' + row({ t: 'Tomorrow’s targets', sub: 'they become tomorrow’s automatically', v: tom.length ? tom.length + ' planned' : 'plan', dot: T.mango, sheet: 'tomorrow' }) + '</div>';
+    h += '<p class="muted small">Every ping asks about the targets that aren’t hit yet. +5 XP for each target you set and +20 for each one you hit (up to 5 a day).</p>';
+    return { title: 'Targets', cap: hit + ' of ' + ts.length + ' hit', html: h, bind: bindTargets };
+  }
+  function targetSheet(id) {
+    var f = findTarget(id); if (!f) return targetsSheet();
+    var t = f.t, other = f.key !== dkey(new Date());
+    var h = '<div class="hero goalc" style="background:' + (t.achievedAt ? T.lagoon : T.coral) + ';color:#fff">' + sun('rgba(255,255,255,.18)', 90, -26, -30) +
+      '<span class="cap">' + (other ? new Date(f.key + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + ' · ' : '') + 'set ' + timeOf(t.setAt) + '</span><span class="display gt">' + esc(t.text) + '</span></div>';
+    if (t.updates.length) h += '<div class="list">' + t.updates.map(function (u) { return '<div class="r upd2"><span class="cap">' + timeOf(u.t) + '</span><span class="t">' + esc(u.text) + '</span></div>'; }).join('') + '</div>';
+    if (!t.achievedAt) {
+      h += '<textarea class="text" id="tuText" data-tid="' + t.id + '" placeholder="Where are you with it? (or type “done”)"></textarea>' +
+        '<div class="row"><button type="button" class="btn line" id="tuSave" style="flex:1">Save update</button><button type="button" class="btn lagoon" id="tuWin" style="flex:1">Hit it · +20</button></div>';
+    } else h += '<div class="notice ok">Hit at ' + timeOf(t.achievedAt) + '. Nice work.</div><button type="button" class="btn line small" id="tuUndo" data-tid="' + t.id + '" style="align-self:flex-start">Undo: not hit yet</button>';
+    h += '<div class="row"><button type="button" class="link" id="tuEdit" data-tid="' + t.id + '">Edit text</button><button type="button" class="link" data-tdel="' + t.id + '" style="color:#D9463A">Delete target</button></div>';
+    return { title: 'Update', cap: t.updates.length + ' update' + (t.updates.length === 1 ? '' : 's'), html: h, bind: bindTargets };
+  }
+  function planList(k) {
+    var ts = targetsFor(k);
+    return (ts.length ? '<div class="list">' + ts.map(function (t) { return '<div class="r"><span class="dot" style="background:' + T.mango + '"></span><span class="t">' + esc(t.text) + '</span><button type="button" class="fx" data-tdel="' + t.id + '" aria-label="Delete ' + esc(t.text) + '">×</button></div>'; }).join('') + '</div>' : '') +
+      '<div class="row"><input id="tNew" data-key="' + k + '" class="text" placeholder="Add a target for tomorrow" style="flex:1" enterkeyhint="done"><button type="button" class="btn coral" id="tAdd">Add</button></div>';
+  }
+  function tomorrowSheet() {
+    var k = tomorrowKey(), d = new Date(k + 'T00:00:00');
+    var h = '<p class="muted" style="margin:0">Plan the day ahead. These show up as tomorrow’s targets automatically, and the morning ping will remind you of them.</p>' + planList(k);
+    return { title: 'Tomorrow', cap: d.toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }), html: h, bind: bindTargets };
+  }
+  // night journal: mood, two short prompts, and tomorrow's targets
+  var MOODS = ['😞', '😐', '🙂', '😄'];
+  function tonightSheet(key) {
+    var tk = dkey(new Date()); key = key || tk;
+    var j = state.journal[key] || {}, d = new Date(key + 'T00:00:00'), n = dayNumFor(d), note = n >= 1 && n <= 30 ? state.days[n].note : '';
+    var h = '<div class="hero" style="background:#1B2F5A;color:#fff">' + sun('#FFE6B8', 70, 22, 18) + '<span class="cap">' + (key === tk ? 'Before bed' : d.toLocaleDateString('en', { weekday: 'long', day: 'numeric', month: 'short' })) + '</span><span class="display h2" style="margin:0">How was<br><i>' + (key === tk ? 'your day?' : 'that day?') + '</i></span></div>';
+    h += '<div class="optrow" role="group" aria-label="Mood">' + MOODS.map(function (m, i) { return '<button type="button" class="opt mood" data-mood="' + (i + 1) + '" aria-pressed="' + (j.mood === i + 1) + '">' + m + '</button>'; }).join('') + '</div>';
+    h += '<label class="lab" for="jWell">What went well?</label><textarea class="text" id="jWell" data-jkey="' + key + '" placeholder="one or two things">' + esc(j.well || '') + '</textarea>';
+    h += '<label class="lab" for="jAway">What pulled you away? <span class="muted">+5 XP</span></label><textarea class="text" id="jAway" placeholder="a thought, a ping, a craving…">' + esc(j.away || note || '') + '</textarea>';
+    h += '<label class="lab" for="jMore">Anything else on your mind?</label><textarea class="text" id="jMore" placeholder="optional">' + esc(j.more || '') + '</textarea>';
+    if (key === tk) h += '<div class="row between"><span class="lab">Tomorrow’s targets</span><span class="cap">become tomorrow’s</span></div>' + planList(tomorrowKey());
+    h += '<button type="button" class="btn jungle" id="jDone">' + (key === tk ? 'Save · good night' : 'Save') + '</button>';
+    return { title: key === tk ? 'Tonight' : 'Journal', cap: key === tk ? new Date().toLocaleTimeString('en', { hour: 'numeric', minute: '2-digit' }) : '', html: h, bind: function (r) { bindTargets(r); bindJournal(r); } };
+  }
+  function bindJournal(r) {
+    var w = r.querySelector('#jWell'); if (!w) return;
+    var key = w.dataset.jkey, n = dayNumFor(new Date(key + 'T00:00:00'));
+    var put = function () {
+      var j = state.journal[key] = state.journal[key] || {};
+      j.well = w.value; j.away = r.querySelector('#jAway').value; j.more = r.querySelector('#jMore').value; j.at = new Date().toISOString();
+      if (n >= 1 && n <= 30) state.days[n].note = j.away;
+      save();
     };
-    if (!g) return open(T.coral, 'Today’s target · +5 XP', 'What’s the one thing you want to get done today?', '', 'Set today’s target →');
-    if (g.achievedAt) return open(T.lagoon, 'Target hit · ' + timeOf(g.achievedAt), esc(g.text), '', 'See how it went →');
-    var last = g.updates[g.updates.length - 1];
-    return open(T.coral, 'Today’s target', esc(g.text), last ? '<span class="gl">Latest: ' + esc(last.text) + '</span>' : '', 'Add an update →');
+    ['#jWell', '#jAway', '#jMore'].forEach(function (id) { r.querySelector(id).addEventListener('input', put); });
+    r.querySelectorAll('[data-mood]').forEach(function (b) { b.onclick = function () { put(); state.journal[key].mood = +b.dataset.mood; save(); drawSheet(); }; });
+    r.querySelector('#jDone').onclick = function () { put(); closeSheet(); mutate(function () {}); toast(key === dkey(new Date()) ? 'Saved. Good night.' : 'Saved'); };
   }
 
   // --- Today detail sheets ---
@@ -302,7 +428,7 @@
     var nMv = (state.moves || []).filter(function (m) { return !m.skipped; }).length, allRound = false, perDay = {};
     (state.moves || []).forEach(function (m) { if (m.skipped) return; var dk = dkey(new Date(m.t)); (perDay[dk] = perDay[dk] || {})[m.cat] = 1; });
     Object.keys(perDay).forEach(function (dk) { if (Object.keys(perDay[dk]).length >= 4) allRound = true; });
-    var best = bestStreak(), nC = state.checkins.length, nG = Object.keys(state.goals || {}).filter(function (x) { return state.goals[x].achievedAt; }).length;
+    var best = bestStreak(), nC = state.checkins.length, nG = Object.keys(state.targets || {}).reduce(function (a, k) { return a + hitCount(k); }, 0);
     var B = [['First sit', 'flag', T.lagoon, sits >= 1, '0/1 sit'], ['Hat-trick', 'three', '#F28C28', best >= 3, Math.min(best, 3) + '/3 days'], ['Seven straight', 'seven', T.coral, best >= 7, Math.min(best, 7) + '/7 days'],
       ['Ten check-ins', 'wrench', T.lagoon, nC >= 10, Math.min(nC, 10) + '/10'], ['Flat out', 'gauge', T.jungle, sprints >= 1, '0/1 sprint'], ['Phase one', 'curve', T.hib, p1 >= 5, p1 + '/5 sits'],
       ['Five targets', 'cup', T.mango, nG >= 5, Math.min(nG, 5) + '/5'], ['Full distance', 'helmet', T.jungle, sits >= 30, sits + '/30'],
@@ -350,7 +476,7 @@
     if (stop) stop.addEventListener('click', function () { clearInterval(ui.timer.iv); ui.timer = null; render(); });
     view.querySelectorAll('[data-goal]').forEach(function (b) {
       b.addEventListener('click', function () {
-        if (b.dataset.goal === 'win') mutate(function () { goalUpdate('', true); });
+        if (b.dataset.goal === 'win') hitSingle();
         else openGoal();
       });
     });
@@ -382,23 +508,16 @@
   var DCOL = ['#FF6B57', '#E8457A', '#0F4D40', '#12A39A', '#F28C28', '#B83280', '#C98A12', '#5B7BD5', '#6F7D74', '#2BB673'];
   var ci = null;
   function openCheckin() {
-    if (typeof stopMoveTimer === 'function') { stopMoveTimer(); mv = null; }
+    resetOverlay();
     var dr = state.ciDraft;
     if (dr && Date.now() - dr.at < 10 * 60000) { ci = Object.assign({ stage: 'reflect', secs: 60, running: false, left: 60 }, dr.ci); drawCheckin(); document.getElementById('overlay').hidden = false; document.body.style.overflow = 'hidden'; return; }
-    var tg = todayGoal();
-    ci = { stage: tg && !tg.achievedAt ? 'goal' : 'breathe', secs: 60, running: false, left: 60, picks: [], presence: 0, note: '', gUpd: '', gWin: false, gNew: '' };
+    ci = { stage: openTargets().length ? 'goal' : 'breathe', secs: 60, running: false, left: 60, picks: [], presence: 0, note: '', gNew: '', tu: {}, th: {} };
     drawCheckin();
     document.getElementById('overlay').hidden = false;
     document.body.style.overflow = 'hidden';
   }
   function closeCheckin() {
-    gv = null;
-    document.getElementById('overlay').classList.remove('dark');
-    if (ci && ci.iv) clearInterval(ci.iv);
-    if (ci && ci.bt) clearTimeout(ci.bt);
-    ci = null;
-    document.getElementById('overlay').hidden = true;
-    document.body.style.overflow = '';
+    resetOverlay(); closeOverlayEl();
     if (location.search) history.replaceState(history.state, '', location.pathname);
   }
   function drawCheckin() {
@@ -407,13 +526,16 @@
     h += '<div class="row between"><span class="eyebrow">Mindful check-in</span><div class="row" style="gap:8px">' + (ci.stage === 'reflect' ? '<button type="button" class="btn ghost small" id="ciDiscard">Discard</button>' : '') + '<button type="button" class="btn ghost small" id="ciClose">Close</button></div></div>';
     if (ci.stage === 'reflect') h += '<span class="muted" style="font-size:12px;margin-top:-10px">Saved as you type. Close any time and come back.</span>';
     if (ci.stage === 'goal') {
-      var gg = todayGoal(), lu = gg.updates[gg.updates.length - 1];
-      h += '<section class="card goal" style="gap:10px"><span class="eyebrow">Goal check · 1 of 3</span><p class="gtext">' + esc(gg.text) + '</p>' +
-        (lu ? '<div class="upd"><span style="font-family:var(--mono);font-size:11px;color:#7A4B00">LAST UPDATE · ' + timeOf(lu.t) + '</span><span style="font-size:14px">' + esc(lu.text) + '</span></div>' : '') + '</section>';
-      h += '<div class="stack" style="gap:8px"><label for="gcText"><h1 style="font-size:22px">How’s it going?</h1></label><textarea class="text" id="gcText" style="min-height:90px;font-size:16px" placeholder="e.g. base plate done, clamps next · or type “achieved”"></textarea></div>';
-      h += '<button type="button" class="btn solid" id="gcSave">Save update → breathe</button>';
-      h += '<button type="button" class="btn" id="gcWin" style="background:var(--green);border-color:var(--green);color:#fff">✓ Achieved it · +20 XP</button>';
-      h += '<button type="button" class="btn ghost" id="gcSkip">Skip the goal this time</button>';
+      var ots = openTargets();
+      h += '<div><span class="eyebrow">Target check · 1 of 3</span><h1 style="font-size:26px;margin-top:6px">How are your targets going?</h1></div>';
+      ots.forEach(function (t) {
+        var lu = t.updates[t.updates.length - 1];
+        h += '<section class="card goal" style="gap:8px"><p class="gtext" style="font-size:19px">' + esc(t.text) + '</p>' + (lu ? '<span style="font-size:13px;opacity:.9">Last: ' + esc(lu.text) + ' · ' + timeOf(lu.t) + '</span>' : '') +
+          '<textarea class="text gcT" data-tid="' + t.id + '" style="min-height:60px" placeholder="update (optional)">' + esc(ci.tu[t.id] || '') + '</textarea>' +
+          '<button type="button" class="dchip gcH" data-tid="' + t.id + '" aria-pressed="' + !!ci.th[t.id] + '" style="align-self:flex-start;--c:#0F4D40">' + (ci.th[t.id] ? '✓ Hit it' : 'Mark as hit') + '</button></section>';
+      });
+      h += '<button type="button" class="btn solid" id="gcSave">Save → breathe</button>';
+      h += '<button type="button" class="btn ghost" id="gcSkip">Skip the targets this time</button>';
     } else if (ci.stage === 'breathe') {
       h += '<div><h1>Pause here.</h1><p class="muted" style="margin:6px 0 0">Let whatever you were doing wait for a minute. Just follow the light.</p></div>';
       h += '<div class="breath"><svg class="rings" id="orb" viewBox="0 0 260 260" width="260" height="260" aria-hidden="true"><g><circle cx="130" cy="130" r="24" fill="none" stroke="#FFD27A" stroke-width="7" stroke-linecap="round" stroke-dasharray="18.1 7.0"/></g><g class="rev"><circle cx="130" cy="130" r="37" fill="none" stroke="#FFB23F" stroke-width="7" stroke-linecap="round" stroke-dasharray="20.9 8.1"/></g><g><circle cx="130" cy="130" r="50" fill="none" stroke="#FF9A4D" stroke-width="7" stroke-linecap="round" stroke-dasharray="22.6 8.8"/></g><g class="rev"><circle cx="130" cy="130" r="63" fill="none" stroke="#FF6B57" stroke-width="7" stroke-linecap="round" stroke-dasharray="23.8 9.2"/></g><g><circle cx="130" cy="130" r="76" fill="none" stroke="#F0587A" stroke-width="7" stroke-linecap="round" stroke-dasharray="24.6 9.6"/></g><g class="rev"><circle cx="130" cy="130" r="89" fill="none" stroke="#C95B9A" stroke-width="7" stroke-linecap="round" stroke-dasharray="25.2 9.8"/></g><g><circle cx="130" cy="130" r="102" fill="none" stroke="#3FB3A6" stroke-width="7" stroke-linecap="round" stroke-dasharray="25.6 10.0"/></g><g class="rev"><circle cx="130" cy="130" r="115" fill="none" stroke="#12A39A" stroke-width="7" stroke-linecap="round" stroke-dasharray="26.0 10.1"/></g></svg><svg class="prog" viewBox="0 0 260 260" width="260" height="260" aria-hidden="true"><circle id="ciRing" cx="130" cy="130" r="127" fill="none" stroke="#FFB23F" stroke-width="3" stroke-linecap="round" stroke-dasharray="798" stroke-dashoffset="798"/></svg>' +
@@ -425,18 +547,11 @@
         h += '<button type="button" class="btn ghost" id="ciSkip">Finish early</button>';
       }
     } else {
-      var g = todayGoal();
-      if (g && !g.achievedAt && ci.asked) {
-        h += '<div class="notice"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V4M5 4h11l-2 4 2 4H5" fill="#FFB23F" stroke="#16302A" stroke-width="1.4"/></svg><span>Goal: ' + esc(g.text) + (g.updates.length ? ' · last update ' + timeOf(g.updates[g.updates.length - 1].t) : '') + '</span></div>';
-      } else if (g && !g.achievedAt) {
-        h += '<section class="card stack" style="gap:10px"><span class="eyebrow">Today’s goal</span><p style="margin:0;font-family:var(--serif);font-size:18px;line-height:1.3">' + esc(g.text) + '</p>' +
-          '<label for="ciGoal" style="font-size:14px;color:var(--bone2)">How’s it going? <span class="muted">(type “achieved” when it’s done)</span></label>' +
-          '<textarea class="text" id="ciGoal" placeholder="e.g. drafted two sections, stuck on the budget">' + esc(ci.gUpd) + '</textarea>' +
-          '<button type="button" class="dchip" id="ciWin" aria-pressed="' + ci.gWin + '" style="align-self:flex-start">' + (ci.gWin ? '✓ Achieved' : 'Mark as achieved') + '</button></section>';
-      } else if (g) {
-        h += '<div class="notice" style="color:var(--ember)"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V4M5 4h11l-2 4 2 4H5" fill="#FF6B57" stroke="#FF6B57" stroke-width="1.6"/></svg><span>Goal achieved at ' + timeOf(g.achievedAt) + '. Just the check-in now.</span></div>';
+      var all = todayTargets(), ot = openTargets();
+      if (!all.length) {
+        h += '<section class="card stack" style="gap:8px"><label for="ciGoalNew" style="font-size:14px;color:var(--bone2)">No targets for today yet. Add one? <span class="muted">(optional)</span></label><input class="text" id="ciGoalNew" type="text" value="' + esc(ci.gNew) + '" placeholder="the one thing you want to get done"></section>';
       } else {
-        h += '<section class="card stack" style="gap:8px"><label for="ciGoalNew" style="font-size:14px;color:var(--bone2)">No goal set for today. Add one? <span class="muted">(optional)</span></label><input class="text" id="ciGoalNew" type="text" value="' + esc(ci.gNew) + '" placeholder="the one thing you want to get done"></section>';
+        h += '<div class="notice">' + (ot.length ? ot.length + ' of ' + all.length + ' targets still open' + (ci.asked ? ' · updated' : '') : 'All ' + all.length + ' targets hit today. Just the check-in now.') + '</div>';
       }
       h += '<div><h1>What pulled you away?</h1><p class="muted" style="margin:6px 0 0">No judgement. Noticing is the practice.</p></div>';
       h += '<div class="stack" style="gap:10px"><span style="font-size:14px;color:var(--bone2)">Just before the ping, how present were you?</span><div class="scale" role="group" aria-label="Presence from 1 to 5">' +
@@ -453,102 +568,65 @@
     var dc = o.querySelector('#ciDiscard'); if (dc) dc.onclick = function () { delete state.ciDraft; save(); closeCheckin(); };
     o.querySelectorAll('[data-secs]').forEach(function (b) { b.onclick = function () { ci.secs = +b.dataset.secs; ci.left = ci.secs; drawCheckin(); }; });
     var st = o.querySelector('#ciStart'); if (st) st.onclick = startBreath;
-    var gcs = o.querySelector('#gcSave'), gcw = o.querySelector('#gcWin'), gck = o.querySelector('#gcSkip'), gct = o.querySelector('#gcText');
-    function goalStep(win) {
-      var t = gct.value, achieved = win || isAchievedText(t);
-      if (t.trim() || win) mutate(function () { goalUpdate(t, win); });
+    o.querySelectorAll('.gcT').forEach(function (el) { el.addEventListener('input', function () { ci.tu[el.dataset.tid] = el.value; }); });
+    o.querySelectorAll('.gcH').forEach(function (b) { b.onclick = function () { ci.th[b.dataset.tid] = !ci.th[b.dataset.tid]; drawCheckin(); }; });
+    var gcs = o.querySelector('#gcSave'), gck = o.querySelector('#gcSkip');
+    if (gcs) gcs.onclick = function () {
+      var hits = 0, ups = 0;
+      mutate(function () {
+        openTargets().forEach(function (t) {
+          var tx = ci.tu[t.id] || '', win = !!ci.th[t.id] || isAchievedText(tx);
+          if (win) hits++; else if (tx.trim()) ups++;
+          targetUpdate(t, tx, win);
+        });
+      });
       ci.asked = true; ci.stage = 'breathe'; drawCheckin();
-      if (achieved) setTimeout(function () { toast('Goal achieved · +20 XP'); }, 2100);
-      else if (t.trim()) toast('Update saved');
-    }
-    if (gcs) gcs.onclick = function () { if (!gct.value.trim()) { gct.focus(); return; } goalStep(false); };
-    if (gcw) gcw.onclick = function () { goalStep(true); };
+      if (hits) setTimeout(function () { toast(hits + ' target' + (hits > 1 ? 's' : '') + ' hit · +' + hits * 20 + ' XP'); }, 1800);
+      else if (ups) toast('Update saved');
+    };
     if (gck) gck.onclick = function () { ci.asked = true; ci.stage = 'breathe'; drawCheckin(); };
-    if (gct) setTimeout(function () { try { gct.focus(); } catch (e) {} }, 50);
+    var ft = o.querySelector('.gcT'); if (ft) setTimeout(function () { try { ft.focus(); } catch (e) {} }, 50);
     var sk = o.querySelector('#ciSkip'); if (sk) sk.onclick = function () { if (ci.iv) clearInterval(ci.iv); clearTimeout(ci.bt); ci.stage = 'reflect'; drawCheckin(); };
     o.querySelectorAll('[data-pres]').forEach(function (b) { b.onclick = function () { ci.presence = +b.dataset.pres; saveNote(); drawCheckin(); }; });
     o.querySelectorAll('[data-pick]').forEach(function (b) {
       b.onclick = function () { var i = +b.dataset.pick, at = ci.picks.indexOf(i); if (at >= 0) ci.picks.splice(at, 1); else ci.picks.push(i); saveNote(); drawCheckin(); };
     });
-    ['#ciNote', '#ciGoal', '#ciGoalNew'].forEach(function (id) { var el = o.querySelector(id); if (el) el.addEventListener('input', saveNote); });
+    ['#ciNote', '#ciGoalNew'].forEach(function (id) { var el = o.querySelector(id); if (el) el.addEventListener('input', saveNote); });
     if (ci.stage === 'reflect' && !state.ciDraft) saveNote();
-    var cw = o.querySelector('#ciWin'); if (cw) cw.onclick = function () { saveNote(); ci.gWin = !ci.gWin; drawCheckin(); };
     var sv = o.querySelector('#ciSave');
     if (sv) sv.onclick = function () {
       saveNote();
-      var gU = ci.gUpd, gW = ci.gWin, gN = ci.gNew.trim(), ci_asked = !!ci.asked;
+      var gN = (ci.gNew || '').trim();
       var entry = { t: new Date().toISOString(), secs: ci.done || 0, presence: ci.presence || null, distractions: ci.picks.map(function (i) { return DISTRACTIONS[i]; }), note: ci.note.trim() };
       closeCheckin();
       mutate(function () {
         delete state.ciDraft;
         state.checkins.push(entry);
-        if (gN && !todayGoal()) setGoal(gN);
-        else if (todayGoal() && !todayGoal().achievedAt && !ci_asked) goalUpdate(gU, gW);
+        if (gN && !todayTargets().length) addTarget(dkey(new Date()), gN);
       });
-      if (!ci_asked && (gW || isAchievedText(gU))) setTimeout(function () { toast('Goal achieved · +20 XP'); }, 2100);
     };
   }
   function saveNote() {
     if (!ci) return;
     var n = document.getElementById('ciNote'); if (n) ci.note = n.value;
-    var a = document.getElementById('ciGoal'); if (a) ci.gUpd = a.value;
     var b = document.getElementById('ciGoalNew'); if (b) ci.gNew = b.value;
-    if (ci.stage === 'reflect') { state.ciDraft = { at: Date.now(), ci: { picks: ci.picks.slice(), presence: ci.presence, note: ci.note, gUpd: ci.gUpd, gWin: ci.gWin, gNew: ci.gNew, done: ci.done || 0, asked: !!ci.asked } }; save(); }
+    if (ci.stage === 'reflect') { state.ciDraft = { at: Date.now(), ci: { picks: ci.picks.slice(), presence: ci.presence, note: ci.note, gNew: ci.gNew, done: ci.done || 0, asked: !!ci.asked, tu: {}, th: {} } }; save(); }
   }
 
-  // ---------- goal screen ----------
+  // ---------- targets screen (opened from pings and the Today card) ----------
   var gv = null;
   function openGoal() {
-    gv = { edit: !todayGoal() };
-    drawGoal();
-    document.getElementById('overlay').hidden = false;
-    document.body.style.overflow = 'hidden';
+    resetOverlay(); closeOverlayEl();
+    ui.tab = 'trail'; render();
+    openSheet('targets');
+    if (!todayTargets().length) setTimeout(function () { var n = document.getElementById('tNew'); if (n) try { n.focus(); } catch (e) {} }, 350);
   }
-  function drawGoal() {
-    var o = document.getElementById('overlay'); o.classList.remove('dark'); var g = todayGoal(), hr = new Date().getHours();
-    var h = '<div class="inner"><div class="row between"><span class="eyebrow">Today’s goal · ' + new Date().toLocaleDateString('en', { weekday: 'short', month: 'short', day: 'numeric' }) + '</span><button type="button" class="btn ghost small" id="gClose">Close</button></div>';
-    if (gv.edit) {
-      h += '<div><h1>' + (g ? 'Edit today’s goal' : (hr < 12 ? 'Good morning.' : 'Set a goal for today.')) + '</h1><p class="muted" style="margin:6px 0 0">One clear thing. Each ping through the day will ask how it’s going.</p></div>' +
-        '<label for="gText" class="sr">Goal</label><textarea class="text" id="gText" style="min-height:96px;font-size:17px" placeholder="e.g. finish the fixture drawing and send it for review">' + esc(g ? g.text : '') + '</textarea>' +
-        '<button type="button" class="btn solid" id="gSet">' + (g ? 'Save goal' : 'Set goal · +5 XP') + '</button>';
-    } else {
-      h += '<div class="stack" style="gap:6px"><h1 style="line-height:1.25">' + esc(g.text) + '</h1><span class="muted" style="font-size:13px">Set at ' + timeOf(g.setAt) + (g.achievedAt ? ' · achieved at ' + timeOf(g.achievedAt) : '') + ' · <button type="button" class="link" id="gEdit">edit</button></span></div>';
-      if (g.updates.length) {
-        h += '<section class="card"><h2 style="margin-bottom:6px;font-size:17px">Progress</h2>' + g.updates.map(function (u) {
-          return '<div class="entry"><span class="muted" style="font-size:12px">' + timeOf(u.t) + '</span><span style="font-size:14px">' + esc(u.text) + '</span></div>';
-        }).join('') + '</section>';
-      }
-      if (!g.achievedAt) {
-        h += '<div class="stack" style="gap:8px"><label for="gUpd" style="font-size:14px;color:var(--bone2)">Add an update <span class="muted">(or type “achieved”)</span></label><textarea class="text" id="gUpd" placeholder="where you are with it"></textarea>' +
-          '<div class="row"><button type="button" class="btn" id="gAdd" style="flex:1">Save update</button><button type="button" class="btn solid" id="gWin" style="flex:1">Achieved · +20</button></div></div>';
-      } else {
-        h += '<div class="perfect on"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V4M5 4h11l-2 4 2 4H5" fill="#FF6B57" stroke="#FF6B57" stroke-width="1.6"/></svg><span style="font-size:14px">Done. Progress checks have stopped for today; mindful check-ins carry on.</span></div>';
-      }
-    }
-    h += '</div>';
-    o.innerHTML = h;
-    o.querySelector('#gClose').onclick = closeCheckin;
-    var e = o.querySelector('#gEdit'); if (e) e.onclick = function () { gv.edit = true; drawGoal(); };
-    var gt = o.querySelector('#gText'); if (gt) { if (!gt.value && state.goalDraft) gt.value = state.goalDraft; gt.addEventListener('input', function () { state.goalDraft = gt.value; save(); }); }
-    var gu = o.querySelector('#gUpd'); if (gu) { setTimeout(function () { try { gu.focus(); } catch (e) {} }, 50); if (state.updDraft) gu.value = state.updDraft; gu.addEventListener('input', function () { state.updDraft = gu.value; save(); }); }
-    var st = o.querySelector('#gSet');
-    if (st) st.onclick = function () {
-      var t = o.querySelector('#gText').value.trim(); if (!t) { o.querySelector('#gText').focus(); return; }
-      mutate(function () { setGoal(t); delete state.goalDraft; }); gv.edit = false; drawGoal();
-    };
-    var ad = o.querySelector('#gAdd');
-    if (ad) ad.onclick = function () {
-      var t = o.querySelector('#gUpd').value; if (!t.trim()) return;
-      var win = isAchievedText(t);
-      mutate(function () { goalUpdate(t, false); delete state.updDraft; }); drawGoal();
-      if (win) setTimeout(function () { toast('Goal achieved · +20 XP'); }, 50);
-    };
-    var wn = o.querySelector('#gWin');
-    if (wn) wn.onclick = function () {
-      var t = o.querySelector('#gUpd').value;
-      mutate(function () { goalUpdate(t, true); delete state.updDraft; }); drawGoal();
-    };
+  // morning ping: a visualization first (if not done yet), then targets
+  function openMorning() {
+    if (!(state.vizDone || {})[dkey(new Date())] && new Date().getHours() < 12) openViz(true);
+    else openGoal();
   }
+  function hitSingle() { var o = openTargets(); if (o.length === 1) { mutate(function () { targetUpdate(o[0], '', true); }); toast('Target hit · +20 XP'); } }
   function fmt(s) { return Math.floor(s / 60) + ':' + (s % 60 < 10 ? '0' : '') + (s % 60); }
   function startBreath() {
     ci.running = true; ci.left = ci.secs; ci.done = 0; drawCheckin();
@@ -618,7 +696,7 @@
   function openMove(id) {
     if (!LIB) return;
     var m = moveById(id) || moveById(suggestMove());
-    if (ci) closeCheckin();
+    resetOverlay(); closeSheet();
     mv = { id: m.id, left: 0, total: 0, iv: null };
     drawMove();
     document.getElementById('overlay').hidden = false;
@@ -730,11 +808,15 @@
     return [S(1, 'swim', '400 m easy + 4 × 50 m brisk', 25), S(2, 'run', 'Easy 20 min with 4 short strides', 20), S(3, 'strength', 'Mobility only, 15 min', 15),
       S(4, 'bike', 'Easy 30 min', 30), S(5, 'rest', 'Rest; lay out your kit', 0), S(6, 'race', 'Your test: 750 m swim · 20 km bike · 5 km run', 90), S(0, 'rest', 'Recover. Well done.', 0)];
   }
-  var SPORT = { swim: ['Swim', '#12A39A'], bike: ['Bike', '#F28C28'], run: ['Run', '#FF6B57'], strength: ['Strength', '#0F4D40'], brick: ['Brick', '#E8457A'], rest: ['Rest', '#B9C4BD'], race: ['Race', '#FF6B57'] };
+  var SPORT = { swim: ['Swim', '#12A39A'], bike: ['Bike', '#F28C28'], run: ['Run', '#FF6B57'], strength: ['Strength', '#0F4D40'], brick: ['Brick', '#E8457A'], rest: ['Rest', '#B9C4BD'], race: ['Race', '#FF6B57'], badminton: ['Badminton', '#E8457A'], walk: ['Walk', '#6F7D74'] };
   function planStart() { if (!state.planStart) { var t = new Date(); t.setDate(t.getDate() - ((t.getDay() + 6) % 7)); state.planStart = dkey(t); save(); } return state.planStart; }
   function planWeek(d) { var s = new Date(planStart() + 'T00:00:00'), t = new Date(d.getFullYear(), d.getMonth(), d.getDate()); return Math.floor((t - s) / 86400000 / 7) + 1; }
   function trainDone(key, i) { return !!((state.train || {})[key] || {})[i]; }
   function trainingOn(key) { var t = (state.train || {})[key] || {}; return Object.keys(t).filter(function (k) { return t[k]; }).length; }
+  function badmintonGames(key) { return activitiesDeduped().filter(function (a) { return a.sport === 'badminton' && (!key || a.d === key); }); }
+  function badmintonOn(key) { return badmintonGames(key).length ? 1 : 0; }
+  function exerciseKcal(key) { return activitiesDeduped().filter(function (a) { return a.d === key; }).reduce(function (s, a) { return s + (+a.kcal || 0); }, 0); }
+  var BLVL = { easy: ['Easy rally', 5.5], match: ['Match play', 7], hard: ['Hard singles', 8.5] };
 
   function renderFit() {
     var h = '<div class="stack">' + topbar('Fit') + '<div class="seg2" role="tablist" aria-label="Fit sections">' + [['food', 'Food'], ['body', 'Body'], ['plan', 'Plan']].map(function (t) {
@@ -751,12 +833,12 @@
     var eaten = sumItems(items.filter(function (i) { return !i.planned; })), planned = sumItems(items.filter(function (i) { return i.planned; }));
     var d = new Date(key + 'T00:00:00');
     var h = '<div class="daynav"><button type="button" class="rb" data-fd="-1" aria-label="Previous day">‹</button><b>' + (isToday ? 'Today' : d.toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' })) + '</b><button type="button" class="rb" data-fd="1" aria-label="Next day">›</button></div>';
-    var tk = bc ? bc.kcal : 0, left = tk - eaten.kcal, pct = tk ? Math.min(100, Math.round(eaten.kcal / tk * 100)) : 0;
+    var ex = Math.round(exerciseKcal(key)), tk = bc ? bc.kcal + ex : 0, left = tk - eaten.kcal, pct = tk ? Math.min(100, Math.round(eaten.kcal / tk * 100)) : 0;
     h += '<section class="hero w" style="background:' + T.mango + ';color:' + T.jungle + '">' + sun('rgba(255,255,255,.35)', 130, -30, -40) + wave('#FFFFFF', .25, 40, 20);
     if (tk) {
       h += '<span class="cap">' + (left >= 0 ? 'Kcal left' : 'Kcal over') + (isToday ? ' today' : '') + '</span><span class="display big">' + fmtN(Math.abs(left)) + '</span>' +
         '<div class="bar" style="background:rgba(15,77,64,.18)"><i style="width:' + pct + '%;background:' + (left < 0 ? T.coral : T.jungle) + '"></i></div>' +
-        '<div class="row between small"><span>' + fmtN(eaten.kcal) + ' eaten</span><span>of ' + fmtN(tk) + '</span></div>';
+        '<div class="row between small"><span>' + fmtN(eaten.kcal) + ' eaten</span><span>of ' + fmtN(tk) + (ex ? ' (incl. +' + fmtN(ex) + ' exercise)' : '') + '</span></div>';
     } else {
       h += '<span class="cap">Kcal eaten</span><span class="display big">' + fmtN(eaten.kcal) + '</span>';
     }
@@ -807,7 +889,7 @@
     h += '<button type="button" class="hero" data-sheet="weight" style="background:' + T.lagoon + ';color:#fff;gap:6px">' + sun('rgba(255,255,255,.18)', 140, -40, -50) +
       '<span class="row between"><span class="cap">Weight</span>' + (delta !== null ? '<span class="pill">' + (delta > 0 ? '+' : delta < 0 ? '−' : '±') + r1(Math.abs(delta)) + ' this week</span>' : '') + '</span>' +
       '<span class="row" style="align-items:baseline;gap:8px"><span class="display big">' + Number(bc.w).toFixed(1) + '</span><span>kg</span></span>' + weightChart(ws, bc, true) + '</button>';
-    h += '<div class="list">' + row({ t: 'Daily targets', v: fmtN(bc.kcal) + ' kcal', sheet: 'targets' }) + row({ t: 'Healthy range', v: Math.round(bc.lo) + '–' + Math.round(bc.hi) + ' kg', sheet: 'targets' }) +
+    h += '<div class="list">' + row({ t: 'Daily targets', v: fmtN(bc.kcal) + ' kcal', sheet: 'kcal' }) + row({ t: 'Healthy range', v: Math.round(bc.lo) + '–' + Math.round(bc.hi) + ' kg', sheet: 'kcal' }) +
       row({ t: 'About you', v: (p.age || '–') + ' · ' + (p.height || '–') + ' cm', sheet: 'about' }) + row({ t: 'Weight log', v: ws.length + (ws.length === 1 ? ' entry' : ' entries'), sheet: 'weight' }) + '</div>';
     h += '<button type="button" class="btn line" data-sheet="weight">Log today’s weight</button>';
     return h;
@@ -825,7 +907,7 @@
       '<p class="muted small">These are general guidelines, not medical advice. If you have a health condition, check with a doctor before starting.</p>';
     return { title: 'About you', cap: 'Body', html: h, bind: bindFit };
   }
-  function targetsSheet() {
+  function kcalSheet() {
     var bc = bodyCalc(); if (!bc) return aboutSheet();
     var pos = Math.max(0, Math.min(100, (bc.bmi - 15) / (35 - 15) * 100));
     var h = '<div class="stack" style="gap:8px"><div class="row between"><span class="lab">BMI</span><b class="display" style="font-size:22px">' + r1(bc.bmi) + '</b></div><div class="bmiscale"><i style="left:' + pos + '%"></i></div><div class="clockax"><span>15</span><span>18.5</span><span>25</span><span>30</span><span>35</span></div></div>' +
@@ -876,11 +958,11 @@
     if (wk > 12) {
       h += '<section class="hero tall" style="background:' + T.coral + ';color:#fff">' + sun(T.mango, 120, -30, -36) + wave('#FFFFFF', .18, 60, 30) +
         '<span class="cap">12-week road map</span><span class="display h1">Road map<br><i>complete</i></span><span style="font-size:15px;max-width:250px">Twelve weeks done. Keep training the way you enjoyed most.</span></section>';
-      return h + '<div class="list">' + row({ t: '12-week road map', v: 'done', sheet: 'roadmap' }) + row({ t: 'Garmin', v: garminStatus(), sheet: 'garmin', dot: garminDot() }) + '</div>';
+      return h + badmintonCard() + '<div class="list">' + row({ t: '12-week road map', v: 'done', sheet: 'roadmap' }) + row({ t: 'Garmin', v: garminStatus(), sheet: 'garmin', dot: garminDot() }) + '</div>';
     }
     var ph = PHASES.filter(function (p) { return p.weeks.indexOf(wk) >= 0; })[0], days = weekDates(wk);
     var t = days.filter(function (x) { return x.key === tk; })[0];
-    if (!t) return '<div class="list">' + row({ t: 'Your 12-week plan starts ' + new Date(planStart() + 'T00:00:00').toLocaleDateString('en', { weekday: 'long', day: 'numeric', month: 'short' }), sheet: 'week' }) + '</div>';
+    if (!t) return badmintonCard() + '<div class="list">' + row({ t: 'Your 12-week plan starts ' + new Date(planStart() + 'T00:00:00').toLocaleDateString('en', { weekday: 'long', day: 'numeric', month: 'short' }), sheet: 'week' }) + '</div>';
     var s = t.s, sp = SPORT[s.sport], done = trainDone(tk, t.i);
     var title = s.sport === 'rest' ? 'Rest day,<br><i>recover</i>' : s.sport === 'race' ? 'Race day,<br><i>you’ve got this</i>' : sp[0] + ',<br><i>' + s.min + ' minutes</i>';
     h += '<section class="hero tall" style="background:' + T.coral + ';color:#fff">' + sun(T.mango, 120, -30, -36) + wave('#FFFFFF', .18, 60, 30) +
@@ -892,8 +974,45 @@
       var st = rest ? 'rest' : dn ? 'done' : x.key === tk ? 'today' : x.key < tk ? 'miss' : '';
       return '<span class="wd"><span class="cap">' + DOW[x.dt.getDay()].charAt(0) + '</span><i class="' + st + '" style="' + (st === 'done' ? 'background:' + (SPORT[x.s.sport] || sp)[1] : '') + '"></i></span>';
     }).join('') + '</div>';
-    h += '<div class="list">' + row({ t: 'This week', v: nDone + ' of ' + nAll, sheet: 'week' }) + row({ t: '12-week road map', v: 'Week ' + wk, sheet: 'roadmap' }) + row({ t: 'Garmin', v: garminStatus(), sheet: 'garmin', dot: garminDot() }) + '</div>';
+    var bw = weekDates(wk).reduce(function (a, x) { return a + badmintonGames(x.key).length; }, 0);
+    h += badmintonCard();
+    h += '<div class="list">' + row({ t: 'This week', v: nDone + ' of ' + nAll + (bw ? ' · +' + bw + ' 🏸' : ''), sheet: 'week' }) + row({ t: '12-week road map', v: 'Week ' + wk, sheet: 'roadmap' }) + row({ t: 'Garmin', v: garminStatus(), sheet: 'garmin', dot: garminDot() }) + '</div>';
     return h;
+  }
+  function badmintonCard() {
+    var tk = dkey(new Date()), g = badmintonGames(tk), wk = planWeek(new Date()), n = 0;
+    if (wk >= 1 && wk <= 12) weekDates(wk).forEach(function (x) { n += badmintonGames(x.key).length; });
+    else { var c = new Date(); c.setDate(c.getDate() - 6); n = badmintonGames().filter(function (a) { return a.d >= dkey(c); }).length; }
+    var sub = g.length ? g.reduce(function (a, x) { return a + x.min; }, 0) + ' min today' + (g[0].kcal ? ' · ~' + fmtN(g.reduce(function (a, x) { return a + (+x.kcal || 0); }, 0)) + ' kcal' : '') : 'Counts as training';
+    return '<button type="button" class="hero bcard" data-sheet="badminton" style="background:' + T.jungle + ';color:#fff">' + sun('rgba(255,178,63,.9)', 70, -14, -18) +
+      '<span class="cap">Evening</span><span class="display gt">' + (g.length ? 'Badminton ✓' : 'Played badminton?') + '</span><span class="small" style="opacity:.85;font-weight:500">' + sub + ' · ' + n + (n === 1 ? ' game' : ' games') + ' this week</span>' +
+      '<span class="bpill">🏸 ' + (g.length ? 'Log another game' : 'Log a game') + '</span></button>';
+  }
+  function badmintonSheet() {
+    var b = ui.bm = ui.bm || { min: 60, lvl: 'match' }, kg = latestWeight() || 70, kcal = Math.round(BLVL[b.lvl][1] * kg * b.min / 60);
+    var c = new Date(); c.setDate(c.getDate() - 6); var wkN = badmintonGames().filter(function (a) { return a.d >= dkey(c); }).length;
+    var h = '<span class="lab">How long?</span><div class="optrow">' + [30, 45, 60, 90, 120].map(function (m) { return '<button type="button" class="opt" data-bmin="' + m + '" aria-pressed="' + (b.min === m) + '">' + m + ' min</button>'; }).join('') + '</div>';
+    h += '<span class="lab">How hard?</span><div class="optrow">' + Object.keys(BLVL).map(function (k) { return '<button type="button" class="opt" data-blvl="' + k + '" aria-pressed="' + (b.lvl === k) + '">' + BLVL[k][0] + '</button>'; }).join('') + '</div>';
+    h += '<div class="chips"><div class="chip" style="background:#FFE6B8"><b class="display">~' + fmtN(kcal) + '</b><small>kcal burned</small></div><div class="chip" style="background:#CDEFEA"><b class="display">+10</b><small>XP</small></div><div class="chip" style="background:#FFD9D3"><b class="display">' + wkN + '</b><small>games · 7 days</small></div></div>';
+    h += '<input class="text" id="bNote" placeholder="Notes (optional): doubles with the office group">';
+    h += '<p class="muted small">Burned calories are added to today’s food allowance. If your Forerunner records the game, the Garmin sync replaces this entry so it’s never counted twice.</p>';
+    h += '<button type="button" class="btn jungle" id="bSave">Save game</button>';
+    var rec = (state.activities || []).filter(function (a) { return a.sport === 'badminton'; }).sort(function (x, y) { return x.d < y.d ? 1 : -1; }).slice(0, 6);
+    if (rec.length) h += '<h3 class="sh">Recent games</h3><div class="list">' + rec.map(function (a) {
+      return '<div class="r"><span class="t">' + new Date(a.d + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + '<small>' + a.min + ' min' + (a.lvl ? ' · ' + BLVL[a.lvl][0] : '') + (a.note ? ' · ' + esc(a.note) : '') + (isSynced(a) ? ' · from Garmin' : '') + '</small></span><span class="v">' + (a.kcal ? '~' + fmtN(a.kcal) : '') + '</span>' + (isSynced(a) ? '' : '<button type="button" class="fx" data-bdel="' + esc(a.id) + '" aria-label="Delete this game">×</button>') + '</div>';
+    }).join('') + '</div>';
+    return { title: 'Badminton', cap: new Date().toLocaleDateString('en', { weekday: 'short' }) + ' · evening', html: h, bind: bindBadminton };
+  }
+  function bindBadminton(r) {
+    r.querySelectorAll('[data-bmin]').forEach(function (b) { b.onclick = function () { ui.bm.min = +b.dataset.bmin; drawSheet(); }; });
+    r.querySelectorAll('[data-blvl]').forEach(function (b) { b.onclick = function () { ui.bm.lvl = b.dataset.blvl; drawSheet(); }; });
+    r.querySelectorAll('[data-bdel]').forEach(function (b) { b.onclick = function () { if (!confirm('Delete this game?')) return; state.activities = state.activities.filter(function (a) { return a.id !== b.dataset.bdel; }); save(); render(); }; });
+    var sv = r.querySelector('#bSave'); if (sv) sv.onclick = function () {
+      var b = ui.bm, kg = latestWeight() || 70, kcal = Math.round(BLVL[b.lvl][1] * kg * b.min / 60), note = r.querySelector('#bNote').value.trim();
+      closeSheet();
+      mutate(function () { state.activities = state.activities || []; state.activities.push({ id: 'manual:' + Date.now(), d: dkey(new Date()), sport: 'badminton', type: 'Badminton', title: 'Badminton', min: b.min, kcal: kcal, lvl: b.lvl, note: note }); });
+      toast('Game logged · ~' + fmtN(kcal) + ' kcal');
+    };
   }
   function garminStatus() { var sv = state.strava || {}; return !sv.pass ? 'set up' : sv.error ? 'needs a look' : sv.syncedAt ? ago(sv.syncedAt) : 'waiting'; }
   function garminDot() { var sv = state.strava || {}; return !sv.pass ? '#C8D3CC' : sv.error ? T.coral : T.lagoon; }
@@ -1029,6 +1148,7 @@
   // food picker overlay
   var fp = null;
   function openFoodPicker(key, meal) {
+    resetOverlay();
     fp = { key: key, meal: meal, q: '', pick: null, qty: 1, custom: false };
     drawFoodPicker();
     var o = document.getElementById('overlay'); o.classList.remove('dark'); o.hidden = false; document.body.style.overflow = 'hidden';
@@ -1127,6 +1247,7 @@
     var all = state.activities || [], st = all.filter(isSynced);
     return all.filter(function (a) {
       if (isSynced(a)) return true;
+      if (/^manual:/.test(String(a.id))) return !st.some(function (s) { return s.d === a.d && s.sport === a.sport; });
       return !st.some(function (s) { return s.d === a.d && s.sport === a.sport && Math.abs(s.min - a.min) <= 3; });
     });
   }
@@ -1168,7 +1289,7 @@
     var counts = distCounts(), top = Object.keys(counts).filter(function (d) { return d !== 'Nothing, I was present'; }).sort(function (a, b) { return counts[b] - counts[a]; })[0];
     var pres = state.checkins.filter(function (c) { return c.presence; });
     var avg = pres.length ? (pres.reduce(function (a, c) { return a + c.presence; }, 0) / pres.length).toFixed(1) : '–';
-    var gk = Object.keys(state.goals || {}), won = gk.filter(function (k) { return state.goals[k].achievedAt; }).length;
+    var tks = Object.keys(state.targets || {}).filter(function (k) { return k <= dkey(new Date()); }), gk = { length: tks.reduce(function (a, k) { return a + targetsFor(k).length; }, 0) }, won = tks.reduce(function (a, k) { return a + hitCount(k); }, 0);
     var h = '<div class="stack">' + topbar('Insights');
     var title;
     if (top) {
@@ -1206,16 +1327,18 @@
     return { title: 'Movement', cap: 'all time', html: h, bind: bindLog };
   }
   function goalsSheet() {
-    var gk = Object.keys(state.goals || {}).sort().reverse(), won = gk.filter(function (k) { return state.goals[k].achievedAt; }).length;
+    var tk = dkey(new Date()), ks = Object.keys(state.targets || {}).filter(function (k) { return k <= tk; }).sort().reverse();
+    var tot = 0, won = 0; ks.forEach(function (k) { tot += targetsFor(k).length; won += hitCount(k); });
     var h = '';
-    if (!gk.length) h += '<p class="muted">Set a target on the Today tab and it will show up here.</p>';
-    else h += '<div class="list">' + gk.slice(0, 30).map(function (k) {
-      var g = state.goals[k], d = new Date(k + 'T00:00:00');
-      return '<div class="r entry"><span class="t">' + esc(g.text) + '<small>' + d.toLocaleDateString('en', { weekday: 'short', month: 'short', day: 'numeric' }) + ' · ' + (g.achievedAt ? 'hit at ' + timeOf(g.achievedAt) : 'not marked') +
-        (g.updates.length ? ' · ' + g.updates.length + ' update' + (g.updates.length === 1 ? '' : 's') : '') + '</small></span>' +
-        '<span class="dot" style="background:' + (g.achievedAt ? T.lagoon : '#C8D3CC') + '"></span><button type="button" class="fx" data-delgoal="' + k + '" aria-label="Delete this goal">×</button></div>';
-    }).join('') + '</div>';
-    return { title: 'Daily targets', cap: won + ' of ' + gk.length + ' hit', html: h, bind: bindLog };
+    if (!ks.length) h += '<p class="muted">Set targets on the Today tab and they will show up here.</p>';
+    ks.slice(0, 30).forEach(function (k) {
+      var d = new Date(k + 'T00:00:00'), ts = targetsFor(k);
+      h += '<h3 class="sh">' + d.toLocaleDateString('en', { weekday: 'short', month: 'short', day: 'numeric' }) + ' <span class="cap">' + hitCount(k) + ' of ' + ts.length + '</span></h3><div class="list">' + ts.map(function (t) {
+        return '<div class="r entry"><span class="dot" style="background:' + (t.achievedAt ? T.lagoon : '#C8D3CC') + '"></span><button type="button" class="rt" data-sheet="target:' + t.id + '"><span class="t">' + esc(t.text) + '<small>' + (t.achievedAt ? 'hit at ' + timeOf(t.achievedAt) : 'not hit') + (t.updates.length ? ' · ' + t.updates.length + ' update' + (t.updates.length === 1 ? '' : 's') : '') + '</small></span></button>' +
+          '<button type="button" class="fx" data-tdel="' + t.id + '" aria-label="Delete this target">×</button></div>';
+      }).join('') + '</div>';
+    });
+    return { title: 'Targets', cap: won + ' of ' + tot + ' hit', html: h, bind: function (r) { bindLog(r); bindTargets(r); } };
   }
   function historySheet() {
     var list = state.checkins.slice().reverse(), h = '';
@@ -1271,7 +1394,8 @@
     h += '<div class="list">' + row({ t: 'Reminders', v: ps.on ? 'connected' : 'off', dot: ps.on ? T.lagoon : T.coral, sheet: 'reminders' }) +
       row({ t: 'Garmin sync', v: garminStatus(), dot: garminDot(), sheet: 'garmin' }) +
       row({ t: 'Backup', v: last, dot: state.lastBackup && Date.now() - new Date(state.lastBackup) < 8 * 86400000 ? T.lagoon : T.mango, sheet: 'data' }) +
-      row({ t: 'Ping schedule', v: '9 am – 9 pm', sheet: 'schedule' }) + row({ t: 'App version', v: APP_VERSION }) + '</div>';
+      row({ t: 'Visualization', v: state.aiKey ? 'AI on' : 'scene library', dot: state.aiKey ? T.lagoon : '#C8D3CC', sheet: 'ai' }) +
+      row({ t: 'Ping schedule', v: '9 am – 10 pm', sheet: 'schedule' }) + row({ t: 'App version', v: APP_VERSION }) + '</div>';
     return h + '</div>';
   }
   function remindersSheet() {
@@ -1305,9 +1429,9 @@
   }
   function scheduleSheet() {
     var h = '<div class="list">' + row({ t: 'Morning target', sub: 'set your one thing for the day', v: '9 am', dot: T.coral }) + row({ t: 'Mindful pings', sub: 'random times, at least a little apart', v: PINGS + ' a day', dot: T.lagoon }) +
-      row({ t: 'Movement snacks', sub: 'yoga, cardio, strength or stretching', v: 'every 30 min', dot: T.mango }) + row({ t: 'Last ping', v: '9 pm', dot: T.jungle }) + '</div>' +
+      row({ t: 'Movement snacks', sub: 'yoga, cardio, strength or stretching', v: 'every 30 min', dot: T.mango }) + row({ t: 'Before bed', sub: 'journal and plan tomorrow', v: '10 pm', dot: '#1B2F5A' }) + '</div>' +
       '<p class="muted small">' + esc(PING_INFO) + ' GitHub sends them, so a ping can arrive a few minutes late.</p>';
-    return { title: 'Ping schedule', cap: '9 am – 9 pm', html: h, bind: bindSettings };
+    return { title: 'Ping schedule', cap: '9 am – 10 pm', html: h, bind: bindSettings };
   }
   function bindSettings(view) {
     var cc = view.querySelector('#connCheck');
@@ -1357,11 +1481,20 @@
     };
     var eb = view.querySelector('#expBtn');
     if (eb) eb.onclick = function () {
-      state.lastBackup = new Date().toISOString(); save(); setTimeout(render, 300);
-      var a = document.createElement('a'), copy = JSON.parse(JSON.stringify(state));
-      delete copy.keys; delete copy.code;
-      a.href = URL.createObjectURL(new Blob([JSON.stringify(copy, null, 2)], { type: 'application/json' }));
-      a.download = 'attention-backup-' + new Date().toISOString().slice(0, 10) + '.json'; a.click();
+      state.lastBackup = new Date().toISOString(); save();
+      var copy = JSON.parse(JSON.stringify(state));
+      delete copy.keys; delete copy.code; delete copy.aiKey;
+      // notes and their photos live in a separate store: put them in the backup file too
+      loadNotes().then(function (ns) {
+        copy.notes = ns; copy.noteImages = {};
+        var ids = []; ns.forEach(function (n) { n.items.forEach(function (it) { if (it.type === 'img') ids.push(it.src); }); });
+        return Promise.all(ids.map(function (id) { return idbGet('img-' + id).then(function (d) { if (d) copy.noteImages[id] = d; }); }));
+      }).catch(function () {}).then(function () {
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([JSON.stringify(copy)], { type: 'application/json' }));
+        a.download = 'attention-backup-' + new Date().toISOString().slice(0, 10) + '.json'; a.click();
+        render();
+      });
     };
     var imp = view.querySelector('#impFile');
     if (!imp) return;
@@ -1372,8 +1505,11 @@
         var d = JSON.parse(txt);
         if (!d || !d.days || !d.startDate) throw new Error('not an Attention backup');
         if (!confirm('Replace what’s on this phone with the backup from ' + (d.savedAt ? new Date(d.savedAt).toLocaleString('en') : f.name) + '?')) return;
-        var code = state.code, keys = state.keys;
-        state = d; state.code = state.code || code; state.keys = state.keys || keys;
+        var code = state.code, keys = state.keys, ak = state.aiKey, ns = d.notes, im = d.noteImages;
+        delete d.notes; delete d.noteImages;
+        state = d; state.code = state.code || code; state.keys = state.keys || keys; if (ak) state.aiKey = ak;
+        migrate(state);
+        if (ns) { NOTES = ns; saveNotes(true); Object.keys(im || {}).forEach(function (id) { idbPut('img-' + id, im[id]).catch(function () {}); }); }
         save(); syncGoal(); render(); toast('Backup restored');
       }).catch(function (e) { toast('Could not restore: ' + e.message); });
     };
@@ -1410,15 +1546,570 @@
     };
   }
 
+  // ---------- overlay housekeeping ----------
+  function resetOverlay() {
+    if (ci && ci.iv) clearInterval(ci.iv);
+    if (ci && ci.bt) clearTimeout(ci.bt);
+    ci = null; gv = null;
+    if (mv) stopMoveTimer(); mv = null;
+    fp = null;
+    if (vz) vizStop(); vz = null;
+    if (nv) notesLeave(); nv = null;
+    var o = document.getElementById('overlay'); o.classList.remove('dark', 'vzo', 'nto');
+  }
+  function closeOverlayEl() {
+    var o = document.getElementById('overlay'); o.hidden = true; o.classList.remove('dark', 'vzo', 'nto');
+    document.body.style.overflow = ui.sheet ? 'hidden' : '';
+  }
+  function showOverlay(cls) {
+    var o = document.getElementById('overlay'); o.hidden = false; if (cls) o.classList.add(cls); o.scrollTop = 0;
+    document.body.style.overflow = 'hidden';
+  }
+
+  // ---------- notes: scribble pad (IndexedDB, so photos don't fill the phone's quick storage) ----------
+  var NOTES = null, nsT = null, nv = null, imgCache = {};
+  var NW = 1000, NH = 1300;
+  var NCOL = ['#16302A', '#0F4D40', '#12A39A', '#FF6B57', '#FFB23F', '#E8457A'];
+  var NBG = ['#FFE6B8', '#FFFFFF', '#CDEFEA', '#FFD9D3'];
+  function loadNotes() { return NOTES ? Promise.resolve(NOTES) : idbGet('notes').then(function (n) { NOTES = n || []; return NOTES; }).catch(function () { NOTES = []; return NOTES; }); }
+  function saveNotes(now) { clearTimeout(nsT); var go = function () { idbPut('notes', NOTES).catch(function () { toast('Could not save the note'); }); }; if (now) go(); else nsT = setTimeout(go, 300); }
+  function noteById(id) { return (NOTES || []).filter(function (n) { return n.id === id; })[0]; }
+  function openNotes(tab) {
+    resetOverlay(); closeSheet();
+    loadNotes().then(function () { nv = { tab: tab || 'pad', id: null, tool: 'pen', color: NCOL[0], thick: false, hist: [] }; drawNotes(); showOverlay('nto'); });
+  }
+  function closeNotes() { notesLeave(); nv = null; closeOverlayEl(); }
+  function notesLeave() {
+    if (!nv || !nv.id) return;
+    var n = noteById(nv.id); if (!n) return;
+    if (!n.title.trim() && !n.body.trim() && !n.items.length) { NOTES.splice(NOTES.indexOf(n), 1); saveNotes(true); return; }
+    n.thumb = n.items.length ? noteThumb(n) : null;
+    saveNotes(true);
+  }
+  function noteThumb(n) {
+    try {
+      var c = document.createElement('canvas'); c.width = 300; c.height = 390;
+      var x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, 300, 390); x.scale(300 / NW, 390 / NH);
+      n.items.forEach(function (it) { drawItem(x, it, null); });
+      return c.toDataURL('image/jpeg', .72);
+    } catch (e) { return null; }
+  }
+  function niceDate(t) {
+    var d = new Date(t), k = dkey(d), tk = dkey(new Date()), y = new Date(); y.setDate(y.getDate() - 1);
+    return k === tk ? 'today' : k === dkey(y) ? 'yesterday' : d.toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' });
+  }
+  var NICON = {
+    move: '<path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/>',
+    pen: '<path d="M4 20l4-1 11-11-3-3L5 16z"/><path d="M14 7l3 3"/>',
+    line: '<path d="M5 19L19 5"/>',
+    rect: '<rect x="4" y="6" width="16" height="12" rx="2"/>',
+    circle: '<circle cx="12" cy="12" r="8"/>',
+    arrow: '<path d="M5 19L19 5M11 5h8v8"/>',
+    text: '<path d="M5 6h14M12 6v13"/>',
+    img: '<rect x="4" y="5" width="16" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M20 16l-5-5-7 8"/>',
+    erase: '<path d="M16 4l5 5-9 9H7l-3-3z"/><path d="M11 20h9"/>'
+  };
+  var NNAME = { move: 'Move', pen: 'Pen', line: 'Line', rect: 'Box', circle: 'Circle', arrow: 'Arrow', text: 'Text', img: 'Photo', erase: 'Eraser' };
+  function drawNotes() {
+    var o = document.getElementById('overlay');
+    if (nv.id) return drawNoteEditor();
+    var h = '<div class="inner"><div class="row between"><h1 class="display" style="font-size:34px">Notes</h1><button type="button" class="btn ghost small" id="nClose">Close</button></div>';
+    h += '<div class="seg2" role="tablist"><button type="button" role="tab" data-ntab="pad" aria-selected="' + (nv.tab === 'pad') + '">Scribble pad</button><button type="button" role="tab" data-ntab="journal" aria-selected="' + (nv.tab === 'journal') + '">Journal</button></div>';
+    if (nv.tab === 'pad') {
+      var list = NOTES.slice().sort(function (a, b) { return (b.pinned - a.pinned) || (b.updated < a.updated ? -1 : 1); });
+      if (!list.length) h += '<p class="muted" style="margin:0">Nothing yet. Tap <b>New note</b> to sketch an idea, pin a photo or jot something down.</p>';
+      else h += '<div class="ngrid">' + list.map(function (n) {
+        var prev = n.thumb ? '<img src="' + n.thumb + '" alt="">' : '<span class="nb">' + esc((n.body || '').slice(0, 140)) + '</span>';
+        return '<button type="button" class="ncard" data-nopen="' + n.id + '" style="background:' + n.bg + '">' + (n.pinned ? '<span class="npin" aria-label="pinned">📌</span>' : '') +
+          '<b>' + (esc(n.title) || 'Untitled') + '</b>' + prev + '<span class="cap">' + (n.pinned ? 'pinned · ' : '') + niceDate(n.updated) + '</span></button>';
+      }).join('') + '</div>';
+      h += '<div class="nfoot"><button type="button" class="btn coral" id="nNew">+ New note</button></div>';
+    } else {
+      var ks = Object.keys(state.journal || {}).filter(function (k) { var j = state.journal[k]; return j.well || j.away || j.more || j.mood; }).sort().reverse();
+      if (!ks.length) h += '<p class="muted" style="margin:0">Your nightly journal shows up here. The 10 pm ping opens it, or start one now.</p>';
+      else h += '<div class="list">' + ks.map(function (k) {
+        var j = state.journal[k], d = new Date(k + 'T00:00:00');
+        return '<button type="button" class="r jr" data-jopen="' + k + '"><span class="jm">' + (j.mood ? MOODS[j.mood - 1] : '·') + '</span><span class="t">' + d.toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + '<small>' + esc([j.well, j.away, j.more].filter(Boolean).join(' · ')) + '</small></span>' + CHEV + '</button>';
+      }).join('') + '</div>';
+      h += '<div class="nfoot"><button type="button" class="btn" id="nTonight" style="background:#1B2F5A;color:#fff">Write tonight’s journal</button></div>';
+    }
+    o.innerHTML = h + '</div>';
+    o.querySelector('#nClose').onclick = closeNotes;
+    o.querySelectorAll('[data-ntab]').forEach(function (b) { b.onclick = function () { nv.tab = b.dataset.ntab; drawNotes(); }; });
+    o.querySelectorAll('[data-nopen]').forEach(function (b) { b.onclick = function () { nv.id = b.dataset.nopen; nv.hist = []; nv.sel = null; drawNotes(); }; });
+    var nn = o.querySelector('#nNew'); if (nn) nn.onclick = function () {
+      var n = { id: 'n' + Date.now().toString(36), title: '', body: '', items: [], pinned: false, bg: NBG[NOTES.length % NBG.length], created: new Date().toISOString(), updated: new Date().toISOString() };
+      NOTES.push(n); nv.id = n.id; nv.hist = []; nv.tool = 'pen'; drawNotes();
+      setTimeout(function () { var t = document.getElementById('nTitle'); if (t) try { t.focus(); } catch (e) {} }, 60);
+    };
+    var jt = function (k) { closeNotes(); ui.tab = 'trail'; render(); openSheet('tonight' + (k && k !== dkey(new Date()) ? ':' + k : '')); };
+    o.querySelectorAll('[data-jopen]').forEach(function (b) { b.onclick = function () { jt(b.dataset.jopen); }; });
+    var tn = o.querySelector('#nTonight'); if (tn) tn.onclick = function () { jt(null); };
+  }
+  function drawNoteEditor() {
+    var o = document.getElementById('overlay'), n = noteById(nv.id);
+    if (!n) { nv.id = null; return drawNotes(); }
+    var h = '<div class="inner ned"><div class="row between"><button type="button" class="btn ghost small" id="nBack">‹ Notes</button><div class="row" style="gap:6px">' +
+      '<button type="button" class="nib' + (n.pinned ? ' on' : '') + '" id="nPin" aria-pressed="' + n.pinned + '" aria-label="Pin to the top">📌</button><button type="button" class="nib" id="nDel" aria-label="Delete note">🗑</button></div></div>';
+    h += '<input id="nTitle" class="ntitle display" placeholder="Title" value="' + esc(n.title) + '">';
+    h += '<textarea id="nBody" class="text nbody" placeholder="Type notes…">' + esc(n.body) + '</textarea>';
+    h += '<div class="nwrap"><canvas id="nCv" aria-label="Sketch area"></canvas></div>';
+    h += '<div class="ntools" role="toolbar" aria-label="Drawing tools">' + ['move', 'pen', 'line', 'rect', 'circle', 'arrow', 'text', 'img', 'erase'].map(function (k) {
+      return '<button type="button" class="ntool' + (nv.tool === k ? ' on' : '') + '" data-ntool="' + k + '" aria-label="' + NNAME[k] + '" aria-pressed="' + (nv.tool === k) + '"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">' + NICON[k] + '</svg></button>';
+    }).join('') + '</div>';
+    h += '<div class="row between"><div class="row" style="gap:9px">' + NCOL.map(function (c) { return '<button type="button" class="nsw' + (nv.color === c ? ' on' : '') + '" data-ncol="' + c + '" style="background:' + c + '" aria-label="Colour"></button>'; }).join('') + '</div>' +
+      '<div class="row" style="gap:6px"><button type="button" class="nib sm' + (nv.thick ? ' on' : '') + '" id="nThick" aria-label="Line thickness">' + (nv.thick ? 'thick' : 'thin') + '</button><button type="button" class="nib" id="nUndo" aria-label="Undo"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M9 7L4 12l5 5M4 12h11a5 5 0 0 1 0 10h-2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div></div>';
+    h += '<p class="muted small" style="text-align:center">' + ({ move: 'Drag anything to move it.', text: 'Tap where the text should go.', erase: 'Tap a line, shape, text or photo to remove it.', img: 'Choose a photo; then drag it into place.' }[nv.tool] || 'Draw with your finger.') + ' Saved as you go.</p>';
+    h += '<input type="file" id="nImg" accept="image/*" hidden></div>';
+    o.innerHTML = h;
+    var touch = function () { n.updated = new Date().toISOString(); saveNotes(); };
+    o.querySelector('#nBack').onclick = function () { notesLeave(); nv.id = null; drawNotes(); };
+    o.querySelector('#nPin').onclick = function () { n.pinned = !n.pinned; touch(); drawNoteEditor(); };
+    o.querySelector('#nDel').onclick = function () {
+      if (!confirm('Delete this note?')) return;
+      n.items.forEach(function (it) { if (it.type === 'img') idbDel('img-' + it.src).catch(function () {}); });
+      NOTES.splice(NOTES.indexOf(n), 1); saveNotes(true); nv.id = null; drawNotes(); toast('Note deleted');
+    };
+    o.querySelector('#nTitle').addEventListener('input', function (e) { n.title = e.target.value; touch(); });
+    var nb = o.querySelector('#nBody'), fit = function () { nb.style.height = 'auto'; nb.style.height = Math.max(56, nb.scrollHeight) + 'px'; };
+    nb.addEventListener('input', function () { n.body = nb.value; touch(); fit(); }); fit();
+    o.querySelectorAll('[data-ntool]').forEach(function (b) { b.onclick = function () { nv.tool = b.dataset.ntool; nv.sel = null; if (nv.tool === 'img') o.querySelector('#nImg').click(); else drawNoteEditor(); }; });
+    o.querySelectorAll('[data-ncol]').forEach(function (b) { b.onclick = function () { nv.color = b.dataset.ncol; if (nv.tool === 'move' || nv.tool === 'erase' || nv.tool === 'img') nv.tool = 'pen'; drawNoteEditor(); }; });
+    o.querySelector('#nThick').onclick = function () { nv.thick = !nv.thick; drawNoteEditor(); };
+    o.querySelector('#nUndo').onclick = function () { if (!nv.hist.length) { toast('Nothing to undo'); return; } n.items = JSON.parse(nv.hist.pop()); touch(); paint(); };
+    o.querySelector('#nImg').onchange = function (e) {
+      var f = e.target.files[0]; if (!f) { nv.tool = 'move'; drawNoteEditor(); return; }
+      var url = URL.createObjectURL(f), im = new Image();
+      im.onload = function () {
+        var sc = Math.min(1, 1100 / Math.max(im.width, im.height)), c = document.createElement('canvas');
+        c.width = Math.round(im.width * sc); c.height = Math.round(im.height * sc); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+        var data = c.toDataURL('image/jpeg', .82), id = 'i' + Date.now().toString(36);
+        URL.revokeObjectURL(url);
+        idbPut('img-' + id, data).then(function () {
+          var w = 460, hh = Math.round(w * c.height / c.width), img2 = new Image(); img2.src = data; imgCache[id] = img2;
+          nv.hist.push(JSON.stringify(n.items)); n.items.push({ type: 'img', src: id, x: 60, y: 60, w: w, h: hh, rot: -2 }); touch();
+          nv.tool = 'move'; drawNoteEditor(); toast('Photo pinned. Drag it into place.');
+        }).catch(function () { toast('Could not save the photo'); });
+      };
+      im.onerror = function () { toast('Could not open that photo'); };
+      im.src = url;
+    };
+    // canvas
+    var cv = o.querySelector('#nCv'), ctx = cv.getContext('2d'), dpr = Math.min(window.devicePixelRatio || 1, 2), cw = cv.clientWidth || 340;
+    cv.width = Math.round(cw * dpr); cv.height = Math.round(cw * NH / NW * dpr);
+    var scale = cv.width / NW;
+    function paint(extra) {
+      ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, cv.width, cv.height); ctx.setTransform(scale, 0, 0, scale, 0, 0);
+      n.items.forEach(function (it) { drawItem(ctx, it, paint); });
+      if (extra) drawItem(ctx, extra, null);
+      if (nv.sel != null && n.items[nv.sel]) { var b = bbox(ctx, n.items[nv.sel]); ctx.save(); ctx.setLineDash([12, 10]); ctx.strokeStyle = '#12A39A'; ctx.lineWidth = 3; ctx.strokeRect(b.x - 10, b.y - 10, b.w + 20, b.h + 20); ctx.restore(); }
+    }
+    paint();
+    var P = function (e) { var r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) / r.width * NW, y: (e.clientY - r.top) / r.height * NH }; };
+    var cur = null, drag = null, W = function () { return nv.thick ? 12 : 5; };
+    var hit = function (p) { for (var i = n.items.length - 1; i >= 0; i--) { var b = bbox(ctx, n.items[i]); if (p.x >= b.x - 18 && p.x <= b.x + b.w + 18 && p.y >= b.y - 18 && p.y <= b.y + b.h + 18) return i; } return -1; };
+    cv.addEventListener('pointerdown', function (e) {
+      e.preventDefault(); try { cv.setPointerCapture(e.pointerId); } catch (x) {}
+      var p = P(e), t = nv.tool;
+      if (t === 'pen') cur = { type: 'pen', c: nv.color, w: W(), pts: [[Math.round(p.x), Math.round(p.y)]] };
+      else if (t === 'line' || t === 'rect' || t === 'circle' || t === 'arrow') cur = { type: t, c: nv.color, w: W(), x1: p.x, y1: p.y, x2: p.x, y2: p.y };
+      else if (t === 'text') {
+        var tx = prompt('Text'); if (tx && tx.trim()) { nv.hist.push(JSON.stringify(n.items)); n.items.push({ type: 'text', x: p.x, y: p.y, text: tx.trim(), c: nv.color, s: nv.thick ? 64 : 42 }); touch(); paint(); }
+      } else if (t === 'erase') {
+        var i = hit(p); if (i >= 0) { nv.hist.push(JSON.stringify(n.items)); var gone = n.items.splice(i, 1)[0]; touch(); paint(); if (gone.type === 'img' && !JSON.stringify(n.items).includes(gone.src)) idbDel('img-' + gone.src).catch(function () {}); }
+      } else if (t === 'move') {
+        var j = hit(p); nv.sel = j >= 0 ? j : null;
+        if (j >= 0) { nv.hist.push(JSON.stringify(n.items)); drag = { i: j, x: p.x, y: p.y }; }
+        paint();
+      }
+    });
+    cv.addEventListener('pointermove', function (e) {
+      if (!cur && !drag) return;
+      var p = P(e);
+      if (cur && cur.type === 'pen') { var l = cur.pts[cur.pts.length - 1]; if (Math.abs(l[0] - p.x) + Math.abs(l[1] - p.y) > 3) cur.pts.push([Math.round(p.x), Math.round(p.y)]); paint(cur); }
+      else if (cur) { cur.x2 = p.x; cur.y2 = p.y; paint(cur); }
+      else if (drag) { shift(n.items[drag.i], p.x - drag.x, p.y - drag.y); drag.x = p.x; drag.y = p.y; paint(); }
+    });
+    var up = function () {
+      if (cur) {
+        var ok = cur.type === 'pen' ? cur.pts.length > 1 || true : Math.abs(cur.x2 - cur.x1) + Math.abs(cur.y2 - cur.y1) > 8;
+        if (ok) { nv.hist.push(JSON.stringify(n.items)); if (nv.hist.length > 40) nv.hist.shift(); n.items.push(cur); touch(); }
+        cur = null; paint();
+      }
+      if (drag) { drag = null; touch(); }
+    };
+    cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+  }
+  function shift(it, dx, dy) {
+    if (it.type === 'pen') it.pts.forEach(function (q) { q[0] += dx; q[1] += dy; });
+    else if (it.x1 != null) { it.x1 += dx; it.x2 += dx; it.y1 += dy; it.y2 += dy; }
+    else { it.x += dx; it.y += dy; }
+  }
+  function bbox(ctx, it) {
+    if (it.type === 'pen') { var xs = it.pts.map(function (q) { return q[0]; }), ys = it.pts.map(function (q) { return q[1]; }); var x0 = Math.min.apply(null, xs), y0 = Math.min.apply(null, ys); return { x: x0, y: y0, w: Math.max.apply(null, xs) - x0, h: Math.max.apply(null, ys) - y0 }; }
+    if (it.x1 != null) return { x: Math.min(it.x1, it.x2), y: Math.min(it.y1, it.y2), w: Math.abs(it.x2 - it.x1), h: Math.abs(it.y2 - it.y1) };
+    if (it.type === 'text') { ctx.save(); ctx.font = '500 ' + it.s + 'px "Space Grotesk", sans-serif'; var lines = it.text.split('\n'), w = Math.max.apply(null, lines.map(function (l) { return ctx.measureText(l).width; })); ctx.restore(); return { x: it.x, y: it.y - it.s, w: w, h: it.s * 1.25 * lines.length }; }
+    return { x: it.x, y: it.y, w: it.w, h: it.h };
+  }
+  function drawItem(x, it, redraw) {
+    x.save(); x.strokeStyle = it.c; x.fillStyle = it.c; x.lineWidth = it.w; x.lineCap = 'round'; x.lineJoin = 'round';
+    if (it.type === 'pen') {
+      var p = it.pts; x.beginPath(); x.moveTo(p[0][0], p[0][1]);
+      if (p.length === 1) x.lineTo(p[0][0] + .1, p[0][1]);
+      for (var i = 1; i < p.length - 1; i++) x.quadraticCurveTo(p[i][0], p[i][1], (p[i][0] + p[i + 1][0]) / 2, (p[i][1] + p[i + 1][1]) / 2);
+      if (p.length > 1) x.lineTo(p[p.length - 1][0], p[p.length - 1][1]);
+      x.stroke();
+    } else if (it.type === 'line' || it.type === 'arrow') {
+      x.beginPath(); x.moveTo(it.x1, it.y1); x.lineTo(it.x2, it.y2); x.stroke();
+      if (it.type === 'arrow') { var a = Math.atan2(it.y2 - it.y1, it.x2 - it.x1), L = 22 + it.w * 2; x.beginPath(); x.moveTo(it.x2 - L * Math.cos(a - .45), it.y2 - L * Math.sin(a - .45)); x.lineTo(it.x2, it.y2); x.lineTo(it.x2 - L * Math.cos(a + .45), it.y2 - L * Math.sin(a + .45)); x.stroke(); }
+    } else if (it.type === 'rect') {
+      var rx = Math.min(it.x1, it.x2), ry = Math.min(it.y1, it.y2), rw = Math.abs(it.x2 - it.x1), rh = Math.abs(it.y2 - it.y1);
+      x.beginPath(); if (x.roundRect) x.roundRect(rx, ry, rw, rh, 14); else x.rect(rx, ry, rw, rh); x.stroke();
+    } else if (it.type === 'circle') {
+      x.beginPath(); x.ellipse((it.x1 + it.x2) / 2, (it.y1 + it.y2) / 2, Math.abs(it.x2 - it.x1) / 2 || 1, Math.abs(it.y2 - it.y1) / 2 || 1, 0, 0, Math.PI * 2); x.stroke();
+    } else if (it.type === 'text') {
+      x.font = '500 ' + it.s + 'px "Space Grotesk", sans-serif'; x.textBaseline = 'alphabetic';
+      it.text.split('\n').forEach(function (l, k) { x.fillText(l, it.x, it.y + k * it.s * 1.25); });
+    } else if (it.type === 'img') {
+      var im = imgCache[it.src];
+      if (!im) {
+        imgCache[it.src] = im = new Image();
+        idbGet('img-' + it.src).then(function (d) { if (d) { im.onload = function () { if (redraw) redraw(); }; im.src = d; } }).catch(function () {});
+      }
+      if (!(im.complete && im.naturalWidth) && redraw && !im._w) { im._w = 1; im.addEventListener('load', function () { redraw(); }); }
+      if (im.complete && im.naturalWidth) {
+        x.translate(it.x + it.w / 2, it.y + it.h / 2); x.rotate((it.rot || 0) * Math.PI / 180);
+        x.shadowColor = 'rgba(0,0,0,.18)'; x.shadowBlur = 16; x.shadowOffsetY = 6;
+        x.fillStyle = '#fff'; x.fillRect(-it.w / 2 - 8, -it.h / 2 - 8, it.w + 16, it.h + 16);
+        x.shadowColor = 'transparent'; x.drawImage(im, -it.w / 2, -it.h / 2, it.w, it.h);
+      } else { x.fillStyle = '#EFE3D1'; x.fillRect(it.x, it.y, it.w, it.h); }
+    }
+    x.restore();
+  }
+
+  // ---------- morning visualization: AI writes the script, the phone's voice reads it, background sound is synthesised ----------
+  var VZ_SCENES = [
+    { id: 'ghats', e: '🏍', n: 'Ride through the Ghats', p: 'riding a motorcycle through the winding roads of the Western Ghats in Coorg on a clear, cool morning' },
+    { id: 'tri', e: '🏁', n: 'Triathlon finish line', p: 'swimming, cycling and running your first sprint triathlon and crossing the finish line strong' },
+    { id: 'match', e: '🏸', n: 'Winning a match', p: 'an evening game of badminton where you move lightly, read every shot and win the final rally' },
+    { id: 'estate', e: '☕', n: 'Sunrise on the estate', p: 'walking through a coffee estate in Coorg at sunrise, mist lifting off the hills' },
+    { id: 'pitch', e: '🤝', n: 'Nailing the pitch', p: 'giving a calm, confident pitch to investors and seeing it land' },
+    { id: 'focus', e: '🎯', n: 'Deep focus at work', p: 'a morning of deep, calm focus on your most important work, finishing it well' }
+  ];
+  var VZ_LIB = {
+    ghats: ['You are on your motorcycle at the start of the ghat road. The engine idles, steady and warm beneath you.', 'The air is cool and smells of wet earth and coffee blossom.', 'You roll forward. The first bend comes, and you lean into it smoothly, eyes looking through the curve.', 'Mist hangs between the trees. Sunlight breaks through in long gold stripes across the road.', 'Your hands are relaxed on the bars. Your breathing matches the rhythm of the road.', 'Bend after bend, you feel completely present: just the road, the machine and you.', 'You reach the top of the ghat and pull over. The valley opens below, green and endless.', 'You take off your helmet and breathe in. You feel clear, calm and alive.'],
+    tri: ['You stand at the edge of the water with the other swimmers. Your heart is quick, but your breath is slow.', 'The start sounds. You walk in, dive, and find your stroke: long, easy, steady.', 'You climb out and run to your bike. Your hands know exactly what to do.', 'On the bike, the wind rushes past. Your legs turn smoothly; you pass one rider, then another.', 'Now the run. Your legs feel heavy for a moment, then they settle into rhythm.', 'You hear people cheering. Each step is light. You have trained for exactly this.', 'The finish line appears. You lift your pace and cross it, arms up.', 'You stop, breathing hard, and feel it: you did it. Twelve weeks of work, in one moment.'],
+    match: ['It is evening. The court lights are on and the shuttle is bright white against the dark.', 'You bounce on your toes, loose and ready. Your grip is light on the racquet.', 'The rally begins. You read the shot early, split step, and move to it without rushing.', 'You hear the clean sound of the strings as you clear to the back of the court.', 'Your breathing is steady. Your mind is only on the next shot.', 'Match point. You wait, calm. The shuttle floats up short.', 'You step in and play the smash, sharp and clean. It lands.', 'Your partner laughs and high-fives you. You feel quick, strong and completely present.'],
+    estate: ['You step out into the estate just before sunrise. The ground is soft and damp under your feet.', 'Mist sits in the valleys. Birds are starting to call across the hills.', 'You walk between the coffee rows. The leaves are glossy and heavy with dew.', 'You notice the healthy plants, the clean rows, the work that has gone into every block.', 'The sun rises over the ridge and the mist turns gold.', 'You breathe in the smell of earth and leaves. You feel proud of this place, and calm.', 'You picture the estate a year from now: thriving, well run, exactly as you want it.', 'You stand still for a moment and let that picture settle in your chest.'],
+    pitch: ['You walk into the room. You feel prepared, grounded and calm.', 'You look at the people across the table and smile. Your voice comes out steady and clear.', 'You explain the problem simply. You can see them nodding.', 'You show what you have built. Your hands are relaxed; you know every detail.', 'A hard question comes. You pause, breathe, and answer it well.', 'The energy in the room shifts. They lean forward. They are interested.', 'At the end, someone says: let’s talk about next steps.', 'You walk out into the daylight feeling light, clear and proud of how you showed up.'],
+    focus: ['You sit down at your desk. Your phone is in another room. The space is quiet.', 'You open the one piece of work that matters most today.', 'The first few minutes feel slow. Then you find the thread, and time begins to move differently.', 'Your attention is steady, like a lamp held still. Distractions come, and you let them pass.', 'You make a clear decision, then another. The work takes shape in front of you.', 'You notice how good it feels to give one thing all of your attention.', 'The hour ends and you look at what you have made. It is solid, and it is finished.', 'You stretch, stand up, and feel calm, capable and ahead of your day.']
+  };
+  function vizSettings() {
+    state.viz = state.viz || {};
+    var v = state.viz;
+    if (!v.scene && !v.custom) v.scene = 'ghats';
+    if (!v.mins) v.mins = 5; if (!v.rate) v.rate = .9; if (!v.bg) v.bg = 'ocean';
+    if (v.bgVol == null) v.bgVol = .5; if (v.vVol == null) v.vVol = 1;
+    return v;
+  }
+  function vizTopic(v) { if (v.custom) return v.custom; var s = VZ_SCENES.filter(function (x) { return x.id === v.scene; })[0] || VZ_SCENES[0]; return s.p; }
+  function vizTopicName(v) { if (v.custom) return v.custom; var s = VZ_SCENES.filter(function (x) { return x.id === v.scene; })[0] || VZ_SCENES[0]; return s.n; }
+  var BGS = [['ocean', '🌊 Ocean'], ['rain', '🌧 Rain'], ['forest', '🌿 Forest birds'], ['tanpura', '🪕 Tanpura drone'], ['bells', '🔔 Soft bells'], ['silence', 'Silence']];
+  function bgName(k) { return (BGS.filter(function (b) { return b[0] === k; })[0] || BGS[0])[1]; }
+  function localScript(v) {
+    var body = v.custom ? ['Picture yourself: ' + v.custom + '.', 'Notice where you are. What can you see around you? Let the details come into focus.', 'Notice the light, the colours, the small things you would only see if you were really there.', 'What can you hear? Let the sounds come closer.', 'Feel your body: steady, capable and calm.', 'Now see the moment it goes well, exactly as you hoped.', 'Notice how that feels in your chest, in your hands, on your face.', 'Stay here for a few breaths. You have done the work to get here.'] : VZ_LIB[v.scene] || VZ_LIB.ghats;
+    var L = [{ text: 'Sit comfortably and let your eyes close.', pause: 4 }, { text: 'Breathe in slowly through your nose… and let it go.', pause: 7 }, { text: 'Once more. In… and out. Let your shoulders drop.', pause: 7 }];
+    body.forEach(function (t, i) { L.push({ text: t, pause: i === body.length - 1 ? 12 : 7 }); });
+    L.push({ text: 'Now choose one small thing you will do today to move towards this.', pause: 10 }, { text: 'Hold the picture and the feeling.', pause: 6 }, { text: 'Take a deep breath in… and out.', pause: 6 }, { text: 'When you are ready, open your eyes and begin your day.', pause: 1 });
+    return { title: vizTopicName(v), lines: L, ai: false };
+  }
+  function vizPrompt(v) {
+    return 'Write a guided morning visualization script for one person named Shravan, lasting about ' + v.mins + ' minutes when read slowly aloud with pauses. ' +
+      'Topic: ' + vizTopic(v) + '. Second person ("you"), present tense, calm and vivid, using sight, sound, smell and touch. Plain everyday English, no clichés, no religious content, no claims about health. ' +
+      'Structure: settle the body and breathe (2–3 lines), arrive in the scene, build up to the best moment, feel what success is like, then carry that feeling into today with one small action, and return gently. ' +
+      'About ' + Math.round(v.mins * 80) + ' words in total, in short sentences. Reply only with JSON: {"title": "short title", "lines": [{"text": "one or two sentences", "pause": seconds}]}, pauses between 2 and 15 seconds, longer after breathing cues and big moments.';
+  }
+  function geminiCall(body) {
+    var models = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.0-flash'];
+    var go = function (i) {
+      return fetch('https://generativelanguage.googleapis.com/v1beta/models/' + models[i] + ':generateContent?key=' + encodeURIComponent(state.aiKey), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+        .then(function (r) {
+          if (r.status === 404 && i + 1 < models.length) return go(i + 1);
+          if (!r.ok) throw new Error(r.status === 400 || r.status === 403 ? 'the AI key was not accepted' : r.status === 429 ? 'the free daily limit is used up' : 'AI error ' + r.status);
+          return r.json();
+        });
+    };
+    return go(0).then(function (j) { return ((j.candidates || [])[0] || {}).content.parts.map(function (p) { return p.text || ''; }).join(''); });
+  }
+  function aiScript(v) {
+    return geminiCall({ contents: [{ parts: [{ text: vizPrompt(v) }] }], generationConfig: { responseMimeType: 'application/json', temperature: 1 } }).then(function (txt) {
+      var s = JSON.parse(txt.replace(/^\s*```(json)?/, '').replace(/```\s*$/, ''));
+      var lines = (s.lines || []).filter(function (l) { return l && l.text; }).map(function (l) { return { text: String(l.text), pause: Math.max(1, Math.min(20, +l.pause || 5)) }; });
+      if (lines.length < 4) throw new Error('the AI reply was too short');
+      return { title: s.title || vizTopicName(v), lines: lines, ai: true };
+    });
+  }
+  // --- voice ---
+  function vizVoices() {
+    var all = ('speechSynthesis' in window) ? speechSynthesis.getVoices() : [];
+    return all.filter(function (x) { return /^en/i.test(x.lang); }).sort(function (a, b) { return (/IN/.test(b.lang) - /IN/.test(a.lang)) || (a.name < b.name ? -1 : 1); });
+  }
+  function pickVoice() { var v = vizSettings(), vs = vizVoices(); return vs.filter(function (x) { return x.voiceURI === v.voice; })[0] || vs.filter(function (x) { return /en[-_]IN/i.test(x.lang); })[0] || vs[0] || null; }
+  function speak(text, onend) {
+    if (!('speechSynthesis' in window)) { setTimeout(onend, estSec(text) * 1000); return; }
+    var v = vizSettings(), u = new SpeechSynthesisUtterance(text), vo = pickVoice();
+    if (vo) { u.voice = vo; u.lang = vo.lang; } else u.lang = 'en-IN';
+    u.rate = v.rate; u.volume = v.vVol; u.pitch = 1;
+    u.onend = onend; u.onerror = onend;
+    speechSynthesis.speak(u);
+  }
+  function estSec(t) { return t.split(/\s+/).length / (2.4 * vizSettings().rate) + .6; }
+  if ('speechSynthesis' in window) speechSynthesis.onvoiceschanged = function () { if (vz && vz.stage === 'audio') drawViz(); };
+  // --- background sound (made live with Web Audio, so there are no sound files to download) ---
+  var AC = null, bg = null;
+  function actx() { AC = AC || new (window.AudioContext || window.webkitAudioContext)(); if (AC.state === 'suspended') AC.resume(); return AC; }
+  function bgStart(kind, vol) {
+    bgStop();
+    if (!kind || kind === 'silence' || !(window.AudioContext || window.webkitAudioContext)) return;
+    var c = actx(), out = c.createGain(), nodes = [], timers = [], t0 = c.currentTime;
+    var me = { out: out, nodes: nodes, timers: timers, kind: kind }; bg = me;
+    out.gain.setValueAtTime(0, t0); out.gain.linearRampToValueAtTime(vol, t0 + 2.5); out.connect(c.destination);
+    var noise = function (brown) {
+      var len = c.sampleRate * 4, b = c.createBuffer(1, len, c.sampleRate), d = b.getChannelData(0), last = 0;
+      for (var i = 0; i < len; i++) { var w = Math.random() * 2 - 1; if (brown) { last = (last + .02 * w) / 1.02; d[i] = last * 3.5; } else d[i] = w; }
+      var s = c.createBufferSource(); s.buffer = b; s.loop = true; s.start(); nodes.push(s); return s;
+    };
+    var filt = function (type, f, q) { var x = c.createBiquadFilter(); x.type = type; x.frequency.value = f; if (q) x.Q.value = q; nodes.push(x); return x; };
+    var gain = function (v) { var g = c.createGain(); g.gain.value = v; nodes.push(g); return g; };
+    var lfo = function (target, f, depth) { var o = c.createOscillator(), g = gain(depth); o.frequency.value = f; o.connect(g); g.connect(target); o.start(); nodes.push(o); };
+    if (kind === 'ocean') {
+      var g1 = gain(.55); noise(true).connect(filt('lowpass', 700)).connect(g1); g1.connect(out); lfo(g1.gain, .085, .4);
+      var g2 = gain(.12); noise(false).connect(filt('bandpass', 1800, .6)).connect(g2); g2.connect(out); lfo(g2.gain, .085, .1);
+    } else if (kind === 'rain') {
+      noise(false).connect(filt('highpass', 900)).connect(filt('lowpass', 6500)).connect(gain(.22)).connect(out);
+      noise(true).connect(filt('lowpass', 400)).connect(gain(.35)).connect(out);
+      timers.push(setInterval(function () { if (Math.random() < .5) return; var o = c.createOscillator(), g = c.createGain(), t = c.currentTime; o.frequency.setValueAtTime(2200 + Math.random() * 1800, t); o.frequency.exponentialRampToValueAtTime(700, t + .05); g.gain.setValueAtTime(.05, t); g.gain.exponentialRampToValueAtTime(.0001, t + .06); o.connect(g); g.connect(out); o.start(t); o.stop(t + .08); }, 120));
+    } else if (kind === 'forest') {
+      var gw = gain(.25); noise(true).connect(filt('bandpass', 420, .7)).connect(gw); gw.connect(out); lfo(gw.gain, .05, .15);
+      var chirp = function () {
+        var t = c.currentTime, base = 2600 + Math.random() * 1600, n = 2 + Math.floor(Math.random() * 4);
+        for (var k = 0; k < n; k++) { var o = c.createOscillator(), g = c.createGain(), s = t + k * .16; o.type = 'sine'; o.frequency.setValueAtTime(base, s); o.frequency.exponentialRampToValueAtTime(base * (1.25 + Math.random() * .3), s + .09); g.gain.setValueAtTime(0, s); g.gain.linearRampToValueAtTime(.06, s + .02); g.gain.exponentialRampToValueAtTime(.0001, s + .13); o.connect(g); g.connect(out); o.start(s); o.stop(s + .15); }
+        if (bg === me) timers.push(setTimeout(chirp, 1200 + Math.random() * 4200));
+      };
+      timers.push(setTimeout(chirp, 900));
+    } else if (kind === 'tanpura') {
+      var strings = [98, 130.81, 130.81, 65.41], k2 = 0;
+      var pluck = function () {
+        var f = strings[k2++ % 4], t = c.currentTime, lp = c.createBiquadFilter(), g = c.createGain();
+        lp.type = 'lowpass'; lp.frequency.setValueAtTime(3200, t); lp.frequency.exponentialRampToValueAtTime(700, t + 2.5);
+        g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.16, t + .03); g.gain.exponentialRampToValueAtTime(.0008, t + 4.2);
+        [0, .35, -.3].forEach(function (dt) { var o = c.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f + dt; o.connect(lp); o.start(t); o.stop(t + 4.4); });
+        lp.connect(g); g.connect(out);
+      };
+      pluck(); timers.push(setInterval(pluck, 1150));
+    } else if (kind === 'bells') {
+      var notes = [523.25, 587.33, 659.25, 783.99, 880, 1046.5];
+      var bell = function () {
+        var f = notes[Math.floor(Math.random() * notes.length)], t = c.currentTime;
+        [[1, .16], [2.76, .06], [5.4, .025]].forEach(function (p) { var o = c.createOscillator(), g = c.createGain(); o.frequency.value = f * p[0]; g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(p[1], t + .01); g.gain.exponentialRampToValueAtTime(.0001, t + 5); o.connect(g); g.connect(out); o.start(t); o.stop(t + 5.2); });
+        if (bg === me) timers.push(setTimeout(bell, 4000 + Math.random() * 5000));
+      };
+      noise(true).connect(filt('lowpass', 300)).connect(gain(.12)).connect(out);
+      timers.push(setTimeout(bell, 600));
+    }
+  }
+  function bgStop() {
+    if (!bg) return;
+    var b = bg, c = AC; bg = null;
+    b.timers.forEach(function (t) { clearTimeout(t); clearInterval(t); });
+    try { b.out.gain.cancelScheduledValues(c.currentTime); b.out.gain.setValueAtTime(b.out.gain.value, c.currentTime); b.out.gain.linearRampToValueAtTime(0, c.currentTime + .8); } catch (e) {}
+    setTimeout(function () { b.nodes.forEach(function (n) { try { if (n.stop) n.stop(); } catch (e) {} try { n.disconnect(); } catch (e) {} }); try { b.out.disconnect(); } catch (e) {} }, 900);
+  }
+  function bgVol(v) { if (bg && AC) bg.out.gain.setTargetAtTime(v, AC.currentTime, .15); }
+  // --- screens ---
+  var vz = null, wakeLock = null;
+  function openViz(morning) {
+    resetOverlay(); closeSheet();
+    vz = { stage: 'choose', morning: !!morning };
+    drawViz(); showOverlay('vzo');
+  }
+  function closeViz() { vizStop(); vz = null; closeOverlayEl(); if (location.search) history.replaceState(history.state, '', location.pathname); }
+  function vizStop() {
+    if (!vz) return;
+    clearTimeout(vz.to); clearTimeout(vz.fb); clearInterval(vz.tick);
+    if ('speechSynthesis' in window) speechSynthesis.cancel();
+    bgStop();
+    if (wakeLock) { try { wakeLock.release(); } catch (e) {} wakeLock = null; }
+  }
+  function drawViz() {
+    var o = document.getElementById('overlay'), v = vizSettings(), h = '<div class="inner">';
+    o.classList.toggle('vzplay', vz.stage === 'play' || vz.stage === 'making');
+    if (vz.stage === 'choose') {
+      h += '<div class="row between"><span class="eyebrow">' + (vz.morning ? 'Good morning · ' : '') + new Date().toLocaleTimeString('en', { hour: 'numeric', minute: '2-digit' }) + '</span><button type="button" class="btn ghost small" id="vzClose">Close</button></div>';
+      h += '<section class="hero w" style="background:linear-gradient(160deg,#FFB23F 0%,#FF6B57 70%);color:#fff">' + sun('#FFE6B8', 90, -10, 40) + wave('#FFFFFF', .2, 40, 20) + '<span class="cap">Visualization</span><span class="display h2" style="margin:0">Picture your<br><i>day going well</i></span></section>';
+      h += '<span class="lab">What do you want to picture?</span><div class="optrow">' + VZ_SCENES.map(function (s) { return '<button type="button" class="opt sm" data-vscene="' + s.id + '" aria-pressed="' + (!v.custom && v.scene === s.id) + '">' + s.e + ' ' + s.n + '</button>'; }).join('') + '</div>';
+      h += '<input class="text" id="vzCustom" value="' + esc(v.custom || '') + '" placeholder="…or type your own: “first demo of the weeder robot”">';
+      h += '<span class="lab">Length</span><div class="optrow">' + [3, 5, 10].map(function (m) { return '<button type="button" class="opt" data-vmins="' + m + '" aria-pressed="' + (v.mins === m) + '">' + m + ' min</button>'; }).join('') + '</div>';
+      var vo = pickVoice();
+      h += '<div class="list"><button type="button" class="r" id="vzAudio"><span class="dot" style="background:' + T.lagoon + '"></span><span class="t">Voice</span><span class="v">' + esc(vo ? vo.name.replace(/Google |Microsoft /, '').slice(0, 22) : 'phone default') + '</span>' + CHEV + '</button>' +
+        '<button type="button" class="r" id="vzAudio2"><span class="dot" style="background:' + T.mango + '"></span><span class="t">Background</span><span class="v">' + bgName(v.bg) + '</span>' + CHEV + '</button></div>';
+      h += '<button type="button" class="btn jungle" id="vzGo">' + (state.aiKey ? '✦ Create & play' : 'Play') + '</button>';
+      if (!state.aiKey) h += '<p class="muted small" style="text-align:center">Using the app’s own scenes. Add a free AI key (Settings → Visualization) for a fresh script every morning.</p>';
+      var saved = state.vizSaved || [];
+      if (saved.length) h += '<h3 class="sh">Saved <span class="cap">replay</span></h3><div class="list">' + saved.slice().reverse().map(function (s) { return '<div class="r"><button type="button" class="rt" data-vsaved="' + s.id + '"><span class="t">' + esc(s.title) + '<small>' + s.lines.length + ' lines · saved ' + niceDate(s.at) + '</small></span><span class="v">▶</span></button><button type="button" class="fx" data-vsdel="' + s.id + '" aria-label="Delete">×</button></div>'; }).join('') + '</div>';
+      if (vz.morning) h += '<button type="button" class="link" id="vzSkip" style="align-self:center">Skip to today’s targets</button>';
+    } else if (vz.stage === 'audio') {
+      h += '<div class="row between"><button type="button" class="btn ghost small" id="vzBack">‹ Back</button><span class="eyebrow">Voice + sound</span></div><h1 class="display" style="font-size:32px">Audio</h1>';
+      var vs = vizVoices(), cur = pickVoice();
+      h += '<span class="lab">Voice</span>';
+      if (!vs.length) h += '<div class="notice">No English voices found. On Android: Settings → Accessibility → Text-to-speech → install Speech Services by Google.</div>';
+      else h += '<div class="list">' + vs.slice(0, 12).map(function (x) {
+        var on = cur && cur.voiceURI === x.voiceURI;
+        return '<div class="r"><button type="button" class="tck' + (on ? ' on' : '') + '" data-vvoice="' + esc(x.voiceURI) + '" aria-pressed="' + on + '" aria-label="Use ' + esc(x.name) + '">' + (on ? TICK : '') + '</button><span class="t">' + esc(x.name.replace(/Google |Microsoft /, '')) + '<small>' + esc(x.lang) + (x.localService ? ' · works offline' : ' · needs internet') + '</small></span><button type="button" class="pill pv" data-vprev="' + esc(x.voiceURI) + '">▶ Preview</button></div>';
+      }).join('') + '</div>';
+      h += '<span class="lab">Speed</span><div class="optrow">' + [[.8, 'Slow'], [.9, 'Gentle'], [1, 'Normal']].map(function (r) { return '<button type="button" class="opt" data-vrate="' + r[0] + '" aria-pressed="' + (v.rate === r[0]) + '">' + r[1] + '</button>'; }).join('') + '</div>';
+      h += '<span class="lab">Background <span class="muted">(tap to hear it)</span></span><div class="optrow">' + BGS.map(function (b) { return '<button type="button" class="opt" data-vbg="' + b[0] + '" aria-pressed="' + (v.bg === b[0]) + '">' + b[1] + '</button>'; }).join('') + '</div>';
+      h += '<label class="lab rng">Background volume<input type="range" id="vzBgV" min="0" max="1" step="0.05" value="' + v.bgVol + '"></label>';
+      h += '<label class="lab rng">Voice volume<input type="range" id="vzVV" min="0.2" max="1" step="0.05" value="' + v.vVol + '"></label>';
+      h += '<button type="button" class="btn jungle" id="vzBack2">Done</button>';
+    } else if (vz.stage === 'making') {
+      h += '<div class="vzmid"><div class="vzorb"></div><span class="cap" style="color:#FFE6B8">writing your visualization</span><span class="display" style="font-size:24px;color:#fff;text-align:center">' + esc(vizTopicName(v)) + '</span></div>';
+    } else if (vz.stage === 'play') {
+      var tot = vz.total || 1;
+      h += '<div class="row between" style="color:#CDEFEA"><span class="eyebrow" style="color:#CDEFEA">' + esc(vz.script.title) + ' · ' + v.mins + ' min</span><button type="button" class="vzx" id="vzStop" aria-label="Stop">✕</button></div>';
+      h += '<div class="vzmid"><div class="vzorb' + (vz.paused ? ' paused' : '') + '"></div><span class="cap" id="vzCue" style="color:#FFE6B8">' + (vz.paused ? 'paused' : 'listen') + '</span><p class="display vzline" id="vzLine" aria-live="polite">' + esc(vz.line || '') + '</p></div>';
+      h += '<div class="vzbar"><div class="bar" style="background:rgba(255,255,255,.2)"><i id="vzProg" style="width:' + Math.min(100, (Date.now() - vz.t0) / tot * 100) + '%"></i></div><div class="row between"><span class="cap" id="vzEl" style="color:#CDEFEA">0:00</span><span class="cap" style="color:#CDEFEA">' + fmt(Math.round(tot / 1000)) + '</span></div>' +
+        '<div class="row" style="justify-content:center;gap:26px"><span class="small" style="color:#fff;opacity:.85">' + bgName(v.bg) + '</span><button type="button" class="vzpp" id="vzPP" aria-label="' + (vz.paused ? 'Play' : 'Pause') + '">' + (vz.paused ? '▶' : '❚❚') + '</button><button type="button" class="link" id="vzSave" style="color:#fff">' + (vz.saved ? 'Saved ★' : 'Save ☆') + '</button></div></div>';
+    } else if (vz.stage === 'done') {
+      h += '<div class="vzmid"><div class="vzorb done"></div><span class="display" style="font-size:34px;color:#fff;text-align:center;line-height:1.1">Carry it<br>into today</span><span style="color:#CDEFEA;text-align:center">+5 XP</span></div>';
+      h += '<button type="button" class="btn" id="vzTargets" style="background:#FFB23F;color:#0F4D40">Set today’s targets</button>';
+      if (!vz.saved) h += '<button type="button" class="btn ghost" id="vzSave2" style="border-color:rgba(255,255,255,.4);color:#fff">Save this script ☆</button>';
+      h += '<button type="button" class="btn ghost" id="vzDone" style="border-color:rgba(255,255,255,.4);color:#fff">Close</button>';
+    }
+    o.innerHTML = h + '</div>';
+    bindViz(o);
+  }
+  function bindViz(o) {
+    var v = vizSettings(), q = function (s) { return o.querySelector(s); }, on = function (s, f) { var e = q(s); if (e) e.onclick = f; };
+    on('#vzClose', closeViz); on('#vzDone', closeViz); on('#vzStop', closeViz);
+    on('#vzSkip', function () { closeViz(); openGoal(); });
+    on('#vzTargets', function () { closeViz(); openGoal(); });
+    o.querySelectorAll('[data-vscene]').forEach(function (b) { b.onclick = function () { v.scene = b.dataset.vscene; v.custom = ''; save(); drawViz(); }; });
+    o.querySelectorAll('[data-vmins]').forEach(function (b) { b.onclick = function () { v.mins = +b.dataset.vmins; save(); drawViz(); }; });
+    var cu = q('#vzCustom'); if (cu) cu.addEventListener('input', function () { v.custom = cu.value.trim(); save(); o.querySelectorAll('[data-vscene]').forEach(function (b) { b.setAttribute('aria-pressed', String(!v.custom && v.scene === b.dataset.vscene)); }); });
+    var toAudio = function () { vz.stage = 'audio'; drawViz(); };
+    on('#vzAudio', toAudio); on('#vzAudio2', toAudio);
+    var back = function () { bgStop(); if ('speechSynthesis' in window) speechSynthesis.cancel(); vz.stage = 'choose'; drawViz(); };
+    on('#vzBack', back); on('#vzBack2', back);
+    o.querySelectorAll('[data-vvoice]').forEach(function (b) { b.onclick = function () { v.voice = b.dataset.vvoice; save(); drawViz(); }; });
+    o.querySelectorAll('[data-vprev]').forEach(function (b) { b.onclick = function () { speechSynthesis.cancel(); var keep = v.voice; v.voice = b.dataset.vprev; speak('Good morning, ' + myName() + '. Let’s begin.', function () {}); v.voice = keep; }; });
+    o.querySelectorAll('[data-vrate]').forEach(function (b) { b.onclick = function () { v.rate = +b.dataset.vrate; save(); drawViz(); speechSynthesis.cancel(); speak('This is how fast I will speak.', function () {}); }; });
+    o.querySelectorAll('[data-vbg]').forEach(function (b) { b.onclick = function () { v.bg = b.dataset.vbg; save(); var k = v.bg; drawViz(); bgStart(k, v.bgVol); }; });
+    var bv = q('#vzBgV'); if (bv) bv.oninput = function () { v.bgVol = +bv.value; save(); bgVol(v.bgVol); };
+    var vv = q('#vzVV'); if (vv) vv.onchange = function () { v.vVol = +vv.value; save(); speechSynthesis.cancel(); speak('This is the voice volume.', function () {}); };
+    on('#vzGo', function () { vizUnlock(); vizMake(); });
+    o.querySelectorAll('[data-vsaved]').forEach(function (b) { b.onclick = function () { var s = (state.vizSaved || []).filter(function (x) { return x.id === b.dataset.vsaved; })[0]; if (s) { vizUnlock(); vz.saved = true; vizPlay({ title: s.title, lines: s.lines }); } }; });
+    o.querySelectorAll('[data-vsdel]').forEach(function (b) { b.onclick = function () { if (!confirm('Delete this saved visualization?')) return; state.vizSaved = state.vizSaved.filter(function (x) { return x.id !== b.dataset.vsdel; }); save(); drawViz(); }; });
+    on('#vzPP', function () { if (vz.paused) vizResume(); else vizPause(); });
+    var sv = function () { if (vz.saved || !vz.script) return; state.vizSaved = (state.vizSaved || []).concat([{ id: 's' + Date.now().toString(36), title: vz.script.title, lines: vz.script.lines, at: new Date().toISOString() }]).slice(-20); save(); vz.saved = true; toast('Saved. Replay it any morning.'); drawViz(); };
+    on('#vzSave', sv); on('#vzSave2', sv);
+  }
+  // speech and audio must start from a tap on Android: warm them up right away
+  function vizUnlock() {
+    try { actx(); } catch (e) {}
+    if ('speechSynthesis' in window) { speechSynthesis.cancel(); var u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); }
+  }
+  function vizMake() {
+    var v = vizSettings();
+    if (!state.aiKey) return vizPlay(localScript(v));
+    vz.stage = 'making'; drawViz();
+    var done = false, timer = setTimeout(function () { if (done) return; done = true; toast('The AI is slow today: using the app’s scenes'); vizPlay(localScript(v)); }, 20000);
+    aiScript(v).then(function (s) { if (done || !vz) return; done = true; clearTimeout(timer); vizPlay(s); })
+      .catch(function (e) { if (done || !vz) return; done = true; clearTimeout(timer); toast('AI unavailable (' + e.message + '): using the app’s scenes'); vizPlay(localScript(v)); });
+  }
+  function vizPlay(script) {
+    var v = vizSettings();
+    vz.script = script; vz.stage = 'play'; vz.i = 0; vz.line = ''; vz.paused = false;
+    vz.t0 = Date.now(); vz.total = v.mins * 60000; vz.end = vz.t0 + vz.total;
+    bgStart(v.bg, v.bgVol);
+    if ('wakeLock' in navigator) navigator.wakeLock.request('screen').then(function (w) { wakeLock = w; }).catch(function () {});
+    drawViz();
+    vz.tick = setInterval(function () {
+      if (!vz || vz.stage !== 'play' || vz.paused) return;
+      var el = Date.now() - vz.t0, p = document.getElementById('vzProg'), t = document.getElementById('vzEl');
+      if (p) p.style.width = Math.min(100, el / vz.total * 100) + '%';
+      if (t) t.textContent = fmt(Math.min(Math.round(el / 1000), Math.round(vz.total / 1000)));
+    }, 500);
+    setTimeout(vizNext, 1500);
+  }
+  function vizNext() {
+    if (!vz || vz.stage !== 'play' || vz.paused) return;
+    var L = vz.script.lines;
+    if (vz.i >= L.length) return vizFinish();
+    var line = L[vz.i], fired = false;
+    vz.line = line.text;
+    var el = document.getElementById('vzLine'); if (el) { el.classList.remove('in'); void el.offsetWidth; el.textContent = line.text; el.classList.add('in'); }
+    var cue = document.getElementById('vzCue'); if (cue) cue.textContent = /breath|inhale|exhale/i.test(line.text) ? 'breathe' : 'listen';
+    var fin = function () {
+      if (fired) return; fired = true; clearTimeout(vz.fb);
+      if (!vz || vz.paused || vz.stage !== 'play') return;
+      var wait = pauseFor(vz.i); vz.i++;
+      vz.to = setTimeout(vizNext, wait * 1000);
+    };
+    vz.fb = setTimeout(fin, estSec(line.text) * 1000 + 5000);
+    speak(line.text, fin);
+  }
+  // stretch or shrink the pauses so the whole thing lasts about the length you chose
+  function pauseFor(i) {
+    var L = vz.script.lines, rest = L.slice(i + 1), speech = rest.reduce(function (a, l) { return a + estSec(l.text); }, 0);
+    var left = (vz.end - Date.now()) / 1000 - speech, w = L.slice(i).reduce(function (a, l) { return a + l.pause; }, 0) || 1;
+    return Math.max(1.5, Math.min(30, left * L[i].pause / w));
+  }
+  function vizPause() { vz.paused = true; vz.pausedAt = Date.now(); clearTimeout(vz.to); clearTimeout(vz.fb); if ('speechSynthesis' in window) speechSynthesis.cancel(); bgVol(vizSettings().bgVol * .4); drawViz(); }
+  function vizResume() { var d = Date.now() - vz.pausedAt; vz.t0 += d; vz.end += d; vz.paused = false; bgVol(vizSettings().bgVol); drawViz(); setTimeout(vizNext, 600); }
+  function vizFinish() {
+    clearInterval(vz.tick);
+    bgStop(); if (wakeLock) { try { wakeLock.release(); } catch (e) {} wakeLock = null; }
+    vz.stage = 'done'; drawViz();
+    var k = dkey(new Date());
+    if (!(state.vizDone || {})[k]) mutate(function () { state.vizDone = state.vizDone || {}; state.vizDone[k] = true; });
+  }
+  function aiSheet() {
+    var has = !!state.aiKey;
+    var h = '<p style="margin:0;font-size:14px;line-height:1.5">Each morning Google’s Gemini AI can write a fresh visualization for you. It uses a <b>free</b> key that stays on this phone (it isn’t included in backups). One visualization a day is far inside the free limit.</p>';
+    h += '<div class="card stack" style="gap:8px"><h2>Get your free key (once)</h2><ol class="steps"><li>Open <a class="link" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> and sign in with your Google account.</li><li>Tap <b>Create API key</b> and accept the terms.</li><li>Tap the copy icon next to the key (it starts with <b>AIza</b>).</li><li>Come back here, paste it below and tap <b>Save & test</b>.</li></ol></div>';
+    h += '<input class="text" id="aiKey" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="' + (has ? 'Key saved · paste a new one to replace it' : 'AIza… (paste your key)') + '">';
+    h += '<div class="row"><button type="button" class="btn jungle" id="aiSave" style="flex:1">Save & test</button>' + (has ? '<button type="button" class="btn line" id="aiDel">Remove</button>' : '') + '</div>';
+    h += '<div class="notice ok">No key or no internet? It still works: the app builds the visualization from its own scenes.</div>';
+    h += '<button type="button" class="btn coral" data-viz="1">Open the visualization</button>';
+    return { title: 'Visualization', cap: has ? 'AI on' : 'scene library', html: h, bind: function (r) {
+      var s = r.querySelector('#aiSave'), d = r.querySelector('#aiDel');
+      s.onclick = function () {
+        var k = r.querySelector('#aiKey').value.trim(); if (!k && !state.aiKey) { toast('Paste your key first'); return; }
+        var old = state.aiKey; if (k) state.aiKey = k;
+        s.disabled = true; s.textContent = 'Testing…';
+        geminiCall({ contents: [{ parts: [{ text: 'Reply with the single word OK.' }] }] }).then(function () { save(); toast('AI key works'); drawSheet(); render(); })
+          .catch(function (e) { state.aiKey = old; save(); toast('Didn’t work: ' + e.message); s.disabled = false; s.textContent = 'Save & test'; });
+      };
+      if (d) d.onclick = function () { if (!confirm('Remove the AI key from this phone?')) return; delete state.aiKey; save(); drawSheet(); render(); };
+    } };
+  }
+
   // ---------- detail sheets (slide up from the bottom) ----------
   function sheetFor(kind, arg) {
     switch (kind) {
       case 'progress': return progressSheet();
+      case 'targets': return targetsSheet();
+      case 'target': return targetSheet(arg);
+      case 'tomorrow': return tomorrowSheet();
+      case 'tonight': return tonightSheet(arg);
+      case 'badminton': return badmintonSheet();
+      case 'ai': return aiSheet();
       case 'day': return daySheet(ui.sel || todayNum());
       case 'move': return { title: 'Movement', cap: 'every 30 min', html: bodyCard(), bind: function (r) { bindTrail(r, todayNum()); } };
       case 'meal': return mealSheet(arg || 'breakfast');
       case 'about': return aboutSheet();
-      case 'targets': return targetsSheet();
+      case 'kcal': return kcalSheet();
       case 'weight': return weightSheet();
       case 'week': return weekSheet();
       case 'roadmap': return roadmapSheet();
@@ -1476,8 +2167,9 @@
   })();
   // rows and cards that open a sheet or jump to another tab
   document.addEventListener('click', function (e) {
-    var t = e.target.closest && e.target.closest('[data-sheet],[data-tab-go]');
+    var t = e.target.closest && e.target.closest('[data-sheet],[data-tab-go],[data-viz]');
     if (!t) return;
+    if (t.dataset.viz) { openViz(false); return; }
     if (t.dataset.sheet) { openSheet(t.dataset.sheet); return; }
     var g = t.dataset.tabGo.split(':');
     closeSheet(); ui.tab = g[0]; if (g[1]) fitUi.view = g[1];
@@ -1486,6 +2178,7 @@
 
   // ---------- shell ----------
   function render() {
+    migrate(state);
     var view = document.getElementById('view');
     if (ui.tab === 'trail') { view.innerHTML = renderToday(); bindTrail(view, todayNum()); }
     else if (ui.tab === 'log') { view.innerHTML = renderLog(); bindLog(view); }
@@ -1498,14 +2191,16 @@
     t.addEventListener('click', function () { closeSheet(); ui.tab = t.dataset.tab; render(); window.scrollTo(0, 0); });
   });
   document.getElementById('checkinBtn').addEventListener('click', openCheckin);
+  document.getElementById('notesFab').addEventListener('click', function () { openNotes(); });
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(function () {});
     navigator.serviceWorker.addEventListener('message', function (e) {
       if (!e.data) return;
-      if (e.data.type === 'move') { var mm = /move=([a-z0-9]+)/.exec(e.data.url || ''); if (gv || ci) closeCheckin(); openMove(mm ? mm[1] : suggestMove()); return; }
-      if (e.data.type === 'goal') { if (ci) closeCheckin(); if (/win=1/.test(e.data.url || '') && todayGoal() && !todayGoal().achievedAt) mutate(function () { goalUpdate('', true); }); openGoal(); return; }
-      else if (e.data.type === 'checkin' && !ci) { if (gv) closeCheckin(); openCheckin(); }
+      if (e.data.type === 'move') { var mm = /move=([a-z0-9]+)/.exec(e.data.url || ''); openMove(mm ? mm[1] : suggestMove()); return; }
+      if (e.data.type === 'goal') { if (/win=1/.test(e.data.url || '')) { hitSingle(); openGoal(); } else if (vz) return; else openMorning(); return; }
+      if (e.data.type === 'tonight') { resetOverlay(); closeOverlayEl(); ui.tab = 'trail'; render(); openSheet('tonight'); return; }
+      if (e.data.type === 'checkin' && !ci) openCheckin();
     });
   }
   var lastDay = todayNum();
@@ -1513,7 +2208,8 @@
 
   render();
   syncGoal();
-  if (/[?&]win=1/.test(location.search)) { if (todayGoal() && !todayGoal().achievedAt) mutate(function () { goalUpdate('', true); }); openGoal(); }
-  else if (/[?&]goal=1/.test(location.search)) openGoal();
+  if (/[?&]win=1/.test(location.search)) { hitSingle(); openGoal(); }
+  else if (/[?&]goal=1/.test(location.search)) openMorning();
+  else if (/[?&]tonight=1/.test(location.search)) { openSheet('tonight'); history.replaceState(history.state, '', location.pathname); }
   else if (/[?&]checkin=1/.test(location.search)) openCheckin();
 })();

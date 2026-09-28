@@ -6,5 +6,7 @@
   "utcOffsetMinutes": 330,
   "goalPing": true,
   "movePings": true,
-  "moveEveryMinutes": 30
+  "moveEveryMinutes": 30,
+  "nightPing": true,
+  "nightHour": 22
 }

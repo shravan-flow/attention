@@ -1,5 +1,5 @@
 /* Attention service worker: offline shell, push reminders, tap-to-check-in. */
-var CACHE = 'attention-v10';
+var CACHE = 'attention-v11';
 var SHELL = ['./', 'index.html', 'style.css', 'app.js', 'manifest.webmanifest', 'moves.json', 'foods.json', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/badge-96.png', 'fonts/space-grotesk.woff2', 'fonts/space-mono-400.woff2', 'fonts/space-mono-700.woff2'];
 
 self.addEventListener('install', function (e) {
@@ -30,14 +30,14 @@ self.addEventListener('push', function (e) {
     .then(function (g) {
       var now = new Date(), today = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
       var body = d.body || 'Where is your attention right now? Tap to check in.';
-      if (!d.kind && g && g.text && g.day === today) body += '\nToday’s goal: ' + g.text;
-      var goalOn = !d.kind && g && g.text && g.day === today;
+      var goalOn = !d.kind && g && g.text && g.day === today, many = g && g.n > 1;
+      if (goalOn) body += '\n' + (many ? 'Open targets: ' : 'Today’s target: ') + g.text;
       return self.registration.showNotification(d.title || 'Pause for a minute', {
-        actions: goalOn ? [{ action: 'goal', title: 'Update goal' }, { action: 'win', title: 'Goal achieved ✓' }] : [],
+        actions: goalOn ? [{ action: 'goal', title: many ? 'Update targets' : 'Update target' }].concat(many ? [] : [{ action: 'win', title: 'Target hit ✓' }]) : [],
         body: body,
         icon: 'icons/icon-192.png',
         badge: 'icons/badge-96.png',
-        tag: d.kind === 'goal' ? 'attention-goal' : d.kind === 'move' ? 'attention-move' : 'attention-ping',
+        tag: d.kind === 'goal' ? 'attention-goal' : d.kind === 'move' ? 'attention-move' : d.kind === 'night' ? 'attention-night' : 'attention-ping',
         renotify: true,
         vibrate: [120, 80, 120],
         data: { url: d.url || './?checkin=1' }
@@ -52,7 +52,7 @@ self.addEventListener('notificationclick', function (e) {
   e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (list) {
     for (var i = 0; i < list.length; i++) {
       if (list[i].url.indexOf(self.registration.scope) === 0 && 'focus' in list[i]) {
-        list[i].postMessage({ type: url.indexOf('goal=1') >= 0 ? 'goal' : url.indexOf('move=') >= 0 ? 'move' : 'checkin', url: url });
+        list[i].postMessage({ type: url.indexOf('goal=1') >= 0 ? 'goal' : url.indexOf('move=') >= 0 ? 'move' : url.indexOf('tonight=1') >= 0 ? 'tonight' : 'checkin', url: url });
         return list[i].focus();
       }
     }

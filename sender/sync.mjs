@@ -34,7 +34,7 @@ const r = await fetch(`${API}/api/v1/athlete/0/activities?oldest=${oldest}&newes
 if (r.status === 401 || r.status === 403) fail(`intervals.icu refused the API key (${r.status}). Copy it again from intervals.icu → Settings → Developer Settings and update INTERVALS_API_KEY.`);
 if (!r.ok) fail(`intervals.icu returned an error (${r.status}). It will try again in 2 hours.`);
 const list = await r.json();
-const sportOf = t => /Swim/i.test(t) ? 'swim' : /Ride|Cycl|Bike/i.test(t) ? 'bike' : /Run/i.test(t) ? 'run' : /Weight|Workout|Strength|Crossfit|Yoga|Pilates/i.test(t) ? 'strength' : /Walk|Hike/i.test(t) ? 'walk' : 'other';
+const sportOf = t => /Badminton|Racquet/i.test(t) ? 'badminton' : /Swim/i.test(t) ? 'swim' : /Ride|Cycl|Bike/i.test(t) ? 'bike' : /Run/i.test(t) ? 'run' : /Weight|Workout|Strength|Crossfit|Yoga|Pilates/i.test(t) ? 'strength' : /Walk|Hike/i.test(t) ? 'walk' : 'other';
 const out = (Array.isArray(list) ? list : []).filter(a => a && a.start_date_local).map(a => ({
   id: 'sync:' + a.id, d: String(a.start_date_local).slice(0, 10), sport: sportOf(a.type || ''), type: a.type || '',
   min: Math.round((a.moving_time || a.elapsed_time || 0) / 60), dist: a.distance ? Math.round(a.distance / 10) / 100 : 0,
