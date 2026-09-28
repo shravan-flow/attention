@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '18';
+  var APP_VERSION = '19';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -1832,10 +1832,14 @@
   function geminiCall(body) {
     var models = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.0-flash'];
     var go = function (i) {
-      return fetch('https://generativelanguage.googleapis.com/v1beta/models/' + models[i] + ':generateContent?key=' + encodeURIComponent(state.aiKey), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      // newer keys (starting "AQ.") only work when sent in this header, not in the web address
+      return fetch('https://generativelanguage.googleapis.com/v1beta/models/' + models[i] + ':generateContent', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': state.aiKey }, body: JSON.stringify(body) })
         .then(function (r) {
           if (r.status === 404 && i + 1 < models.length) return go(i + 1);
-          if (!r.ok) throw new Error(r.status === 400 || r.status === 403 ? 'the AI key was not accepted' : r.status === 429 ? 'the free daily limit is used up' : 'AI error ' + r.status);
+          if (!r.ok) return r.text().then(function (t) {
+            var m = ''; try { m = JSON.parse(t).error.message; } catch (e) {}
+            throw new Error(r.status === 400 || r.status === 401 || r.status === 403 ? 'the AI key was not accepted' + (m ? ' (' + m.slice(0, 90) + ')' : '') : r.status === 429 ? 'the free limit is used up for now' : 'AI error ' + r.status + (m ? ': ' + m.slice(0, 90) : ''));
+          });
           return r.json();
         });
     };
@@ -2077,15 +2081,15 @@
   function aiSheet() {
     var has = !!state.aiKey;
     var h = '<p style="margin:0;font-size:14px;line-height:1.5">Each morning Google’s Gemini AI can write a fresh visualization for you. It uses a <b>free</b> key that stays on this phone (it isn’t included in backups). One visualization a day is far inside the free limit.</p>';
-    h += '<div class="card stack" style="gap:8px"><h2>Get your free key (once)</h2><ol class="steps"><li>Open <a class="link" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> and sign in with your Google account.</li><li>Tap <b>Create API key</b> and accept the terms.</li><li>Tap the copy icon next to the key (it starts with <b>AIza</b>).</li><li>Come back here, paste it below and tap <b>Save & test</b>.</li></ol></div>';
-    h += '<input class="text" id="aiKey" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="' + (has ? 'Key saved · paste a new one to replace it' : 'AIza… (paste your key)') + '">';
+    h += '<div class="card stack" style="gap:8px"><h2>Get your free key (once)</h2><ol class="steps"><li>Open <a class="link" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> and sign in with your Google account.</li><li>Tap <b>Create API key</b> and accept the terms.</li><li>Tap the copy icon next to the key (it starts with <b>AQ.</b> or <b>AIza</b>).</li><li>Come back here, paste it below and tap <b>Save & test</b>.</li></ol></div>';
+    h += '<input class="text" id="aiKey" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="' + (has ? 'Key saved · paste a new one to replace it' : 'AQ.… or AIza… (paste your key)') + '">';
     h += '<div class="row"><button type="button" class="btn jungle" id="aiSave" style="flex:1">Save & test</button>' + (has ? '<button type="button" class="btn line" id="aiDel">Remove</button>' : '') + '</div>';
     h += '<div class="notice ok">No key or no internet? It still works: the app builds the visualization from its own scenes.</div>';
     h += '<button type="button" class="btn coral" data-viz="1">Open the visualization</button>';
     return { title: 'Visualization', cap: has ? 'AI on' : 'scene library', html: h, bind: function (r) {
       var s = r.querySelector('#aiSave'), d = r.querySelector('#aiDel');
       s.onclick = function () {
-        var k = r.querySelector('#aiKey').value.trim(); if (!k && !state.aiKey) { toast('Paste your key first'); return; }
+        var k = r.querySelector('#aiKey').value.replace(/\s+/g, ''); if (!k && !state.aiKey) { toast('Paste your key first'); return; }
         var old = state.aiKey; if (k) state.aiKey = k;
         s.disabled = true; s.textContent = 'Testing…';
         geminiCall({ contents: [{ parts: [{ text: 'Reply with the single word OK.' }] }] }).then(function () { save(); toast('AI key works'); drawSheet(); render(); })
