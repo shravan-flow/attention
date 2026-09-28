@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '19';
+  var APP_VERSION = '20';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -1816,18 +1816,34 @@
   function vizTopicName(v) { if (v.custom) return v.custom; var s = VZ_SCENES.filter(function (x) { return x.id === v.scene; })[0] || VZ_SCENES[0]; return s.n; }
   var BGS = [['ocean', '🌊 Ocean'], ['rain', '🌧 Rain'], ['forest', '🌿 Forest birds'], ['tanpura', '🪕 Tanpura drone'], ['bells', '🔔 Soft bells'], ['silence', 'Silence']];
   function bgName(k) { return (BGS.filter(function (b) { return b[0] === k; })[0] || BGS[0])[1]; }
+  // a short topic with no verb ("elephant", "an eagle", "the ocean") means: become it
+  function isBeing(t) { return t.split(/\s+/).length <= 3 && !/\b(my|me|i|win|winning|finish|finishing|give|giving|demo|pitch|launch|run|ride|riding|play|playing|get|getting|build|building|walk|walking|first)\b/i.test(t); }
   function localScript(v) {
-    var body = v.custom ? ['Picture yourself: ' + v.custom + '.', 'Notice where you are. What can you see around you? Let the details come into focus.', 'Notice the light, the colours, the small things you would only see if you were really there.', 'What can you hear? Let the sounds come closer.', 'Feel your body: steady, capable and calm.', 'Now see the moment it goes well, exactly as you hoped.', 'Notice how that feels in your chest, in your hands, on your face.', 'Stay here for a few breaths. You have done the work to get here.'] : VZ_LIB[v.scene] || VZ_LIB.ghats;
+    var c = (v.custom || '').replace(/[.!]+$/, ''), body;
+    if (c && isBeing(c)) {
+      var noun = c.replace(/^(a|an|the)\s+/i, ''), an = /^[aeiou]/i.test(noun) ? 'an ' : 'a ';
+      body = ['Imagine that you slowly become ' + an + noun + '.', 'Feel your body change shape. Notice its size, its weight, how it holds itself.', 'Feel how you stand, how you move, how you breathe as ' + an + noun + '.', 'Look out through these new eyes. Where are you? What is the ground, the air, the light like here?', 'Listen the way ' + an + noun + ' listens. What sounds matter to you now?', 'Notice what you can smell and feel on your skin.', 'Move through your world for a while, completely at ease in this body.', 'Notice the quality this creature has that you most admire. Feel it filling you.'];
+    } else if (c) {
+      body = ['Picture this clearly: ' + c + '.', 'Notice where you are. What can you see around you? Let the details come into focus.', 'Notice the light, the colours, the small things you would only see if you were really there.', 'What can you hear? Let the sounds come closer.', 'Feel your body: steady, capable and calm.', 'Now see the moment it goes well, exactly as you hoped.', 'Notice how that feels in your chest, in your hands, on your face.', 'Stay here for a few breaths. You have done the work to get here.'];
+    } else body = VZ_LIB[v.scene] || VZ_LIB.ghats;
     var L = [{ text: 'Sit comfortably and let your eyes close.', pause: 4 }, { text: 'Breathe in slowly through your nose… and let it go.', pause: 7 }, { text: 'Once more. In… and out. Let your shoulders drop.', pause: 7 }];
     body.forEach(function (t, i) { L.push({ text: t, pause: i === body.length - 1 ? 12 : 7 }); });
-    L.push({ text: 'Now choose one small thing you will do today to move towards this.', pause: 10 }, { text: 'Hold the picture and the feeling.', pause: 6 }, { text: 'Take a deep breath in… and out.', pause: 6 }, { text: 'When you are ready, open your eyes and begin your day.', pause: 1 });
+    L.push({ text: c && isBeing(c) ? 'Now slowly become yourself again, and bring that quality with you into today.' : 'Now choose one small thing you will do today to move towards this.', pause: 10 }, { text: 'Hold the picture and the feeling.', pause: 6 }, { text: 'Take a deep breath in… and out.', pause: 6 }, { text: 'When you are ready, open your eyes and begin your day.', pause: 1 });
     return { title: vizTopicName(v), lines: L, ai: false };
   }
   function vizPrompt(v) {
-    return 'Write a guided morning visualization script for one person named Shravan, lasting about ' + v.mins + ' minutes when read slowly aloud with pauses. ' +
-      'Topic: ' + vizTopic(v) + '. Second person ("you"), present tense, calm and vivid, using sight, sound, smell and touch. Plain everyday English, no clichés, no religious content, no claims about health. ' +
-      'Structure: settle the body and breathe (2–3 lines), arrive in the scene, build up to the best moment, feel what success is like, then carry that feeling into today with one small action, and return gently. ' +
-      'About ' + Math.round(v.mins * 80) + ' words in total, in short sentences. Reply only with JSON: {"title": "short title", "lines": [{"text": "one or two sentences", "pause": seconds}]}, pauses between 2 and 15 seconds, longer after breathing cues and big moments.';
+    var custom = !!v.custom, words = Math.round(v.mins * 75);
+    return 'You are an expert guided-imagery writer. Write a spoken morning visualization for one listener named Shravan (an engineer in Coorg, India) lasting about ' + v.mins + ' minutes when read slowly with pauses.\n\n' +
+      'TOPIC: "' + vizTopic(v) + '"\n\n' +
+      (custom ?
+        'First decide what the listener most likely wants from this topic and commit to it fully:\n' +
+        '- If the topic names an animal, creature, plant, object, element or place (for example "elephant", "eagle", "banyan tree", "river", "ocean"), the listener BECOMES it. Put him inside its body in the second person ("you are an elephant"). Describe the world as that being actually perceives it, using accurate, specific real details: its size and weight, how its body moves, its senses (for an elephant: the trunk that smells water from far away, feeling rumbles through the feet, the slow sway, the herd led by the matriarch, dust baths, mud on the skin, the forests of Nagarhole or Kabini). Stay in that perspective for most of the script. Do NOT turn it into a success or goal story.\n' +
+        '- If the topic is an activity, goal or event, the listener lives it vividly as himself, up to the moment it goes really well.\n\n' :
+        'The listener lives this scene vividly as himself, up to the moment it goes really well.\n\n') +
+      'Style: second person, present tense, slow and calm. Concrete, specific, surprising sensory details (sight, sound, smell, touch, temperature, weight, movement) instead of generic phrases. Short sentences. No clichés ("journey", "unlock", "embrace"), no religious content, no health claims.\n' +
+      'Shape: 2–3 lines to settle and breathe; then the heart of the experience (at least 70% of the script); then one or two lines bringing one quality from it into today; then a gentle return.\n' +
+      'Length: about ' + words + ' words in total.\n\n' +
+      'Reply only with JSON: {"title": "short evocative title", "lines": [{"text": "one or two sentences", "pause": seconds}]}. Pauses 2–15 seconds, longer after breathing cues and after vivid moments.';
   }
   function geminiCall(body) {
     var models = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.0-flash'];
@@ -1869,6 +1885,104 @@
   }
   function estSec(t) { return t.split(/\s+/).length / (2.4 * vizSettings().rate) + .6; }
   if ('speechSynthesis' in window) speechSynthesis.onvoiceschanged = function () { if (vz && vz.stage === 'audio') drawViz(); };
+  // --- natural AI voices (Gemini text-to-speech, same free key) ---
+  var AIVOICES = [['Sulafat', 'Warm'], ['Achernar', 'Soft'], ['Vindemiatrix', 'Gentle'], ['Enceladus', 'Breathy'], ['Aoede', 'Breezy'], ['Algieba', 'Smooth'], ['Despina', 'Smooth'], ['Gacrux', 'Mature'], ['Umbriel', 'Easy-going'], ['Iapetus', 'Clear'], ['Charon', 'Deep, informative'], ['Achird', 'Friendly']];
+  function useAIVoice() { var v = vizSettings(); return !!state.aiKey && v.voiceMode !== 'phone'; }
+  function aiVoiceName() { return vizSettings().aiVoice || 'Sulafat'; }
+  function ttsStyle() { var r = vizSettings().rate; return 'Read this as a warm, calm meditation guide, speaking ' + (r <= .8 ? 'very slowly' : r < 1 ? 'slowly' : 'at a relaxed pace') + ', softly and close to the microphone, with gentle natural pauses between sentences.'; }
+  function apiErr(r) {
+    return r.text().then(function (t) {
+      var m = ''; try { m = JSON.parse(t).error.message; } catch (e) {}
+      var e = new Error(r.status === 401 || r.status === 403 ? 'the AI key was not accepted' : r.status === 429 ? 'the free voice limit is used up for now' : 'voice error ' + r.status + (m ? ': ' + m.slice(0, 80) : ''));
+      e.status = r.status; throw e;
+    });
+  }
+  function b64bytes2(b) { var s = atob(b), a = new Uint8Array(s.length); for (var i = 0; i < s.length; i++) a[i] = s.charCodeAt(i); return a; }
+  // one request for the whole script; tries the newest voice models first, then older ones
+  function ttsRequest(lines, voice) {
+    var tagged = lines.map(function (l) { return l.text + (l.pause >= 6 ? ' <long pause>' : ' <short pause>'); }).join('\n');
+    var plain = lines.map(function (l) { return l.text; }).join('\n\n');
+    var H = { 'Content-Type': 'application/json', 'x-goog-api-key': state.aiKey };
+    var tries = ['gemini-3.8-flash-tts', 'gemini-3.1-flash-tts-preview', 'gemini-3.8-flash-lite-tts'].map(function (m) {
+      return function () {
+        return fetch('https://generativelanguage.googleapis.com/v1beta/interactions', { method: 'POST', headers: H, body: JSON.stringify({
+          model: m, input: [{ type: 'user_input', content: [{ type: 'text', text: tagged, annotations: [{ type: 'speech_metadata', style: ttsStyle() }] }] }],
+          response_format: { type: 'audio' }, generation_config: { speech_config: [{ voice: voice }] }
+        }) }).then(function (r) {
+          if (!r.ok) return apiErr(r);
+          return r.json().then(function (j) {
+            var au = null;
+            (j.steps || []).forEach(function (st) { (st.content || []).forEach(function (c) { if (c.type === 'audio' && c.data) au = c; }); });
+            if (!au) (j.outputs || j.output || []).forEach(function (c) { if (c && c.type === 'audio' && c.data) au = c; });
+            if (!au) throw new Error('no audio in the reply');
+            return { bytes: b64bytes2(au.data), mime: au.mime_type || au.mimeType || '' };
+          });
+        });
+      };
+    }).concat([function () {
+      return fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent', { method: 'POST', headers: H, body: JSON.stringify({
+        contents: [{ parts: [{ text: ttsStyle() + '\n\n' + plain }] }],
+        generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } } }
+      }) }).then(function (r) {
+        if (!r.ok) return apiErr(r);
+        return r.json().then(function (j) {
+          var p = (((j.candidates || [])[0] || {}).content || {}).parts || [], d = p.filter(function (x) { return x.inlineData; })[0];
+          if (!d) throw new Error('no audio in the reply');
+          return { bytes: b64bytes2(d.inlineData.data), mime: d.inlineData.mimeType || '' };
+        });
+      });
+    }]);
+    var last = null;
+    var go = function (i) {
+      if (i >= tries.length) return Promise.reject(last || new Error('no voice model available'));
+      return tries[i]().catch(function (e) { last = e; if (e.status === 401 || e.status === 403) throw e; return go(i + 1); });
+    };
+    return go(0);
+  }
+  function decodeTTS(a) {
+    var b = a.bytes, c = actx();
+    if ((b[0] === 82 && b[1] === 73 && b[2] === 70 && b[3] === 70) || /wav/i.test(a.mime) || /mpeg|mp3|ogg|opus/i.test(a.mime)) return c.decodeAudioData(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength));
+    var rate = +((/rate=(\d+)/.exec(a.mime) || [])[1]) || 24000, n = Math.floor(b.length / 2), buf = c.createBuffer(1, n, rate), d = buf.getChannelData(0), dv = new DataView(b.buffer, b.byteOffset, n * 2);
+    for (var i = 0; i < n; i++) d[i] = dv.getInt16(i * 2, true) / 32768;
+    return Promise.resolve(buf);
+  }
+  // add silence at the natural pauses so it lasts about the length you chose, and time the captions
+  function stretchVoice(buf, targetSec, lines) {
+    var sr = buf.sampleRate, d = buf.getChannelData(0), win = Math.round(sr * .02), n = Math.floor(d.length / win), rms = new Float32Array(n), mx = 0, i, k;
+    for (i = 0; i < n; i++) { var s2 = 0; for (k = i * win; k < (i + 1) * win; k++) s2 += d[k] * d[k]; rms[i] = Math.sqrt(s2 / win); if (rms[i] > mx) mx = rms[i]; }
+    var th = Math.max(.003, mx * .06), gaps = [], st = -1;
+    for (i = 0; i < n; i++) {
+      if (rms[i] < th) { if (st < 0) st = i; }
+      else { if (st > 0 && (i - st) * .02 >= .28) gaps.push({ a: st * win, b: i * win }); st = -1; }
+    }
+    var extra = Math.max(0, targetSec - buf.duration - 3) * sr, W = gaps.reduce(function (s, g) { return s + Math.min(g.b - g.a, sr * 2); }, 0) || 1;
+    gaps.forEach(function (g) { g.add = Math.min(sr * 25, Math.round(extra * Math.min(g.b - g.a, sr * 2) / W)); g.at = Math.round((g.a + g.b) / 2); });
+    var addAll = gaps.reduce(function (s, g) { return s + g.add; }, 0), lead = Math.round(sr * .5), tail = Math.round(sr * Math.min(12, Math.max(2, (extra - addAll) / sr)));
+    var out = actx().createBuffer(1, lead + d.length + addAll + tail, sr), o = out.getChannelData(0), pos = lead, from = 0;
+    gaps.forEach(function (g) { o.set(d.subarray(from, g.at), pos); pos += g.at - from; pos += g.add; from = g.at; });
+    o.set(d.subarray(from), pos);
+    var toOut = function (smp) { var t = lead + smp; gaps.forEach(function (g) { if (g.at < smp) t += g.add; }); return t / sr; };
+    // captions: place each line by its share of the text, then snap to the nearest pause
+    var total = lines.reduce(function (s, l) { return s + l.text.length; }, 0) || 1, voicedEnd = d.length, acc = 0, caps = [];
+    lines.forEach(function (l, li) {
+      var est = acc / total * voicedEnd;
+      if (li > 0) { var best = null; gaps.forEach(function (g) { if (!best || Math.abs(g.b - est) < Math.abs(best.b - est)) best = g; }); if (best && Math.abs(best.b - est) < sr * 4) est = best.b; }
+      caps.push({ t: li ? toOut(est) : 0, text: l.text }); acc += l.text.length;
+    });
+    return { buf: out, caps: caps };
+  }
+  var prevCache = {};
+  function previewAIVoice(name, btn) {
+    var c = actx();
+    var play = function (buf) { if (vz && vz.prevSrc) try { vz.prevSrc.stop(); } catch (e) {} var s = c.createBufferSource(); s.buffer = buf; s.connect(c.destination); s.start(); if (vz) vz.prevSrc = s; if (btn) btn.textContent = '▶ Preview'; };
+    if (prevCache[name]) return play(prevCache[name]);
+    if (btn) btn.textContent = 'Loading…';
+    idbGet('ttsprev-' + name).then(function (saved) {
+      return saved ? saved : ttsRequest([{ text: 'Good morning, ' + myName() + '. Let your shoulders drop, and take one slow breath in… and out.', pause: 2 }], name).then(function (a) { idbPut('ttsprev-' + name, a).catch(function () {}); return a; });
+    }).then(decodeTTS).then(function (buf) { prevCache[name] = buf; play(buf); })
+      .catch(function (e) { if (btn) btn.textContent = '▶ Preview'; toast('Couldn’t load the voice: ' + e.message); });
+  }
+
   // --- background sound (made live with Web Audio, so there are no sound files to download) ---
   var AC = null, bg = null;
   function actx() { AC = AC || new (window.AudioContext || window.webkitAudioContext)(); if (AC.state === 'suspended') AC.resume(); return AC; }
@@ -1942,6 +2056,9 @@
     if (!vz) return;
     clearTimeout(vz.to); clearTimeout(vz.fb); clearInterval(vz.tick);
     if ('speechSynthesis' in window) speechSynthesis.cancel();
+    if (AC && AC.state === 'suspended') AC.resume();
+    if (vz.src) { try { vz.src.onended = null; vz.src.stop(); } catch (e) {} vz.src = null; }
+    if (vz.prevSrc) { try { vz.prevSrc.stop(); } catch (e) {} vz.prevSrc = null; }
     bgStop();
     if (wakeLock) { try { wakeLock.release(); } catch (e) {} wakeLock = null; }
   }
@@ -1955,20 +2072,27 @@
       h += '<input class="text" id="vzCustom" value="' + esc(v.custom || '') + '" placeholder="…or type your own: “first demo of the weeder robot”">';
       h += '<span class="lab">Length</span><div class="optrow">' + [3, 5, 10].map(function (m) { return '<button type="button" class="opt" data-vmins="' + m + '" aria-pressed="' + (v.mins === m) + '">' + m + ' min</button>'; }).join('') + '</div>';
       var vo = pickVoice();
-      h += '<div class="list"><button type="button" class="r" id="vzAudio"><span class="dot" style="background:' + T.lagoon + '"></span><span class="t">Voice</span><span class="v">' + esc(vo ? vo.name.replace(/Google |Microsoft /, '').slice(0, 22) : 'phone default') + '</span>' + CHEV + '</button>' +
+      h += '<div class="list"><button type="button" class="r" id="vzAudio"><span class="dot" style="background:' + T.lagoon + '"></span><span class="t">Voice</span><span class="v">' + (useAIVoice() ? esc(aiVoiceName()) + ' · AI' : esc(vo ? vo.name.replace(/Google |Microsoft /, '').slice(0, 20) : 'phone default')) + '</span>' + CHEV + '</button>' +
         '<button type="button" class="r" id="vzAudio2"><span class="dot" style="background:' + T.mango + '"></span><span class="t">Background</span><span class="v">' + bgName(v.bg) + '</span>' + CHEV + '</button></div>';
       h += '<button type="button" class="btn jungle" id="vzGo">' + (state.aiKey ? '✦ Create & play' : 'Play') + '</button>';
-      if (!state.aiKey) h += '<p class="muted small" style="text-align:center">Using the app’s own scenes. Add a free AI key (Settings → Visualization) for a fresh script every morning.</p>';
+      if (!state.aiKey) h += '<p class="muted small" style="text-align:center">Using the app’s own scenes and phone voice. Add a free AI key (Settings → Visualization) for fresh scripts and natural voices.</p>';
+      else if (useAIVoice()) h += '<p class="muted small" style="text-align:center">Writing and recording takes about 20–60 seconds.</p>';
       var saved = state.vizSaved || [];
       if (saved.length) h += '<h3 class="sh">Saved <span class="cap">replay</span></h3><div class="list">' + saved.slice().reverse().map(function (s) { return '<div class="r"><button type="button" class="rt" data-vsaved="' + s.id + '"><span class="t">' + esc(s.title) + '<small>' + s.lines.length + ' lines · saved ' + niceDate(s.at) + '</small></span><span class="v">▶</span></button><button type="button" class="fx" data-vsdel="' + s.id + '" aria-label="Delete">×</button></div>'; }).join('') + '</div>';
       if (vz.morning) h += '<button type="button" class="link" id="vzSkip" style="align-self:center">Skip to today’s targets</button>';
     } else if (vz.stage === 'audio') {
       h += '<div class="row between"><button type="button" class="btn ghost small" id="vzBack">‹ Back</button><span class="eyebrow">Voice + sound</span></div><h1 class="display" style="font-size:32px">Audio</h1>';
-      var vs = vizVoices(), cur = pickVoice();
-      h += '<span class="lab">Voice</span>';
+      var vs = vizVoices(), cur = pickVoice(), ai = useAIVoice();
+      if (state.aiKey) {
+        h += '<span class="lab">Natural AI voices <span class="muted">(recorded fresh each time)</span></span><div class="list">' + AIVOICES.map(function (x) {
+          var on = ai && aiVoiceName() === x[0];
+          return '<div class="r"><button type="button" class="tck' + (on ? ' on' : '') + '" data-avoice="' + x[0] + '" aria-pressed="' + on + '" aria-label="Use ' + x[0] + '">' + (on ? TICK : '') + '</button><span class="t">' + x[0] + '<small>' + x[1] + '</small></span><button type="button" class="pill pv" data-aprev="' + x[0] + '">▶ Preview</button></div>';
+        }).join('') + '</div>';
+      } else h += '<div class="notice">Want natural, human-sounding voices? Add your free AI key in Settings → Visualization.</div>';
+      h += '<span class="lab">Phone voices <span class="muted">(robotic, but work offline)</span></span>';
       if (!vs.length) h += '<div class="notice">No English voices found. On Android: Settings → Accessibility → Text-to-speech → install Speech Services by Google.</div>';
       else h += '<div class="list">' + vs.slice(0, 12).map(function (x) {
-        var on = cur && cur.voiceURI === x.voiceURI;
+        var on = !ai && cur && cur.voiceURI === x.voiceURI;
         return '<div class="r"><button type="button" class="tck' + (on ? ' on' : '') + '" data-vvoice="' + esc(x.voiceURI) + '" aria-pressed="' + on + '" aria-label="Use ' + esc(x.name) + '">' + (on ? TICK : '') + '</button><span class="t">' + esc(x.name.replace(/Google |Microsoft /, '')) + '<small>' + esc(x.lang) + (x.localService ? ' · works offline' : ' · needs internet') + '</small></span><button type="button" class="pill pv" data-vprev="' + esc(x.voiceURI) + '">▶ Preview</button></div>';
       }).join('') + '</div>';
       h += '<span class="lab">Speed</span><div class="optrow">' + [[.8, 'Slow'], [.9, 'Gentle'], [1, 'Normal']].map(function (r) { return '<button type="button" class="opt" data-vrate="' + r[0] + '" aria-pressed="' + (v.rate === r[0]) + '">' + r[1] + '</button>'; }).join('') + '</div>';
@@ -1977,12 +2101,12 @@
       h += '<label class="lab rng">Voice volume<input type="range" id="vzVV" min="0.2" max="1" step="0.05" value="' + v.vVol + '"></label>';
       h += '<button type="button" class="btn jungle" id="vzBack2">Done</button>';
     } else if (vz.stage === 'making') {
-      h += '<div class="vzmid"><div class="vzorb"></div><span class="cap" style="color:#FFE6B8">writing your visualization</span><span class="display" style="font-size:24px;color:#fff;text-align:center">' + esc(vizTopicName(v)) + '</span></div>';
+      h += '<div class="vzmid"><div class="vzorb"></div><span class="cap" style="color:#FFE6B8">' + esc(vz.msg || 'writing your visualization') + '</span><span class="display" style="font-size:24px;color:#fff;text-align:center">' + esc(vizTopicName(v)) + '</span></div>';
     } else if (vz.stage === 'play') {
       var tot = vz.total || 1;
       h += '<div class="row between" style="color:#CDEFEA"><span class="eyebrow" style="color:#CDEFEA">' + esc(vz.script.title) + ' · ' + v.mins + ' min</span><button type="button" class="vzx" id="vzStop" aria-label="Stop">✕</button></div>';
       h += '<div class="vzmid"><div class="vzorb' + (vz.paused ? ' paused' : '') + '"></div><span class="cap" id="vzCue" style="color:#FFE6B8">' + (vz.paused ? 'paused' : 'listen') + '</span><p class="display vzline" id="vzLine" aria-live="polite">' + esc(vz.line || '') + '</p></div>';
-      h += '<div class="vzbar"><div class="bar" style="background:rgba(255,255,255,.2)"><i id="vzProg" style="width:' + Math.min(100, (Date.now() - vz.t0) / tot * 100) + '%"></i></div><div class="row between"><span class="cap" id="vzEl" style="color:#CDEFEA">0:00</span><span class="cap" style="color:#CDEFEA">' + fmt(Math.round(tot / 1000)) + '</span></div>' +
+      h += '<div class="vzbar"><div class="bar" style="background:rgba(255,255,255,.2)"><i id="vzProg" style="width:' + Math.min(100, (Date.now() - vz.t0) / tot * 100) + '%"></i></div><div class="row between"><span class="cap" id="vzEl" style="color:#CDEFEA">0:00</span><span class="small" style="color:#CDEFEA;opacity:.8">' + (vz.script.ai ? 'AI script' : 'app scene') + ' · ' + (vz.mode === 'ai' ? esc(aiVoiceName()) + ' voice' : 'phone voice') + '</span><span class="cap" style="color:#CDEFEA">' + fmt(Math.round(tot / 1000)) + '</span></div>' +
         '<div class="row" style="justify-content:center;gap:26px"><span class="small" style="color:#fff;opacity:.85">' + bgName(v.bg) + '</span><button type="button" class="vzpp" id="vzPP" aria-label="' + (vz.paused ? 'Play' : 'Pause') + '">' + (vz.paused ? '▶' : '❚❚') + '</button><button type="button" class="link" id="vzSave" style="color:#fff">' + (vz.saved ? 'Saved ★' : 'Save ☆') + '</button></div></div>';
     } else if (vz.stage === 'done') {
       h += '<div class="vzmid"><div class="vzorb done"></div><span class="display" style="font-size:34px;color:#fff;text-align:center;line-height:1.1">Carry it<br>into today</span><span style="color:#CDEFEA;text-align:center">+5 XP</span></div>';
@@ -2003,19 +2127,28 @@
     var cu = q('#vzCustom'); if (cu) cu.addEventListener('input', function () { v.custom = cu.value.trim(); save(); o.querySelectorAll('[data-vscene]').forEach(function (b) { b.setAttribute('aria-pressed', String(!v.custom && v.scene === b.dataset.vscene)); }); });
     var toAudio = function () { vz.stage = 'audio'; drawViz(); };
     on('#vzAudio', toAudio); on('#vzAudio2', toAudio);
-    var back = function () { bgStop(); if ('speechSynthesis' in window) speechSynthesis.cancel(); vz.stage = 'choose'; drawViz(); };
+    var back = function () { bgStop(); if ('speechSynthesis' in window) speechSynthesis.cancel(); if (vz.prevSrc) { try { vz.prevSrc.stop(); } catch (e) {} vz.prevSrc = null; } vz.stage = 'choose'; drawViz(); };
     on('#vzBack', back); on('#vzBack2', back);
-    o.querySelectorAll('[data-vvoice]').forEach(function (b) { b.onclick = function () { v.voice = b.dataset.vvoice; save(); drawViz(); }; });
+    o.querySelectorAll('[data-vvoice]').forEach(function (b) { b.onclick = function () { v.voice = b.dataset.vvoice; v.voiceMode = 'phone'; save(); drawViz(); }; });
+    o.querySelectorAll('[data-avoice]').forEach(function (b) { b.onclick = function () { v.aiVoice = b.dataset.avoice; v.voiceMode = 'ai'; save(); drawViz(); }; });
+    o.querySelectorAll('[data-aprev]').forEach(function (b) { b.onclick = function () { if ('speechSynthesis' in window) speechSynthesis.cancel(); previewAIVoice(b.dataset.aprev, b); }; });
     o.querySelectorAll('[data-vprev]').forEach(function (b) { b.onclick = function () { speechSynthesis.cancel(); var keep = v.voice; v.voice = b.dataset.vprev; speak('Good morning, ' + myName() + '. Let’s begin.', function () {}); v.voice = keep; }; });
-    o.querySelectorAll('[data-vrate]').forEach(function (b) { b.onclick = function () { v.rate = +b.dataset.vrate; save(); drawViz(); speechSynthesis.cancel(); speak('This is how fast I will speak.', function () {}); }; });
+    o.querySelectorAll('[data-vrate]').forEach(function (b) { b.onclick = function () { v.rate = +b.dataset.vrate; save(); drawViz(); if (!useAIVoice()) { speechSynthesis.cancel(); speak('This is how fast I will speak.', function () {}); } }; });
     o.querySelectorAll('[data-vbg]').forEach(function (b) { b.onclick = function () { v.bg = b.dataset.vbg; save(); var k = v.bg; drawViz(); bgStart(k, v.bgVol); }; });
     var bv = q('#vzBgV'); if (bv) bv.oninput = function () { v.bgVol = +bv.value; save(); bgVol(v.bgVol); };
-    var vv = q('#vzVV'); if (vv) vv.onchange = function () { v.vVol = +vv.value; save(); speechSynthesis.cancel(); speak('This is the voice volume.', function () {}); };
+    var vv = q('#vzVV'); if (vv) vv.onchange = function () { v.vVol = +vv.value; save(); if (vz.vg) vz.vg.gain.value = v.vVol * 1.15; if (!useAIVoice()) { speechSynthesis.cancel(); speak('This is the voice volume.', function () {}); } };
     on('#vzGo', function () { vizUnlock(); vizMake(); });
-    o.querySelectorAll('[data-vsaved]').forEach(function (b) { b.onclick = function () { var s = (state.vizSaved || []).filter(function (x) { return x.id === b.dataset.vsaved; })[0]; if (s) { vizUnlock(); vz.saved = true; vizPlay({ title: s.title, lines: s.lines }); } }; });
-    o.querySelectorAll('[data-vsdel]').forEach(function (b) { b.onclick = function () { if (!confirm('Delete this saved visualization?')) return; state.vizSaved = state.vizSaved.filter(function (x) { return x.id !== b.dataset.vsdel; }); save(); drawViz(); }; });
+    o.querySelectorAll('[data-vsaved]').forEach(function (b) { b.onclick = function () { var s = (state.vizSaved || []).filter(function (x) { return x.id === b.dataset.vsaved; })[0]; if (s) { vizUnlock(); vz.saved = true; vizVoice({ title: s.title, lines: s.lines, ai: s.ai }, s.audio ? s.id : null); } }; });
+    o.querySelectorAll('[data-vsdel]').forEach(function (b) { b.onclick = function () { if (!confirm('Delete this saved visualization?')) return; idbDel('vzaudio-' + b.dataset.vsdel).catch(function () {}); state.vizSaved = state.vizSaved.filter(function (x) { return x.id !== b.dataset.vsdel; }); save(); drawViz(); }; });
     on('#vzPP', function () { if (vz.paused) vizResume(); else vizPause(); });
-    var sv = function () { if (vz.saved || !vz.script) return; state.vizSaved = (state.vizSaved || []).concat([{ id: 's' + Date.now().toString(36), title: vz.script.title, lines: vz.script.lines, at: new Date().toISOString() }]).slice(-20); save(); vz.saved = true; toast('Saved. Replay it any morning.'); drawViz(); };
+    var sv = function () {
+      if (vz.saved || !vz.script) return;
+      var id = 's' + Date.now().toString(36), withAudio = !!vz.raw;
+      if (withAudio) idbPut('vzaudio-' + id, vz.raw).catch(function () {});
+      var all = (state.vizSaved || []).concat([{ id: id, title: vz.script.title, lines: vz.script.lines, ai: vz.script.ai, audio: withAudio, at: new Date().toISOString() }]);
+      while (all.length > 20) { var old = all.shift(); if (old.audio) idbDel('vzaudio-' + old.id).catch(function () {}); }
+      state.vizSaved = all; save(); vz.saved = true; toast('Saved' + (withAudio ? ' with the voice' : '') + '. Replay it any morning.'); drawViz();
+    };
     on('#vzSave', sv); on('#vzSave2', sv);
   }
   // speech and audio must start from a tap on Android: warm them up right away
@@ -2025,14 +2158,52 @@
   }
   function vizMake() {
     var v = vizSettings();
-    if (!state.aiKey) return vizPlay(localScript(v));
-    vz.stage = 'making'; drawViz();
-    var done = false, timer = setTimeout(function () { if (done) return; done = true; toast('The AI is slow today: using the app’s scenes'); vizPlay(localScript(v)); }, 20000);
-    aiScript(v).then(function (s) { if (done || !vz) return; done = true; clearTimeout(timer); vizPlay(s); })
-      .catch(function (e) { if (done || !vz) return; done = true; clearTimeout(timer); toast('AI unavailable (' + e.message + '): using the app’s scenes'); vizPlay(localScript(v)); });
+    if (!state.aiKey) return vizVoice(localScript(v));
+    vz.stage = 'making'; vz.msg = 'writing your visualization'; drawViz();
+    var done = false, timer = setTimeout(function () { if (done) return; done = true; toast('The AI is slow today: using the app’s scenes'); vizVoice(localScript(v)); }, 25000);
+    aiScript(v).then(function (s) { if (done || !vz) return; done = true; clearTimeout(timer); vizVoice(s); })
+      .catch(function (e) { if (done || !vz) return; done = true; clearTimeout(timer); toast('AI unavailable (' + e.message + '): using the app’s scenes'); vizVoice(localScript(v)); });
+  }
+  // AI voice if possible (or a saved recording), otherwise the phone's own voice
+  function vizVoice(script, savedId) {
+    if (!savedId && !useAIVoice()) return vizPlay(script);
+    vz.stage = 'making'; vz.msg = savedId ? 'loading your saved voice' : 'recording the voice · ' + aiVoiceName(); drawViz();
+    var done = false, timer = null;
+    var fail = function (e) { if (done || !vz) return; done = true; clearTimeout(timer); toast('Natural voice unavailable (' + e.message + '): using the phone voice'); vizPlay(script); };
+    timer = setTimeout(function () { fail(new Error('it took too long')); }, 150000);
+    var get = savedId ? idbGet('vzaudio-' + savedId).then(function (a) { if (!a) throw new Error('recording not found'); return a; }) : ttsRequest(script.lines, aiVoiceName());
+    get.then(function (raw) { return decodeTTS(raw).then(function (buf) { return { raw: raw, buf: buf }; }); })
+      .then(function (r) { if (done || !vz) return; done = true; clearTimeout(timer); vz.raw = r.raw; vizPlayAI(script, stretchVoice(r.buf, vizSettings().mins * 60, script.lines)); })
+      .catch(fail);
+  }
+  function vizPlayAI(script, prep) {
+    var v = vizSettings(), c = actx();
+    vz.script = script; vz.stage = 'play'; vz.mode = 'ai'; vz.paused = false; vz.line = script.lines[0].text; vz.ci = 0;
+    vz.total = prep.buf.duration * 1000; vz.t0 = Date.now();
+    bgStart(v.bg, v.bgVol);
+    if ('wakeLock' in navigator) navigator.wakeLock.request('screen').then(function (w) { wakeLock = w; }).catch(function () {});
+    var g = c.createGain(); g.gain.value = v.vVol * 1.15; g.connect(c.destination);
+    var src = c.createBufferSource(); src.buffer = prep.buf; src.connect(g);
+    vz.src = src; vz.vg = g; vz.caps = prep.caps; vz.cStart = c.currentTime + 1;
+    src.onended = function () { if (vz && vz.src === src && vz.stage === 'play') vizFinish(); };
+    src.start(vz.cStart);
+    drawViz();
+    vz.tick = setInterval(function () {
+      if (!vz || vz.stage !== 'play') return;
+      var el = Math.max(0, c.currentTime - vz.cStart), p = document.getElementById('vzProg'), t = document.getElementById('vzEl');
+      if (p) p.style.width = Math.min(100, el * 1000 / vz.total * 100) + '%';
+      if (t) t.textContent = fmt(Math.min(Math.round(el), Math.round(vz.total / 1000)));
+      var k = 0; for (var i = 0; i < vz.caps.length; i++) if (vz.caps[i].t <= el) k = i;
+      if (k !== vz.ci) {
+        vz.ci = k; vz.line = vz.caps[k].text;
+        var ln = document.getElementById('vzLine'); if (ln) { ln.classList.remove('in'); void ln.offsetWidth; ln.textContent = vz.line; ln.classList.add('in'); }
+        var cue = document.getElementById('vzCue'); if (cue) cue.textContent = /breath|inhale|exhale/i.test(vz.line) ? 'breathe' : 'listen';
+      }
+    }, 250);
   }
   function vizPlay(script) {
     var v = vizSettings();
+    vz.mode = 'phone'; vz.raw = null;
     vz.script = script; vz.stage = 'play'; vz.i = 0; vz.line = ''; vz.paused = false;
     vz.t0 = Date.now(); vz.total = v.mins * 60000; vz.end = vz.t0 + vz.total;
     bgStart(v.bg, v.bgVol);
@@ -2069,10 +2240,14 @@
     var left = (vz.end - Date.now()) / 1000 - speech, w = L.slice(i).reduce(function (a, l) { return a + l.pause; }, 0) || 1;
     return Math.max(1.5, Math.min(30, left * L[i].pause / w));
   }
-  function vizPause() { vz.paused = true; vz.pausedAt = Date.now(); clearTimeout(vz.to); clearTimeout(vz.fb); if ('speechSynthesis' in window) speechSynthesis.cancel(); bgVol(vizSettings().bgVol * .4); drawViz(); }
-  function vizResume() { var d = Date.now() - vz.pausedAt; vz.t0 += d; vz.end += d; vz.paused = false; bgVol(vizSettings().bgVol); drawViz(); setTimeout(vizNext, 600); }
+  function vizPause() {
+    if (vz.mode === 'ai') { vz.paused = true; if (AC) AC.suspend(); drawViz(); return; }
+    vz.paused = true; vz.pausedAt = Date.now(); clearTimeout(vz.to); clearTimeout(vz.fb); if ('speechSynthesis' in window) speechSynthesis.cancel(); bgVol(vizSettings().bgVol * .4); drawViz(); }
+  function vizResume() {
+    if (vz.mode === 'ai') { vz.paused = false; if (AC) AC.resume(); drawViz(); return; }
+    var d = Date.now() - vz.pausedAt; vz.t0 += d; vz.end += d; vz.paused = false; bgVol(vizSettings().bgVol); drawViz(); setTimeout(vizNext, 600); }
   function vizFinish() {
-    clearInterval(vz.tick);
+    clearInterval(vz.tick); vz.src = null;
     bgStop(); if (wakeLock) { try { wakeLock.release(); } catch (e) {} wakeLock = null; }
     vz.stage = 'done'; drawViz();
     var k = dkey(new Date());
