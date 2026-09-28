@@ -402,3 +402,16 @@ input[type=range]{width:100%;accent-color:var(--jungle)}
 .overlay.vzplay .btn.ghost{background:none}
 @media (prefers-reduced-motion:reduce){.vzorb,.vzline.in{animation:none}}
 .tt.done{color:inherit}
+/* v21: note pages, zoom, text/checklist panel */
+.npager{display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap}
+.npno{letter-spacing:.06em;padding:0 4px;white-space:nowrap}
+.nib:disabled{opacity:.35;cursor:default}
+.nwrap{overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;position:relative}
+.nwrap canvas{width:100%;height:auto;aspect-ratio:auto;max-width:none}
+.ntools{padding:4px}
+.ntool{width:32px;height:40px}
+.npanel{position:sticky;bottom:0;z-index:5;background:#fff;border-radius:20px;padding:14px;display:flex;flex-direction:column;gap:10px;box-shadow:0 -6px 24px rgba(15,77,64,.16)}
+.npanel textarea.text{background:var(--sand);font-size:17px;min-height:88px}
+.nprows{display:flex;flex-direction:column;gap:8px;max-height:40vh;overflow:auto}
+.nprow{display:flex;align-items:center;gap:10px}
+.nprow input.text{flex:1;background:var(--sand);min-height:44px;padding:9px 12px;font-size:16px}

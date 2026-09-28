@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '20';
+  var APP_VERSION = '21';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -1487,7 +1487,7 @@
       // notes and their photos live in a separate store: put them in the backup file too
       loadNotes().then(function (ns) {
         copy.notes = ns; copy.noteImages = {};
-        var ids = []; ns.forEach(function (n) { n.items.forEach(function (it) { if (it.type === 'img') ids.push(it.src); }); });
+        var ids = []; ns.forEach(function (n) { ids = ids.concat(noteImgs(n)); });
         return Promise.all(ids.map(function (id) { return idbGet('img-' + id).then(function (d) { if (d) copy.noteImages[id] = d; }); }));
       }).catch(function () {}).then(function () {
         var a = document.createElement('a');
@@ -1579,18 +1579,25 @@
     loadNotes().then(function () { nv = { tab: tab || 'pad', id: null, tool: 'pen', color: NCOL[0], thick: false, hist: [] }; drawNotes(); showOverlay('nto'); });
   }
   function closeNotes() { notesLeave(); nv = null; closeOverlayEl(); }
+  // notes used to have one page; now each note has a list of pages
+  function notePages(n) { if (!n.pages) { n.pages = [{ items: n.items || [] }]; delete n.items; } return n.pages; }
+  function noteImgs(n) { var a = []; notePages(n).forEach(function (p) { p.items.forEach(function (it) { if (it.type === 'img') a.push(it.src); }); }); return a; }
   function notesLeave() {
     if (!nv || !nv.id) return;
     var n = noteById(nv.id); if (!n) return;
-    if (!n.title.trim() && !n.body.trim() && !n.items.length) { NOTES.splice(NOTES.indexOf(n), 1); saveNotes(true); return; }
-    n.thumb = n.items.length ? noteThumb(n) : null;
+    var pages = notePages(n);
+    pages.forEach(function (p) { p.items = p.items.filter(function (it) { return !(it.type === 'text' && !(it.text || '').trim()) && !(it.type === 'check' && !it.rows.some(function (r) { return r.t.trim(); })); }); });
+    nv.edit = null;
+    if (!n.title.trim() && !n.body.trim() && pages.every(function (p) { return !p.items.length; })) { NOTES.splice(NOTES.indexOf(n), 1); saveNotes(true); return; }
+    n.thumb = pages.some(function (p) { return p.items.length; }) ? noteThumb(n) : null;
     saveNotes(true);
   }
   function noteThumb(n) {
     try {
       var c = document.createElement('canvas'); c.width = 300; c.height = 390;
       var x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, 300, 390); x.scale(300 / NW, 390 / NH);
-      n.items.forEach(function (it) { drawItem(x, it, null); });
+      var pg = notePages(n).filter(function (p) { return p.items.length; })[0];
+      pg.items.forEach(function (it) { drawItem(x, it, null); });
       return c.toDataURL('image/jpeg', .72);
     } catch (e) { return null; }
   }
@@ -1607,9 +1614,10 @@
     arrow: '<path d="M5 19L19 5M11 5h8v8"/>',
     text: '<path d="M5 6h14M12 6v13"/>',
     img: '<rect x="4" y="5" width="16" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M20 16l-5-5-7 8"/>',
-    erase: '<path d="M16 4l5 5-9 9H7l-3-3z"/><path d="M11 20h9"/>'
+    erase: '<path d="M16 4l5 5-9 9H7l-3-3z"/><path d="M11 20h9"/>',
+    check: '<rect x="3.5" y="4" width="6" height="6" rx="1.5"/><path d="M5 7l1 1 2-2M13 7h8M13 17h8"/><rect x="3.5" y="14" width="6" height="6" rx="1.5"/>'
   };
-  var NNAME = { move: 'Move', pen: 'Pen', line: 'Line', rect: 'Box', circle: 'Circle', arrow: 'Arrow', text: 'Text', img: 'Photo', erase: 'Eraser' };
+  var NNAME = { move: 'Move', pen: 'Pen', line: 'Line', rect: 'Box', circle: 'Circle', arrow: 'Arrow', text: 'Text', check: 'Checklist', img: 'Photo', erase: 'Eraser' };
   function drawNotes() {
     var o = document.getElementById('overlay');
     if (nv.id) return drawNoteEditor();
@@ -1621,7 +1629,7 @@
       else h += '<div class="ngrid">' + list.map(function (n) {
         var prev = n.thumb ? '<img src="' + n.thumb + '" alt="">' : '<span class="nb">' + esc((n.body || '').slice(0, 140)) + '</span>';
         return '<button type="button" class="ncard" data-nopen="' + n.id + '" style="background:' + n.bg + '">' + (n.pinned ? '<span class="npin" aria-label="pinned">📌</span>' : '') +
-          '<b>' + (esc(n.title) || 'Untitled') + '</b>' + prev + '<span class="cap">' + (n.pinned ? 'pinned · ' : '') + niceDate(n.updated) + '</span></button>';
+          '<b>' + (esc(n.title) || 'Untitled') + '</b>' + prev + '<span class="cap">' + (n.pinned ? 'pinned · ' : '') + (notePages(n).length > 1 ? notePages(n).length + ' pages · ' : '') + niceDate(n.updated) + '</span></button>';
       }).join('') + '</div>';
       h += '<div class="nfoot"><button type="button" class="btn coral" id="nNew">+ New note</button></div>';
     } else {
@@ -1636,10 +1644,10 @@
     o.innerHTML = h + '</div>';
     o.querySelector('#nClose').onclick = closeNotes;
     o.querySelectorAll('[data-ntab]').forEach(function (b) { b.onclick = function () { nv.tab = b.dataset.ntab; drawNotes(); }; });
-    o.querySelectorAll('[data-nopen]').forEach(function (b) { b.onclick = function () { nv.id = b.dataset.nopen; nv.hist = []; nv.sel = null; drawNotes(); }; });
+    o.querySelectorAll('[data-nopen]').forEach(function (b) { b.onclick = function () { nv.id = b.dataset.nopen; nv.hist = []; nv.sel = null; nv.page = 0; nv.zoom = 1; nv.edit = null; drawNotes(); }; });
     var nn = o.querySelector('#nNew'); if (nn) nn.onclick = function () {
-      var n = { id: 'n' + Date.now().toString(36), title: '', body: '', items: [], pinned: false, bg: NBG[NOTES.length % NBG.length], created: new Date().toISOString(), updated: new Date().toISOString() };
-      NOTES.push(n); nv.id = n.id; nv.hist = []; nv.tool = 'pen'; drawNotes();
+      var n = { id: 'n' + Date.now().toString(36), title: '', body: '', pages: [{ items: [] }], pinned: false, bg: NBG[NOTES.length % NBG.length], created: new Date().toISOString(), updated: new Date().toISOString() };
+      NOTES.push(n); nv.id = n.id; nv.hist = []; nv.tool = 'pen'; nv.page = 0; nv.zoom = 1; nv.edit = null; drawNotes();
       setTimeout(function () { var t = document.getElementById('nTitle'); if (t) try { t.focus(); } catch (e) {} }, 60);
     };
     var jt = function (k) { closeNotes(); ui.tab = 'trail'; render(); openSheet('tonight' + (k && k !== dkey(new Date()) ? ':' + k : '')); };
@@ -1649,35 +1657,64 @@
   function drawNoteEditor() {
     var o = document.getElementById('overlay'), n = noteById(nv.id);
     if (!n) { nv.id = null; return drawNotes(); }
+    var pages = notePages(n);
+    if (nv.page == null || nv.page >= pages.length) nv.page = 0;
+    if (!nv.zoom) nv.zoom = 1;
+    var pg = pages[nv.page], items = pg.items, editing = nv.edit != null && items[nv.edit];
+    if (!editing) nv.edit = null;
+    var keepScroll = o.scrollTop, wrapOld = o.querySelector('.nwrap'), wsl = wrapOld ? wrapOld.scrollLeft : 0, wst = wrapOld ? wrapOld.scrollTop : 0;
     var h = '<div class="inner ned"><div class="row between"><button type="button" class="btn ghost small" id="nBack">‹ Notes</button><div class="row" style="gap:6px">' +
       '<button type="button" class="nib' + (n.pinned ? ' on' : '') + '" id="nPin" aria-pressed="' + n.pinned + '" aria-label="Pin to the top">📌</button><button type="button" class="nib" id="nDel" aria-label="Delete note">🗑</button></div></div>';
     h += '<input id="nTitle" class="ntitle display" placeholder="Title" value="' + esc(n.title) + '">';
     h += '<textarea id="nBody" class="text nbody" placeholder="Type notes…">' + esc(n.body) + '</textarea>';
-    h += '<div class="nwrap"><canvas id="nCv" aria-label="Sketch area"></canvas></div>';
-    h += '<div class="ntools" role="toolbar" aria-label="Drawing tools">' + ['move', 'pen', 'line', 'rect', 'circle', 'arrow', 'text', 'img', 'erase'].map(function (k) {
-      return '<button type="button" class="ntool' + (nv.tool === k ? ' on' : '') + '" data-ntool="' + k + '" aria-label="' + NNAME[k] + '" aria-pressed="' + (nv.tool === k) + '"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">' + NICON[k] + '</svg></button>';
-    }).join('') + '</div>';
+    h += '<div class="npager"><div class="row" style="gap:4px"><button type="button" class="nib" id="nPrev" aria-label="Previous page"' + (nv.page ? '' : ' disabled') + '>‹</button><span class="cap npno">Page ' + (nv.page + 1) + ' / ' + pages.length + '</span><button type="button" class="nib" id="nNext" aria-label="Next page"' + (nv.page < pages.length - 1 ? '' : ' disabled') + '>›</button>' +
+      '<button type="button" class="nib sm" id="nAddPg">+ Page</button>' + (pages.length > 1 ? '<button type="button" class="nib sm" id="nDelPg" aria-label="Delete this page">🗑</button>' : '') + '</div>' +
+      '<div class="row" style="gap:4px"><button type="button" class="nib" id="nZo" aria-label="Zoom out">−</button><button type="button" class="nib sm" id="nZr" aria-label="Reset zoom">' + Math.round(nv.zoom * 100) + '%</button><button type="button" class="nib" id="nZi" aria-label="Zoom in">+</button></div></div>';
+    h += '<div class="nwrap"><canvas id="nCv" aria-label="Sketch area, page ' + (nv.page + 1) + '"></canvas></div>';
+    if (editing) h += '<div class="npanel" id="nPanel"></div>';
+    else {
+      h += '<div class="ntools" role="toolbar" aria-label="Drawing tools">' + ['move', 'pen', 'line', 'rect', 'circle', 'arrow', 'text', 'check', 'img', 'erase'].map(function (k) {
+        return '<button type="button" class="ntool' + (nv.tool === k ? ' on' : '') + '" data-ntool="' + k + '" aria-label="' + NNAME[k] + '" aria-pressed="' + (nv.tool === k) + '"><svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true">' + NICON[k] + '</svg></button>';
+      }).join('') + '</div>';
+    }
     h += '<div class="row between"><div class="row" style="gap:9px">' + NCOL.map(function (c) { return '<button type="button" class="nsw' + (nv.color === c ? ' on' : '') + '" data-ncol="' + c + '" style="background:' + c + '" aria-label="Colour"></button>'; }).join('') + '</div>' +
       '<div class="row" style="gap:6px"><button type="button" class="nib sm' + (nv.thick ? ' on' : '') + '" id="nThick" aria-label="Line thickness">' + (nv.thick ? 'thick' : 'thin') + '</button><button type="button" class="nib" id="nUndo" aria-label="Undo"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M9 7L4 12l5 5M4 12h11a5 5 0 0 1 0 10h-2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div></div>';
-    h += '<p class="muted small" style="text-align:center">' + ({ move: 'Drag anything to move it.', text: 'Tap where the text should go.', erase: 'Tap a line, shape, text or photo to remove it.', img: 'Choose a photo; then drag it into place.' }[nv.tool] || 'Draw with your finger.') + ' Saved as you go.</p>';
+    if (!editing) h += '<p class="muted small" style="text-align:center">' + ({ move: 'Drag things to move them; drag empty space to scroll. Tap text or a checklist to edit it.', text: 'Tap where the text should go, or tap existing text to edit it.', check: 'Tap where the checklist should go. Tap any box to tick it.', erase: 'Tap a line, shape, text, checklist or photo to remove it.', img: 'Choose a photo; then drag it into place.' }[nv.tool] || 'Draw with one finger. Pinch with two fingers to zoom.') + ' Saved as you go.</p>';
     h += '<input type="file" id="nImg" accept="image/*" hidden></div>';
     o.innerHTML = h;
+    o.scrollTop = keepScroll;
     var touch = function () { n.updated = new Date().toISOString(); saveNotes(); };
-    o.querySelector('#nBack').onclick = function () { notesLeave(); nv.id = null; drawNotes(); };
-    o.querySelector('#nPin').onclick = function () { n.pinned = !n.pinned; touch(); drawNoteEditor(); };
-    o.querySelector('#nDel').onclick = function () {
-      if (!confirm('Delete this note?')) return;
-      n.items.forEach(function (it) { if (it.type === 'img') idbDel('img-' + it.src).catch(function () {}); });
+    var snap = function () { nv.hist.push(JSON.stringify(pg.items)); if (nv.hist.length > 40) nv.hist.shift(); };
+    var q = function (s) { return o.querySelector(s); };
+    q('#nBack').onclick = function () { notesLeave(); nv.id = null; nv.edit = null; drawNotes(); };
+    q('#nPin').onclick = function () { n.pinned = !n.pinned; touch(); drawNoteEditor(); };
+    q('#nDel').onclick = function () {
+      if (!confirm('Delete this whole note?')) return;
+      noteImgs(n).forEach(function (id) { idbDel('img-' + id).catch(function () {}); });
       NOTES.splice(NOTES.indexOf(n), 1); saveNotes(true); nv.id = null; drawNotes(); toast('Note deleted');
     };
-    o.querySelector('#nTitle').addEventListener('input', function (e) { n.title = e.target.value; touch(); });
-    var nb = o.querySelector('#nBody'), fit = function () { nb.style.height = 'auto'; nb.style.height = Math.max(56, nb.scrollHeight) + 'px'; };
+    q('#nTitle').addEventListener('input', function (e) { n.title = e.target.value; touch(); });
+    var nb = q('#nBody'), fit = function () { nb.style.height = 'auto'; nb.style.height = Math.max(56, nb.scrollHeight) + 'px'; };
     nb.addEventListener('input', function () { n.body = nb.value; touch(); fit(); }); fit();
-    o.querySelectorAll('[data-ntool]').forEach(function (b) { b.onclick = function () { nv.tool = b.dataset.ntool; nv.sel = null; if (nv.tool === 'img') o.querySelector('#nImg').click(); else drawNoteEditor(); }; });
-    o.querySelectorAll('[data-ncol]').forEach(function (b) { b.onclick = function () { nv.color = b.dataset.ncol; if (nv.tool === 'move' || nv.tool === 'erase' || nv.tool === 'img') nv.tool = 'pen'; drawNoteEditor(); }; });
-    o.querySelector('#nThick').onclick = function () { nv.thick = !nv.thick; drawNoteEditor(); };
-    o.querySelector('#nUndo').onclick = function () { if (!nv.hist.length) { toast('Nothing to undo'); return; } n.items = JSON.parse(nv.hist.pop()); touch(); paint(); };
-    o.querySelector('#nImg').onchange = function (e) {
+    var goPage = function (i) { nv.page = i; nv.hist = []; nv.sel = null; nv.edit = null; drawNoteEditor(); };
+    q('#nPrev').onclick = function () { if (nv.page) goPage(nv.page - 1); };
+    q('#nNext').onclick = function () { if (nv.page < pages.length - 1) goPage(nv.page + 1); };
+    q('#nAddPg').onclick = function () { pages.splice(nv.page + 1, 0, { items: [] }); touch(); goPage(nv.page + 1); toast('Page ' + (nv.page + 1) + ' added'); };
+    var dp = q('#nDelPg'); if (dp) dp.onclick = function () {
+      if (!confirm('Delete page ' + (nv.page + 1) + '?')) return;
+      var gone = pages.splice(nv.page, 1)[0]; touch();
+      gone.items.forEach(function (it) { if (it.type === 'img' && noteImgs(n).indexOf(it.src) < 0) idbDel('img-' + it.src).catch(function () {}); });
+      goPage(Math.max(0, nv.page - 1));
+    };
+    o.querySelectorAll('[data-ntool]').forEach(function (b) { b.onclick = function () { nv.tool = b.dataset.ntool; nv.sel = null; if (nv.tool === 'img') q('#nImg').click(); else drawNoteEditor(); }; });
+    o.querySelectorAll('[data-ncol]').forEach(function (b) { b.onclick = function () {
+      nv.color = b.dataset.ncol;
+      if (editing) { editing.c = nv.color; touch(); } else if (nv.tool === 'move' || nv.tool === 'erase' || nv.tool === 'img') nv.tool = 'pen';
+      drawNoteEditor();
+    }; });
+    q('#nThick').onclick = function () { nv.thick = !nv.thick; drawNoteEditor(); };
+    q('#nUndo').onclick = function () { if (!nv.hist.length) { toast('Nothing to undo'); return; } pg.items = JSON.parse(nv.hist.pop()); nv.edit = null; nv.sel = null; touch(); drawNoteEditor(); };
+    q('#nImg').onchange = function (e) {
       var f = e.target.files[0]; if (!f) { nv.tool = 'move'; drawNoteEditor(); return; }
       var url = URL.createObjectURL(f), im = new Image();
       im.onload = function () {
@@ -1687,58 +1724,157 @@
         URL.revokeObjectURL(url);
         idbPut('img-' + id, data).then(function () {
           var w = 460, hh = Math.round(w * c.height / c.width), img2 = new Image(); img2.src = data; imgCache[id] = img2;
-          nv.hist.push(JSON.stringify(n.items)); n.items.push({ type: 'img', src: id, x: 60, y: 60, w: w, h: hh, rot: -2 }); touch();
+          snap(); pg.items.push({ type: 'img', src: id, x: 60, y: 60, w: w, h: hh, rot: -2 }); touch();
           nv.tool = 'move'; drawNoteEditor(); toast('Photo pinned. Drag it into place.');
         }).catch(function () { toast('Could not save the photo'); });
       };
       im.onerror = function () { toast('Could not open that photo'); };
       im.src = url;
     };
-    // canvas
-    var cv = o.querySelector('#nCv'), ctx = cv.getContext('2d'), dpr = Math.min(window.devicePixelRatio || 1, 2), cw = cv.clientWidth || 340;
-    cv.width = Math.round(cw * dpr); cv.height = Math.round(cw * NH / NW * dpr);
-    var scale = cv.width / NW;
+    // ----- canvas, zoom and gestures -----
+    var wrap = q('.nwrap'), cv = q('#nCv'), ctx = cv.getContext('2d'), dpr = Math.min(window.devicePixelRatio || 1, 2), baseW = wrap.clientWidth || 340, scale = 1;
+    wrap.style.height = Math.round(baseW * NH / NW) + 'px';
+    function size(z, raster) {
+      var cw = baseW * z; cv.style.width = cw + 'px'; cv.style.height = cw * NH / NW + 'px';
+      if (raster) { var px = Math.min(Math.round(cw * dpr), 4096); cv.width = px; cv.height = Math.round(px * NH / NW); scale = cv.width / NW; paint(); }
+    }
     function paint(extra) {
       ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, cv.width, cv.height); ctx.setTransform(scale, 0, 0, scale, 0, 0);
-      n.items.forEach(function (it) { drawItem(ctx, it, paint); });
+      pg.items.forEach(function (it) { drawItem(ctx, it, paint); });
       if (extra) drawItem(ctx, extra, null);
-      if (nv.sel != null && n.items[nv.sel]) { var b = bbox(ctx, n.items[nv.sel]); ctx.save(); ctx.setLineDash([12, 10]); ctx.strokeStyle = '#12A39A'; ctx.lineWidth = 3; ctx.strokeRect(b.x - 10, b.y - 10, b.w + 20, b.h + 20); ctx.restore(); }
+      var si = nv.edit != null ? nv.edit : nv.sel;
+      if (si != null && pg.items[si]) { var b = bbox(ctx, pg.items[si]); ctx.save(); ctx.setLineDash([12, 10]); ctx.strokeStyle = '#12A39A'; ctx.lineWidth = 3; ctx.strokeRect(b.x - 12, b.y - 12, Math.max(b.w, 60) + 24, b.h + 24); ctx.restore(); }
     }
-    paint();
+    nv.paint = paint;
+    size(nv.zoom, true);
+    wrap.scrollLeft = wsl; wrap.scrollTop = wst;
+    var setZoom = function (z, cx, cy) {
+      z = Math.max(1, Math.min(4, z));
+      var r = wrap.getBoundingClientRect(); cx = cx == null ? r.width / 2 : cx - r.left; cy = cy == null ? r.height / 2 : cy - r.top;
+      var fx = (wrap.scrollLeft + cx) / (baseW * nv.zoom), fy = (wrap.scrollTop + cy) / (baseW * nv.zoom * NH / NW);
+      nv.zoom = z; size(z, false);
+      wrap.scrollLeft = fx * baseW * z - cx; wrap.scrollTop = fy * baseW * z * NH / NW - cy;
+      q('#nZr').textContent = Math.round(z * 100) + '%';
+    };
+    q('#nZi').onclick = function () { setZoom(nv.zoom < 1.5 ? 1.5 : nv.zoom < 2 ? 2 : nv.zoom < 3 ? 3 : 4); size(nv.zoom, true); };
+    q('#nZo').onclick = function () { setZoom(nv.zoom > 3 ? 3 : nv.zoom > 2 ? 2 : nv.zoom > 1.5 ? 1.5 : 1); size(nv.zoom, true); };
+    q('#nZr').onclick = function () { setZoom(1); size(1, true); };
     var P = function (e) { var r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) / r.width * NW, y: (e.clientY - r.top) / r.height * NH }; };
-    var cur = null, drag = null, W = function () { return nv.thick ? 12 : 5; };
-    var hit = function (p) { for (var i = n.items.length - 1; i >= 0; i--) { var b = bbox(ctx, n.items[i]); if (p.x >= b.x - 18 && p.x <= b.x + b.w + 18 && p.y >= b.y - 18 && p.y <= b.y + b.h + 18) return i; } return -1; };
+    var cur = null, drag = null, pan = null, pinch = null, ptrs = {}, blocked = false, W = function () { return nv.thick ? 12 : 5; };
+    var hit = function (p) { for (var i = pg.items.length - 1; i >= 0; i--) { var b = bbox(ctx, pg.items[i]); if (p.x >= b.x - 18 && p.x <= b.x + Math.max(b.w, 40) + 18 && p.y >= b.y - 18 && p.y <= b.y + b.h + 18) return i; } return -1; };
+    var boxHit = function (p) {
+      for (var i = pg.items.length - 1; i >= 0; i--) { var it = pg.items[i]; if (it.type !== 'check') continue; var k = checkRowAt(it, p); if (k >= 0) return { i: i, k: k }; }
+      return null;
+    };
+    var openEdit = function (i) { nv.edit = i; nv.sel = null; drawNoteEditor(); };
     cv.addEventListener('pointerdown', function (e) {
       e.preventDefault(); try { cv.setPointerCapture(e.pointerId); } catch (x) {}
+      ptrs[e.pointerId] = { x: e.clientX, y: e.clientY };
+      var ids = Object.keys(ptrs);
+      if (ids.length === 2) {   // two fingers: pinch to zoom and pan, and cancel any stroke that just started
+        cur = null; drag = null; pan = null; blocked = true; paint();
+        var a = ptrs[ids[0]], b = ptrs[ids[1]];
+        pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, z: nv.zoom, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+        return;
+      }
+      if (ids.length > 2 || blocked) return;
+      if (nv.edit != null) return;
       var p = P(e), t = nv.tool;
+      var bh = t !== 'erase' ? boxHit(p) : null;
+      if (bh) { snap(); var row = pg.items[bh.i].rows[bh.k]; row.d = !row.d; touch(); paint(); cur = null; ptrs.tap = true; return; }
       if (t === 'pen') cur = { type: 'pen', c: nv.color, w: W(), pts: [[Math.round(p.x), Math.round(p.y)]] };
       else if (t === 'line' || t === 'rect' || t === 'circle' || t === 'arrow') cur = { type: t, c: nv.color, w: W(), x1: p.x, y1: p.y, x2: p.x, y2: p.y };
-      else if (t === 'text') {
-        var tx = prompt('Text'); if (tx && tx.trim()) { nv.hist.push(JSON.stringify(n.items)); n.items.push({ type: 'text', x: p.x, y: p.y, text: tx.trim(), c: nv.color, s: nv.thick ? 64 : 42 }); touch(); paint(); }
+      else if (t === 'text' || t === 'check') {
+        var hi = hit(p);
+        if (hi >= 0 && (pg.items[hi].type === 'text' || pg.items[hi].type === 'check')) { snap(); openEdit(hi); return; }
+        snap();
+        if (t === 'text') pg.items.push({ type: 'text', x: p.x, y: p.y + 20, text: '', c: nv.color, s: nv.thick ? 76 : 56 });
+        else pg.items.push({ type: 'check', x: p.x, y: p.y - 10, c: nv.color, s: nv.thick ? 72 : 56, rows: [{ t: '', d: false }] });
+        openEdit(pg.items.length - 1);
       } else if (t === 'erase') {
-        var i = hit(p); if (i >= 0) { nv.hist.push(JSON.stringify(n.items)); var gone = n.items.splice(i, 1)[0]; touch(); paint(); if (gone.type === 'img' && !JSON.stringify(n.items).includes(gone.src)) idbDel('img-' + gone.src).catch(function () {}); }
+        var i = hit(p); if (i >= 0) { snap(); var gone = pg.items.splice(i, 1)[0]; touch(); paint(); if (gone.type === 'img' && noteImgs(n).indexOf(gone.src) < 0) idbDel('img-' + gone.src).catch(function () {}); }
       } else if (t === 'move') {
         var j = hit(p); nv.sel = j >= 0 ? j : null;
-        if (j >= 0) { nv.hist.push(JSON.stringify(n.items)); drag = { i: j, x: p.x, y: p.y }; }
+        if (j >= 0) { snap(); drag = { i: j, x: p.x, y: p.y, moved: 0 }; }
+        else pan = { x: e.clientX, y: e.clientY, sl: wrap.scrollLeft, st: wrap.scrollTop };
         paint();
       }
     });
     cv.addEventListener('pointermove', function (e) {
+      if (!ptrs[e.pointerId]) return;
+      ptrs[e.pointerId] = { x: e.clientX, y: e.clientY };
+      if (pinch) {
+        var ids = Object.keys(ptrs).filter(function (k) { return k !== 'tap'; }); if (ids.length < 2) return;
+        var a = ptrs[ids[0]], b = ptrs[ids[1]], d = Math.hypot(a.x - b.x, a.y - b.y), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+        setZoom(pinch.z * d / pinch.d, mx, my);
+        wrap.scrollLeft -= mx - pinch.mx; wrap.scrollTop -= my - pinch.my; pinch.mx = mx; pinch.my = my;
+        return;
+      }
+      if (pan) { wrap.scrollLeft = pan.sl - (e.clientX - pan.x); wrap.scrollTop = pan.st - (e.clientY - pan.y); return; }
       if (!cur && !drag) return;
       var p = P(e);
       if (cur && cur.type === 'pen') { var l = cur.pts[cur.pts.length - 1]; if (Math.abs(l[0] - p.x) + Math.abs(l[1] - p.y) > 3) cur.pts.push([Math.round(p.x), Math.round(p.y)]); paint(cur); }
       else if (cur) { cur.x2 = p.x; cur.y2 = p.y; paint(cur); }
-      else if (drag) { shift(n.items[drag.i], p.x - drag.x, p.y - drag.y); drag.x = p.x; drag.y = p.y; paint(); }
+      else if (drag) { drag.moved += Math.abs(p.x - drag.x) + Math.abs(p.y - drag.y); shift(pg.items[drag.i], p.x - drag.x, p.y - drag.y); drag.x = p.x; drag.y = p.y; paint(); }
     });
-    var up = function () {
+    var up = function (e) {
+      delete ptrs[e.pointerId]; delete ptrs.tap;
+      var left = Object.keys(ptrs).length;
+      if (pinch && left < 2) { pinch = null; size(nv.zoom, true); }
+      if (blocked) { if (!left) blocked = false; return; }
       if (cur) {
-        var ok = cur.type === 'pen' ? cur.pts.length > 1 || true : Math.abs(cur.x2 - cur.x1) + Math.abs(cur.y2 - cur.y1) > 8;
-        if (ok) { nv.hist.push(JSON.stringify(n.items)); if (nv.hist.length > 40) nv.hist.shift(); n.items.push(cur); touch(); }
+        var ok = cur.type === 'pen' || Math.abs(cur.x2 - cur.x1) + Math.abs(cur.y2 - cur.y1) > 8;
+        if (ok) { snap(); pg.items.push(cur); touch(); }
         cur = null; paint();
       }
-      if (drag) { drag = null; touch(); }
+      if (drag) {
+        var it = pg.items[drag.i], was = drag.i, moved = drag.moved; drag = null;
+        if (moved < 6) { nv.hist.pop(); if (it && (it.type === 'text' || it.type === 'check')) { snap(); openEdit(was); return; } }
+        touch();
+      }
+      pan = null;
     };
     cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+    if (editing) drawPanel(n, pg, touch);
+  }
+  // editing panel for text and checklists (typing here updates the page live)
+  function drawPanel(n, pg, touch) {
+    var box = document.getElementById('nPanel'), it = pg.items[nv.edit]; if (!box || !it) return;
+    var sizes = it.type === 'text' ? [[40, 'S'], [56, 'M'], [76, 'L'], [104, 'XL']] : [[44, 'S'], [56, 'M'], [72, 'L']];
+    var h = '<div class="row between"><span class="lab">' + (it.type === 'text' ? 'Text' : 'Checklist') + '</span><div class="row" style="gap:4px">' + sizes.map(function (s) { return '<button type="button" class="nib sm' + (it.s === s[0] ? ' on' : '') + '" data-tsz="' + s[0] + '">' + s[1] + '</button>'; }).join('') + '</div></div>';
+    if (it.type === 'text') h += '<textarea id="npText" class="text" rows="3" placeholder="Type here… (new line = Enter)">' + esc(it.text) + '</textarea>';
+    else {
+      h += '<div class="nprows">' + it.rows.map(function (r, k) {
+        return '<div class="nprow"><button type="button" class="tck' + (r.d ? ' on' : '') + '" data-rtick="' + k + '" aria-label="Tick">' + (r.d ? TICK : '') + '</button><input class="text" data-row="' + k + '" value="' + esc(r.t) + '" placeholder="Item ' + (k + 1) + '" enterkeyhint="next"><button type="button" class="fx" data-rdel="' + k + '" aria-label="Remove item">×</button></div>';
+      }).join('') + '</div><button type="button" class="link" id="npAdd" style="align-self:flex-start">+ Add item</button>';
+    }
+    h += '<div class="row"><button type="button" class="btn line small" id="npDel">Delete</button><button type="button" class="btn jungle small" id="npDone" style="flex:1">Done</button></div>';
+    box.innerHTML = h;
+    var paint = function () { if (nv.paint) nv.paint(); }, redrawPanel = function (focusRow) { drawPanel(n, pg, touch); if (focusRow != null) { var el = box.querySelector('[data-row="' + focusRow + '"]'); if (el) try { el.focus(); } catch (e) {} } };
+    box.querySelectorAll('[data-tsz]').forEach(function (b) { b.onclick = function () { it.s = +b.dataset.tsz; touch(); paint(); redrawPanel(); }; });
+    var ta = box.querySelector('#npText');
+    if (ta) { ta.addEventListener('input', function () { it.text = ta.value; touch(); paint(); }); setTimeout(function () { try { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } catch (e) {} }, 60); }
+    box.querySelectorAll('[data-row]').forEach(function (inp) {
+      var k = +inp.dataset.row;
+      inp.addEventListener('input', function () { it.rows[k].t = inp.value; touch(); paint(); });
+      inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); it.rows.splice(k + 1, 0, { t: '', d: false }); touch(); paint(); redrawPanel(k + 1); } });
+    });
+    box.querySelectorAll('[data-rtick]').forEach(function (b) { b.onclick = function () { var r = it.rows[+b.dataset.rtick]; r.d = !r.d; touch(); paint(); redrawPanel(); }; });
+    box.querySelectorAll('[data-rdel]').forEach(function (b) { b.onclick = function () { it.rows.splice(+b.dataset.rdel, 1); if (!it.rows.length) it.rows.push({ t: '', d: false }); touch(); paint(); redrawPanel(); }; });
+    var add = box.querySelector('#npAdd'); if (add) add.onclick = function () { it.rows.push({ t: '', d: false }); touch(); paint(); redrawPanel(it.rows.length - 1); };
+    if (it.type === 'check') { var last = box.querySelector('[data-row="' + (it.rows.length - 1) + '"]'); if (last && !last.value) setTimeout(function () { try { last.focus(); } catch (e) {} }, 60); }
+    box.querySelector('#npDel').onclick = function () { pg.items.splice(nv.edit, 1); nv.edit = null; touch(); drawNoteEditor(); };
+    box.querySelector('#npDone').onclick = function () {
+      if (it.type === 'text' && !it.text.trim()) pg.items.splice(nv.edit, 1);
+      if (it.type === 'check') { it.rows = it.rows.filter(function (r) { return r.t.trim(); }); if (!it.rows.length) pg.items.splice(nv.edit, 1); }
+      nv.edit = null; touch(); drawNoteEditor();
+    };
+  }
+  function checkGeo(it) { return { b: it.s * .82, rh: it.s * 1.6 }; }
+  function checkRowAt(it, p) {
+    var g = checkGeo(it);
+    for (var k = 0; k < it.rows.length; k++) { var top = it.y + k * g.rh; if (p.x >= it.x - 16 && p.x <= it.x + g.b + 16 && p.y >= top - 12 && p.y <= top + g.b + 12) return k; }
+    return -1;
   }
   function shift(it, dx, dy) {
     if (it.type === 'pen') it.pts.forEach(function (q) { q[0] += dx; q[1] += dy; });
@@ -1748,7 +1884,12 @@
   function bbox(ctx, it) {
     if (it.type === 'pen') { var xs = it.pts.map(function (q) { return q[0]; }), ys = it.pts.map(function (q) { return q[1]; }); var x0 = Math.min.apply(null, xs), y0 = Math.min.apply(null, ys); return { x: x0, y: y0, w: Math.max.apply(null, xs) - x0, h: Math.max.apply(null, ys) - y0 }; }
     if (it.x1 != null) return { x: Math.min(it.x1, it.x2), y: Math.min(it.y1, it.y2), w: Math.abs(it.x2 - it.x1), h: Math.abs(it.y2 - it.y1) };
-    if (it.type === 'text') { ctx.save(); ctx.font = '500 ' + it.s + 'px "Space Grotesk", sans-serif'; var lines = it.text.split('\n'), w = Math.max.apply(null, lines.map(function (l) { return ctx.measureText(l).width; })); ctx.restore(); return { x: it.x, y: it.y - it.s, w: w, h: it.s * 1.25 * lines.length }; }
+    if (it.type === 'text') { ctx.save(); ctx.font = '500 ' + it.s + 'px "Space Grotesk", sans-serif'; var lines = (it.text || '').split('\n'), w = Math.max(it.s * 2, Math.max.apply(null, lines.map(function (l) { return ctx.measureText(l).width; }))); ctx.restore(); return { x: it.x, y: it.y - it.s, w: w, h: it.s * 1.25 * lines.length }; }
+    if (it.type === 'check') {
+      var g = checkGeo(it); ctx.save(); ctx.font = '500 ' + it.s + 'px "Space Grotesk", sans-serif';
+      var tw = Math.max(it.s * 4, Math.max.apply(null, it.rows.map(function (r) { return ctx.measureText(r.t || '').width; }))); ctx.restore();
+      return { x: it.x, y: it.y, w: g.b + it.s * .45 + tw, h: (it.rows.length - 1) * g.rh + g.b };
+    }
     return { x: it.x, y: it.y, w: it.w, h: it.h };
   }
   function drawItem(x, it, redraw) {
@@ -1769,7 +1910,19 @@
       x.beginPath(); x.ellipse((it.x1 + it.x2) / 2, (it.y1 + it.y2) / 2, Math.abs(it.x2 - it.x1) / 2 || 1, Math.abs(it.y2 - it.y1) / 2 || 1, 0, 0, Math.PI * 2); x.stroke();
     } else if (it.type === 'text') {
       x.font = '500 ' + it.s + 'px "Space Grotesk", sans-serif'; x.textBaseline = 'alphabetic';
-      it.text.split('\n').forEach(function (l, k) { x.fillText(l, it.x, it.y + k * it.s * 1.25); });
+      (it.text || '').split('\n').forEach(function (l, k) { x.fillText(l, it.x, it.y + k * it.s * 1.25); });
+    } else if (it.type === 'check') {
+      var g = checkGeo(it), bx = g.b;
+      x.font = '500 ' + it.s + 'px "Space Grotesk", sans-serif'; x.textBaseline = 'middle'; x.lineWidth = Math.max(3, it.s / 10);
+      it.rows.forEach(function (r, k) {
+        var top = it.y + k * g.rh, cy = top + bx / 2, tx = it.x + bx + it.s * .45;
+        x.beginPath(); if (x.roundRect) x.roundRect(it.x, top, bx, bx, bx * .22); else x.rect(it.x, top, bx, bx);
+        if (r.d) { x.fillStyle = it.c; x.fill(); x.strokeStyle = '#fff'; x.beginPath(); x.moveTo(it.x + bx * .22, cy); x.lineTo(it.x + bx * .43, top + bx * .72); x.lineTo(it.x + bx * .8, top + bx * .28); x.stroke(); }
+        else { x.strokeStyle = it.c; x.stroke(); }
+        x.fillStyle = it.c; x.globalAlpha = r.d ? .45 : 1; x.fillText(r.t || '', tx, cy);
+        if (r.d && r.t) { var w2 = x.measureText(r.t).width; x.strokeStyle = it.c; x.lineWidth = Math.max(2, it.s / 16); x.beginPath(); x.moveTo(tx, cy); x.lineTo(tx + w2, cy); x.stroke(); x.lineWidth = Math.max(3, it.s / 10); }
+        x.globalAlpha = 1;
+      });
     } else if (it.type === 'img') {
       var im = imgCache[it.src];
       if (!im) {
