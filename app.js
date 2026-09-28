@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '12';
+  var APP_VERSION = '13';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am to set your daily goal, then 10 mindful pings at random times until 9pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -140,6 +140,7 @@
     var g = goalFor(dkey(dayDate(n)));
     if (g) { xp += 5; if (g.achievedAt) xp += 20; }
     xp += Math.min(movesOn(dkey(dayDate(n))).length, 12) * 5;
+    xp += Math.min(trainingOn(dkey(dayDate(n))), 2) * 10;
     return xp;
   }
   function totalXp() { var t = 0; for (var i = 1; i <= 30; i++) t += dayXp(i); return t; }
@@ -663,6 +664,337 @@
     save();
   }
 
+  // ---------- fit: food, body, 12-week plan ----------
+  var FOODS = [];
+  fetch('foods.json').then(function (r) { return r.json(); }).then(function (j) { FOODS = j.foods; }).catch(function () {});
+  var MEALS = [['breakfast', 'Breakfast'], ['lunch', 'Lunch'], ['snack', 'Snacks'], ['dinner', 'Dinner']];
+  var fitUi = { view: 'food', day: null };
+  function r1(x) { return Math.round(x * 10) / 10; }
+  function prof() { return state.profile || {}; }
+  function foodDay(key) { state.food = state.food || {}; return state.food[key] || []; }
+  function sumItems(items) {
+    return items.reduce(function (a, it) { a.kcal += it.kcal; a.p += it.p; a.c += it.c; a.f += it.f; return a; }, { kcal: 0, p: 0, c: 0, f: 0 });
+  }
+  function latestWeight() { var w = (state.weights || []).slice().sort(function (a, b) { return a.d < b.d ? -1 : 1; }); return w.length ? w[w.length - 1].kg : prof().weight; }
+  function bodyCalc() {
+    var p = prof(), w = latestWeight();
+    if (!p.height || !w || !p.age || !p.sex) return null;
+    var hm = p.height / 100, bmi = w / (hm * hm);
+    var bmr = 10 * w + 6.25 * p.height - 5 * p.age + (p.sex === 'm' ? 5 : -161);
+    var tdee = bmr * (p.activity || 1.375);
+    var lo = 18.5 * hm * hm, hi = 24.9 * hm * hm, ideal = 23 * hm * hm;
+    var losing = bmi > 23;
+    var kcal = Math.round((losing ? Math.max(tdee - 500, p.sex === 'm' ? 1500 : 1200) : tdee) / 10) * 10;
+    var start = (state.weights && state.weights.length ? state.weights.slice().sort(function (a, b) { return a.d < b.d ? -1 : 1; })[0].kg : w);
+    var m3 = losing ? Math.max(ideal, start - 7) : start;
+    var protein = Math.round(1.8 * Math.min(w, Math.max(ideal, m3)));
+    var fat = Math.round(kcal * 0.27 / 9);
+    var carbs = Math.max(0, Math.round((kcal - protein * 4 - fat * 9) / 4));
+    return { w: w, bmi: bmi, bmr: bmr, tdee: tdee, lo: lo, hi: hi, ideal: ideal, kcal: kcal, protein: protein, fat: fat, carbs: carbs, m3: m3, start: start, losing: losing };
+  }
+
+  // 12-week roadmap towards a first sprint triathlon (750 m swim · 20 km bike · 5 km run)
+  var PHASES = [
+    { name: 'Foundation', color: '#0E9C95', weeks: [1, 2, 3, 4], food: 'Log everything. Hit your protein target every day; no other rules yet.' },
+    { name: 'Build', color: '#1D5BD8', weeks: [5, 6, 7, 8], food: 'Keep the calorie target. Eat carbs around training, protein at every meal.' },
+    { name: 'Race prep', color: '#FF5A1F', weeks: [9, 10, 11], food: 'Fuel the long sessions; practise what you’ll eat before a race.' },
+    { name: 'Taper & race', color: '#E0312B', weeks: [12], food: 'Eat at maintenance this week; sleep well; carbs the night before.' }
+  ];
+  function weekPlan(w) {
+    var S = function (day, sport, text, min) { return { day: day, sport: sport, text: text, min: min }; };
+    if (w <= 4) {
+      var k = w - 1;
+      return [S(1, 'swim', 'Technique: 8 × 25 m easy with rests; kick drills', 20 + k * 5), S(2, 'run', 'Run–walk: ' + (4 + k) + ' × (2 min jog / 1 min walk)', 20 + k * 3),
+        S(3, 'strength', 'Bodyweight circuit: squats, push-ups, lunges, plank × 3', 20), S(4, 'bike', 'Easy ride, can hold a conversation', 30 + k * 5),
+        S(5, 'swim', 'Technique + ' + (100 + k * 50) + ' m continuous at the end', 25 + k * 5), S(6, 'run', 'Run–walk, easy: ' + (5 + k) + ' × (3 min / 1 min)', 25 + k * 3), S(0, 'rest', 'Rest or a gentle walk', 0)];
+    }
+    if (w <= 8) {
+      var b = w - 5;
+      return [S(1, 'swim', (300 + b * 100) + ' m continuous + 4 × 50 m', 30 + b * 5), S(2, 'run', 'Easy continuous run ' + (20 + b * 5) + ' min', 20 + b * 5),
+        S(3, 'strength', 'Strength circuit + core, 25 min', 25), S(4, 'bike', 'Ride with 4 × 4 min harder efforts', 45 + b * 5),
+        S(5, 'swim', 'Drills + ' + (400 + b * 100) + ' m continuous', 35), S(6, 'brick', 'Brick: bike ' + (30 + b * 5) + ' min, then run 10 min', 40 + b * 5), S(0, 'rest', 'Rest', 0)];
+    }
+    if (w <= 11) {
+      var c = w - 9;
+      return [S(1, 'swim', (600 + c * 100) + ' m continuous, sighting practice', 40), S(2, 'run', 'Intervals: 5 × 3 min at 5 km pace, 2 min easy', 40),
+        S(3, 'strength', 'Strength + mobility, 25 min', 25), S(4, 'bike', (15 + c * 3) + ' km ride, last 5 km at race effort', 55 + c * 5),
+        S(5, 'swim', '750 m continuous (race distance)', 40), S(6, 'brick', 'Brick: bike 45 min, then run ' + (15 + c * 5) + ' min', 60 + c * 5), S(0, 'rest', 'Rest', 0)];
+    }
+    return [S(1, 'swim', '400 m easy + 4 × 50 m brisk', 25), S(2, 'run', 'Easy 20 min with 4 short strides', 20), S(3, 'strength', 'Mobility only, 15 min', 15),
+      S(4, 'bike', 'Easy 30 min', 30), S(5, 'rest', 'Rest; lay out your kit', 0), S(6, 'race', 'Your test: 750 m swim · 20 km bike · 5 km run', 90), S(0, 'rest', 'Recover. Well done.', 0)];
+  }
+  var SPORT = { swim: ['Swim', '#1D5BD8'], bike: ['Bike', '#FF5A1F'], run: ['Run', '#E0312B'], strength: ['Strength', '#141414'], brick: ['Brick', '#7B3FE4'], rest: ['Rest', '#B3A999'], race: ['Race', '#E0312B'] };
+  function planStart() { if (!state.planStart) { var t = new Date(); t.setDate(t.getDate() - ((t.getDay() + 6) % 7)); state.planStart = dkey(t); save(); } return state.planStart; }
+  function planWeek(d) { var s = new Date(planStart() + 'T00:00:00'), t = new Date(d.getFullYear(), d.getMonth(), d.getDate()); return Math.floor((t - s) / 86400000 / 7) + 1; }
+  function trainDone(key, i) { return !!((state.train || {})[key] || {})[i]; }
+  function trainingOn(key) { var t = (state.train || {})[key] || {}; return Object.keys(t).filter(function (k) { return t[k]; }).length; }
+
+  function renderFit() {
+    var h = '<div class="stack"><header class="topbar"><span class="wordmark">FIT<i>.</i></span><span class="eyebrow">food · body · 12-week plan</span></header>';
+    h += '<div class="segtabs" role="tablist">' + [['food', 'Food'], ['body', 'Body'], ['plan', 'Plan']].map(function (t) {
+      return '<button type="button" role="tab" aria-selected="' + (fitUi.view === t[0]) + '" data-fv="' + t[0] + '">' + t[1] + '</button>';
+    }).join('') + '</div>';
+    if (fitUi.view === 'food') h += renderFood();
+    else if (fitUi.view === 'body') h += renderBody();
+    else h += renderPlan();
+    return h + '</div>';
+  }
+
+  function macroBar(label, val, tgt, color, unit) {
+    var pct = tgt ? Math.min(100, Math.round(val / tgt * 100)) : 0, over = tgt && val > tgt * 1.05;
+    return '<div class="mbar"><div class="row between"><span>' + label + '</span><b>' + Math.round(val) + (tgt ? ' / ' + tgt : '') + ' ' + unit + '</b></div><span class="b"><i style="width:' + pct + '%;background:' + (over ? '#141414' : color) + '"></i></span></div>';
+  }
+  function renderFood() {
+    var key = fitUi.day || dkey(new Date()), items = foodDay(key), bc = bodyCalc();
+    var eaten = sumItems(items.filter(function (i) { return !i.planned; })), planned = sumItems(items.filter(function (i) { return i.planned; }));
+    var d = new Date(key + 'T00:00:00'), isToday = key === dkey(new Date());
+    var h = '<div class="daynav"><button type="button" class="btn ghost small" data-fd="-1" aria-label="Previous day">‹</button><b>' + (isToday ? 'Today' : d.toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' })) + '</b><button type="button" class="btn ghost small" data-fd="1" aria-label="Next day">›</button></div>';
+    var tk = bc ? bc.kcal : 0, left = tk - eaten.kcal;
+    h += '<section class="fuel"><div class="row between" style="align-items:flex-end"><div><span class="lbl">EATEN</span><div class="racenum" style="font-size:64px">' + Math.round(eaten.kcal) + '</div><span class="lbl">KCAL' + (tk ? ' OF ' + tk : '') + '</span></div>' +
+      (tk ? '<div style="text-align:right"><span class="lbl">' + (left >= 0 ? 'LEFT' : 'OVER') + '</span><div style="font-family:var(--display);font-stretch:125%;font-weight:900;font-size:30px">' + Math.abs(Math.round(left)) + '</div></div>' : '') + '</div>' +
+      (planned.kcal ? '<span class="sub">+ ' + Math.round(planned.kcal) + ' kcal planned, not eaten yet</span>' : '') + '</section>';
+    if (!bc) h += '<div class="notice">Add your height, weight and age in <b>&nbsp;Body&nbsp;</b> to get daily targets.</div>';
+    h += '<section class="card stack" style="gap:10px">' + macroBar('Protein', eaten.p, bc && bc.protein, '#17A864', 'g') + macroBar('Fat', eaten.f, bc && bc.fat, '#FFC23A', 'g') + macroBar('Carbs', eaten.c, bc && bc.carbs, '#1D5BD8', 'g') + '</section>';
+    MEALS.forEach(function (m) {
+      var its = items.map(function (it, ix) { return { it: it, ix: ix }; }).filter(function (x) { return x.it.meal === m[0]; }), tot = sumItems(its.map(function (x) { return x.it; }));
+      h += '<section class="card meal"><div class="row between"><h2>' + m[1] + '</h2><span class="eyebrow">' + Math.round(tot.kcal) + ' kcal · ' + Math.round(tot.p) + 'g P</span></div>';
+      its.forEach(function (x) {
+        var it = x.it;
+        h += '<div class="fitem' + (it.planned ? ' planned' : '') + '"><button type="button" class="fchk" data-ftog="' + x.ix + '" aria-label="' + (it.planned ? 'Mark as eaten' : 'Mark as planned') + '" aria-pressed="' + !it.planned + '"></button>' +
+          '<div style="flex:1;min-width:0"><span class="t">' + esc(it.name) + '</span><span class="d">' + r1(it.qty) + ' × ' + esc(it.serving) + (it.planned ? ' · planned' : '') + '</span></div>' +
+          '<div class="fnum"><b>' + Math.round(it.kcal) + '</b><small>' + Math.round(it.p) + 'P · ' + Math.round(it.f) + 'F</small></div><button type="button" class="fx" data-fdel="' + x.ix + '" aria-label="Remove ' + esc(it.name) + '">×</button></div>';
+      });
+      var saved = (state.savedMeals || []).filter(function (s) { return s.meal === m[0]; });
+      h += '<div class="row" style="flex-wrap:wrap;gap:6px;margin-top:8px"><button type="button" class="btn small" data-fadd="' + m[0] + '">+ Add food</button>' +
+        saved.map(function (s, i) { return '<button type="button" class="btn small ghost" data-fsaved="' + (state.savedMeals.indexOf(s)) + '">↺ ' + esc(s.name) + '</button>'; }).join('') +
+        (its.length ? '<button type="button" class="link" data-fsave="' + m[0] + '" style="margin-left:auto">Save as usual meal</button>' : '') + '</div></section>';
+    });
+    h += '<p class="muted" style="font-size:12px;margin:0">Values are typical estimates; home recipes vary. Tap the circle to switch an item between planned and eaten.</p>';
+    return h;
+  }
+
+  function renderBody() {
+    var p = prof(), bc = bodyCalc();
+    var h = '<section class="card stack" style="gap:12px"><h2>About you</h2><div class="formgrid">' +
+      '<label>Sex<select id="bSex"><option value="">–</option><option value="m"' + (p.sex === 'm' ? ' selected' : '') + '>Male</option><option value="f"' + (p.sex === 'f' ? ' selected' : '') + '>Female</option></select></label>' +
+      '<label>Age<input id="bAge" type="number" inputmode="numeric" value="' + (p.age || '') + '" placeholder="years"></label>' +
+      '<label>Height<input id="bHeight" type="number" inputmode="decimal" value="' + (p.height || '') + '" placeholder="cm"></label>' +
+      '<label>Weight<input id="bWeight" type="number" inputmode="decimal" step="0.1" value="' + (latestWeight() || '') + '" placeholder="kg"></label>' +
+      '<label class="wide">How active are you (before training)?<select id="bAct">' + [[1.2, 'Mostly sitting'], [1.375, 'Lightly active'], [1.55, 'Active most days'], [1.725, 'Very active']].map(function (a) {
+        return '<option value="' + a[0] + '"' + ((p.activity || 1.375) == a[0] ? ' selected' : '') + '>' + a[1] + '</option>';
+      }).join('') + '</select></label></div><button type="button" class="btn solid" id="bSave">Save</button></section>';
+    if (!bc) return h + '<div class="notice">Fill in all four to see your numbers and roadmap.</div>';
+    var pos = Math.max(0, Math.min(100, (bc.bmi - 15) / (35 - 15) * 100));
+    h += '<section class="card stack" style="gap:12px"><div class="row between"><h2>Your numbers</h2><span class="eyebrow">BMI ' + r1(bc.bmi) + '</span></div>' +
+      '<div class="bmiscale"><i style="left:' + pos + '%"></i></div><div class="clockax"><span>15</span><span>18.5</span><span>25</span><span>30</span><span>35</span></div>' +
+      '<div class="stat3"><div><b>' + Math.round(bc.lo) + '–' + Math.round(bc.hi) + '</b><small>healthy kg</small></div><div><b>' + Math.round(bc.ideal) + '</b><small>suggested target kg</small></div><div><b>' + r1(bc.m3) + '</b><small>3-month goal kg</small></div></div>' +
+      '<div class="tgrid"><div><b>' + bc.kcal + '</b><small>kcal / day</small></div><div><b>' + bc.protein + 'g</b><small>protein</small></div><div><b>' + bc.fat + 'g</b><small>fat</small></div><div><b>' + bc.carbs + 'g</b><small>carbs</small></div></div>' +
+      '<p class="muted" style="margin:0;font-size:13px">Burn ≈ ' + Math.round(bc.tdee) + ' kcal/day before training. ' + (bc.losing ? 'A ~500 kcal daily gap loses about 0.5 kg a week; training on top adds a little more. Fat loss, not crash dieting.' : 'You’re already in a healthy range: eat at maintenance and let training reshape you.') + ' Suggested target = BMI 23; the 3-month goal is capped at about 7 kg so it stays sustainable.</p></section>';
+    // weight log + chart
+    var ws = (state.weights || []).slice().sort(function (a, b) { return a.d < b.d ? -1 : 1; });
+    h += '<section class="card stack" style="gap:12px"><div class="row between"><h2>Weight</h2><span class="eyebrow">' + ws.length + ' entries</span></div>' +
+      '<div class="row"><input id="wIn" class="text" type="number" inputmode="decimal" step="0.1" placeholder="today’s weight, kg" style="flex:1"><button type="button" class="btn solid" id="wAdd">Log</button></div>' + weightChart(ws, bc) +
+      '<p class="muted" style="margin:0;font-size:12px">Weigh in once a week, same day, morning, before breakfast.</p></section>';
+    h += '<p class="muted" style="font-size:12px;margin:0">These are general guidelines, not medical advice. If you have a health condition, check with a doctor before starting.</p>';
+    return h;
+  }
+  function weightChart(ws, bc) {
+    if (!ws.length) return '';
+    var s0 = new Date(planStart() + 'T00:00:00'), W = 320, H = 150, days = 84;
+    var ys = ws.map(function (x) { return x.kg; }).concat([bc.m3, bc.start]), ymin = Math.floor(Math.min.apply(null, ys) - 1), ymax = Math.ceil(Math.max.apply(null, ys) + 1);
+    var X = function (d) { return 30 + Math.max(0, Math.min(days, (new Date(d + 'T00:00:00') - s0) / 86400000)) / days * (W - 40); };
+    var Y = function (kg) { return 10 + (ymax - kg) / (ymax - ymin) * (H - 30); };
+    var e = new Date(s0); e.setDate(e.getDate() + days);
+    var path = ws.map(function (x, i) { return (i ? 'L' : 'M') + X(x.d).toFixed(1) + ' ' + Y(x.kg).toFixed(1); }).join(' ');
+    var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" class="wchart" role="img" aria-label="Weight over the 12 weeks">' +
+      '<line x1="30" x2="' + (W - 10) + '" y1="' + Y(bc.m3) + '" y2="' + Y(bc.m3) + '" stroke="#17A864" stroke-width="1.5" stroke-dasharray="4 4"/>' +
+      '<text x="' + (W - 10) + '" y="' + (Y(bc.m3) - 4) + '" text-anchor="end" class="ax" fill="#0B7A47">goal ' + r1(bc.m3) + '</text>' +
+      '<line x1="' + X(planStart()) + '" y1="' + Y(bc.start) + '" x2="' + X(dkey(e)) + '" y2="' + Y(bc.m3) + '" stroke="#B3A999" stroke-width="1.5" stroke-dasharray="2 4"/>' +
+      '<path d="' + path + '" fill="none" stroke="#E0312B" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>' +
+      ws.map(function (x) { return '<circle cx="' + X(x.d).toFixed(1) + '" cy="' + Y(x.kg).toFixed(1) + '" r="3.5" fill="#E0312B"/>'; }).join('') +
+      '<text x="4" y="' + (Y(ymax) + 4) + '" class="ax">' + ymax + '</text><text x="4" y="' + (Y(ymin) + 4) + '" class="ax">' + ymin + '</text>' +
+      '<text x="30" y="' + (H - 4) + '" class="ax">wk 1</text><text x="' + (W - 10) + '" y="' + (H - 4) + '" text-anchor="end" class="ax">wk 12</text></svg>';
+    return svg;
+  }
+
+  function renderPlan() {
+    var wk = Math.max(1, Math.min(12, planWeek(new Date()))), ph = PHASES.filter(function (p) { return p.weeks.indexOf(wk) >= 0; })[0], bc = bodyCalc();
+    var sel = fitUi.week || wk, plan = weekPlan(sel), s0 = new Date(planStart() + 'T00:00:00');
+    var h = '<section class="planhero" style="background:' + ph.color + '"><span class="lbl">12-WEEK ROADMAP → FIRST SPRINT TRIATHLON</span><div class="racenum" style="font-size:72px">W' + String(wk).padStart(2, '0') + '<small>/12</small></div>' +
+      '<span class="lvl">' + ph.name + '</span><span class="sub">750 m swim · 20 km bike · 5 km run' + (bc && bc.losing ? ' · ' + r1(bc.start) + ' → ' + r1(bc.m3) + ' kg' : '') + '</span></section>';
+    h += '<div class="weeks">' + [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(function (w) {
+      var p = PHASES.filter(function (x) { return x.weeks.indexOf(w) >= 0; })[0];
+      return '<button type="button" data-pw="' + w + '" aria-label="Week ' + w + '" aria-pressed="' + (w === sel) + '" style="--c:' + p.color + '" class="' + (w < wk ? 'past' : w === wk ? 'now' : '') + '">' + w + '</button>';
+    }).join('') + '</div>';
+    var sph = PHASES.filter(function (x) { return x.weeks.indexOf(sel) >= 0; })[0];
+    h += '<section class="card stack" style="gap:6px"><div class="row between"><h2>Week ' + sel + ' · ' + sph.name + '</h2><span class="eyebrow">' + (sel === wk ? 'this week' : '') + '</span></div>';
+    plan.slice().sort(function (a, b) { return ((a.day + 6) % 7) - ((b.day + 6) % 7); }).forEach(function (s) {
+      var dt = new Date(s0); dt.setDate(dt.getDate() + (sel - 1) * 7 + (s.day + 6) % 7);
+      var key = dkey(dt), i = plan.indexOf(s), done = trainDone(key, i), isToday = key === dkey(new Date()), sp = SPORT[s.sport];
+      h += '<div class="sess' + (isToday ? ' today' : '') + '">' + (s.sport === 'rest' ? '<span class="fchk rest"></span>' : '<button type="button" class="fchk" data-tr="' + key + '|' + i + '" aria-pressed="' + done + '" aria-label="Mark ' + sp[0] + ' done"></button>') +
+        '<div style="flex:1;min-width:0"><span class="d">' + dt.toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + (isToday ? ' · TODAY' : '') + '</span><span class="t"><i style="background:' + sp[1] + '"></i>' + sp[0] + (s.min ? ' · ' + s.min + ' min' : '') + '</span><span class="d" style="font-family:var(--sans)">' + s.text + '</span></div></div>';
+    });
+    h += '<div class="notice" style="margin-top:8px">Food this phase: ' + sph.food + '</div></section>';
+    // milestones
+    var ms = [[4, 'Swim 200 m non-stop · run 20 min without walking'], [8, 'Swim 500 m · ride 20 km · first brick session'], [11, 'Swim 750 m · run 5 km continuously'], [12, 'Sprint triathlon distance, done']];
+    h += '<section class="card stack" style="gap:8px"><h2>Checkpoints</h2>' + ms.map(function (m) {
+      var kg = bc && bc.losing ? r1(bc.start - (bc.start - bc.m3) * m[0] / 12) : null;
+      return '<div class="row" style="align-items:flex-start"><span class="chip" style="background:' + (m[0] <= wk ? 'var(--green)' : 'var(--raised)') + ';color:' + (m[0] <= wk ? '#fff' : 'var(--bone)') + '">WK ' + m[0] + '</span><span style="font-size:14px">' + m[1] + (kg ? ' · ~' + kg + ' kg' : '') + '</span></div>';
+    }).join('') + '</section>';
+    // garmin
+    var acts = state.activities || [], wkActs = acts.filter(function (a) { return planWeek(new Date(a.d + 'T00:00:00')) === sel; });
+    var bySport = {}; wkActs.forEach(function (a) { bySport[a.sport] = (bySport[a.sport] || 0) + a.min; });
+    h += '<section class="card stack" style="gap:10px"><div class="row between"><h2>Garmin</h2><span class="eyebrow">' + acts.length + ' activities</span></div>' +
+      (wkActs.length ? '<div class="cats">' + Object.keys(bySport).map(function (k) { return '<span class="cat" style="--c:' + (SPORT[k] ? SPORT[k][1] : '#6B645B') + '"><i></i>' + (SPORT[k] ? SPORT[k][0] : k) + ' <b>' + Math.round(bySport[k]) + ' min</b></span>'; }).join('') + '</div>' : '<span class="muted" style="font-size:13px">No Garmin activities for week ' + sel + ' yet.</span>') +
+      '<button type="button" class="btn" id="gImp">Import from Garmin Connect (CSV)</button><input type="file" id="gFile" accept=".csv,text/csv" hidden>' +
+      '<details><summary class="muted" style="font-size:13px">How to get the file</summary><ol class="steps" style="margin-top:8px"><li>On a computer, open <b>connect.garmin.com</b> and sign in.</li><li>Go to <b>Activities → All Activities</b>.</li><li>Scroll to load the weeks you want, then click <b>Export CSV</b> (top right).</li><li>Send the file to your phone (e.g. email or Drive) and tap Import above.</li></ol><p class="muted" style="font-size:12px;margin:6px 0 0">Garmin only lets approved companies pull data automatically, so a file import is the way for a personal app. Re-importing is safe: duplicates are skipped.</p></details></section>';
+    return h;
+  }
+
+  function parseCsv(text) {
+    var rows = [], row = [], cur = '', q = false;
+    for (var i = 0; i < text.length; i++) {
+      var ch = text[i];
+      if (q) { if (ch === '"') { if (text[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += ch; }
+      else if (ch === '"') q = true;
+      else if (ch === ',') { row.push(cur); cur = ''; }
+      else if (ch === '\n' || ch === '\r') { if (ch === '\r' && text[i + 1] === '\n') i++; row.push(cur); rows.push(row); row = []; cur = ''; }
+      else cur += ch;
+    }
+    if (cur || row.length) { row.push(cur); rows.push(row); }
+    return rows.filter(function (r) { return r.join('').trim(); });
+  }
+  function importGarmin(text) {
+    var rows = parseCsv(text); if (rows.length < 2) throw new Error('empty file');
+    var hd = rows[0].map(function (x) { return x.trim().toLowerCase(); });
+    var col = function (names) { for (var i = 0; i < names.length; i++) { var ix = hd.indexOf(names[i]); if (ix >= 0) return ix; } return -1; };
+    var cT = col(['activity type']), cD = col(['date', 'start time']), cTime = col(['time', 'elapsed time', 'moving time']), cKcal = col(['calories']), cDist = col(['distance']), cTitle = col(['title']);
+    if (cT < 0 || cD < 0) throw new Error('this doesn’t look like a Garmin activities CSV');
+    state.activities = state.activities || [];
+    var seen = {}; state.activities.forEach(function (a) { seen[a.id] = 1; });
+    var added = 0;
+    rows.slice(1).forEach(function (r) {
+      var type = (r[cT] || '').toLowerCase(), dt = (r[cD] || '').trim(); if (!dt) return;
+      var d = dt.slice(0, 10), t = (cTime >= 0 ? r[cTime] : '') || '0:0:0', parts = t.split(':').map(Number);
+      var min = parts.length === 3 ? parts[0] * 60 + parts[1] + parts[2] / 60 : parts.length === 2 ? parts[0] + parts[1] / 60 : 0;
+      var sport = /swim/.test(type) ? 'swim' : /cycl|bik|ride/.test(type) ? 'bike' : /run/.test(type) ? 'run' : /strength|train/.test(type) ? 'strength' : type || 'other';
+      var id = dt + '|' + type;
+      if (seen[id]) return;
+      seen[id] = 1; added++;
+      state.activities.push({ id: id, d: d, sport: sport, type: r[cT], min: Math.round(min), kcal: cKcal >= 0 ? Number(String(r[cKcal]).replace(/,/g, '')) || 0 : 0, dist: cDist >= 0 ? r[cDist] : '', title: cTitle >= 0 ? r[cTitle] : '' });
+    });
+    return added;
+  }
+
+  function bindFit(view) {
+    view.querySelectorAll('[data-fv]').forEach(function (b) { b.onclick = function () { fitUi.view = b.dataset.fv; render(); }; });
+    view.querySelectorAll('[data-fd]').forEach(function (b) { b.onclick = function () { var d = new Date((fitUi.day || dkey(new Date())) + 'T00:00:00'); d.setDate(d.getDate() + +b.dataset.fd); fitUi.day = dkey(d); render(); }; });
+    var key = fitUi.day || dkey(new Date());
+    view.querySelectorAll('[data-ftog]').forEach(function (b) { b.onclick = function () { var it = state.food[key][+b.dataset.ftog]; it.planned = !it.planned; save(); render(); if (!it.planned) toast('Eaten · ' + Math.round(it.kcal) + ' kcal'); }; });
+    view.querySelectorAll('[data-fdel]').forEach(function (b) { b.onclick = function () { state.food[key].splice(+b.dataset.fdel, 1); save(); render(); }; });
+    view.querySelectorAll('[data-fadd]').forEach(function (b) { b.onclick = function () { openFoodPicker(key, b.dataset.fadd); }; });
+    view.querySelectorAll('[data-fsave]').forEach(function (b) {
+      b.onclick = function () {
+        var meal = b.dataset.fsave, name = prompt('Name this meal (e.g. “Usual breakfast”)'); if (!name) return;
+        state.savedMeals = state.savedMeals || [];
+        state.savedMeals.push({ name: name.slice(0, 30), meal: meal, items: foodDay(key).filter(function (i) { return i.meal === meal; }).map(function (i) { var c = Object.assign({}, i); delete c.planned; return c; }) });
+        save(); render(); toast('Saved “' + name + '”');
+      };
+    });
+    view.querySelectorAll('[data-fsaved]').forEach(function (b) {
+      b.onclick = function () {
+        var s = state.savedMeals[+b.dataset.fsaved]; state.food = state.food || {}; state.food[key] = state.food[key] || [];
+        s.items.forEach(function (i) { state.food[key].push(Object.assign({}, i, { meal: s.meal, planned: key > dkey(new Date()) })); });
+        save(); render(); toast('Added ' + s.name);
+      };
+    });
+    var bs = view.querySelector('#bSave');
+    if (bs) bs.onclick = function () {
+      var v = function (id) { return view.querySelector(id).value; };
+      state.profile = { sex: v('#bSex'), age: +v('#bAge') || null, height: +v('#bHeight') || null, weight: +v('#bWeight') || null, activity: +v('#bAct') };
+      if (state.profile.weight && !(state.weights || []).length) state.weights = [{ d: dkey(new Date()), kg: state.profile.weight }];
+      planStart(); save(); render(); toast('Saved');
+    };
+    var wa = view.querySelector('#wAdd');
+    if (wa) wa.onclick = function () {
+      var kg = +view.querySelector('#wIn').value; if (!kg || kg < 30 || kg > 250) { toast('Enter your weight in kg'); return; }
+      state.weights = (state.weights || []).filter(function (x) { return x.d !== dkey(new Date()); });
+      state.weights.push({ d: dkey(new Date()), kg: kg }); save(); render(); toast('Logged ' + kg + ' kg');
+    };
+    view.querySelectorAll('[data-pw]').forEach(function (b) { b.onclick = function () { fitUi.week = +b.dataset.pw; render(); }; });
+    view.querySelectorAll('[data-tr]').forEach(function (b) {
+      b.onclick = function () {
+        var pr = b.dataset.tr.split('|'), k = pr[0], i = pr[1];
+        mutate(function () { state.train = state.train || {}; state.train[k] = state.train[k] || {}; state.train[k][i] = !state.train[k][i]; });
+      };
+    });
+    var gi = view.querySelector('#gImp'), gf = view.querySelector('#gFile');
+    if (gi) gi.onclick = function () { gf.click(); };
+    if (gf) gf.onchange = function () {
+      var f = gf.files[0]; if (!f) return;
+      f.text().then(function (t) { var n = importGarmin(t); save(); render(); toast(n ? 'Imported ' + n + ' activities' : 'Nothing new to import'); })
+        .catch(function (e) { toast('Could not import: ' + e.message); });
+    };
+  }
+
+  // food picker overlay
+  var fp = null;
+  function openFoodPicker(key, meal) {
+    fp = { key: key, meal: meal, q: '', pick: null, qty: 1, custom: false };
+    drawFoodPicker();
+    var o = document.getElementById('overlay'); o.classList.remove('dark'); o.hidden = false; document.body.style.overflow = 'hidden';
+  }
+  function allFoods() { return (state.customFoods || []).map(function (f) { return Object.assign({ mine: true }, f); }).concat(FOODS); }
+  function drawFoodPicker() {
+    var o = document.getElementById('overlay'), mealName = MEALS.filter(function (m) { return m[0] === fp.meal; })[0][1];
+    var h = '<div class="inner"><div class="row between"><span class="eyebrow">Add to ' + mealName + '</span><button type="button" class="btn ghost small" id="fpClose">Close</button></div>';
+    if (fp.custom) {
+      h += '<h1>Add your own dish</h1><p class="muted" style="margin:0;font-size:13px">Enter it once; it’s saved for next time. Check the packet, or estimate.</p><div class="formgrid">' +
+        '<label class="wide">Name<input id="cName" placeholder="e.g. Amma’s chicken curry"></label><label class="wide">Serving<input id="cServ" placeholder="e.g. 1 bowl"></label>' +
+        '<label>Calories<input id="cK" type="number" inputmode="decimal" placeholder="kcal"></label><label>Protein<input id="cP" type="number" inputmode="decimal" placeholder="g"></label>' +
+        '<label>Carbs<input id="cC" type="number" inputmode="decimal" placeholder="g"></label><label>Fat<input id="cF" type="number" inputmode="decimal" placeholder="g"></label></div>' +
+        '<button type="button" class="btn solid" id="cSave">Save & choose</button><button type="button" class="btn ghost" id="cBack">Back to search</button>';
+    } else if (!fp.pick) {
+      var q = fp.q.toLowerCase().trim(), list = allFoods().filter(function (f) { return !q || (f.name + ' ' + (f.tags || '')).toLowerCase().indexOf(q) >= 0; }).slice(0, 30);
+      h += '<input class="text" id="fpQ" placeholder="Search: dosa, rice, chicken, banana…" value="' + esc(fp.q) + '" autocomplete="off">';
+      h += '<div class="flist">' + list.map(function (f) {
+        return '<button type="button" class="fopt" data-fp="' + esc(f.name) + '"><span><b>' + esc(f.name) + (f.mine ? ' ★' : '') + '</b><small>' + esc(f.serving) + '</small></span><span class="fnum"><b>' + Math.round(f.kcal) + '</b><small>' + r1(f.p) + 'P · ' + r1(f.f) + 'F</small></span></button>';
+      }).join('') + (list.length ? '' : '<p class="muted">No match. Add it as your own dish below.</p>') + '</div>';
+      h += '<button type="button" class="btn" id="fpCustom">+ My own dish / packet food</button>';
+    } else {
+      var f = fp.pick, k = fp.qty;
+      h += '<section class="card stack" style="gap:6px"><h1>' + esc(f.name) + '</h1><span class="muted">' + esc(f.serving) + (f.g ? ' ≈ ' + f.g + ' g' : '') + '</span></section>';
+      h += '<div class="qty"><button type="button" class="btn" data-q="-0.5" aria-label="Less">−</button><b>' + r1(k) + '</b><button type="button" class="btn" data-q="0.5" aria-label="More">+</button><span class="muted">× ' + esc(f.serving) + '</span></div>';
+      h += '<div class="tgrid"><div><b>' + Math.round(f.kcal * k) + '</b><small>kcal</small></div><div><b>' + r1(f.p * k) + 'g</b><small>protein</small></div><div><b>' + r1(f.f * k) + 'g</b><small>fat</small></div><div><b>' + r1(f.c * k) + 'g</b><small>carbs</small></div></div>';
+      h += '<button type="button" class="btn solid" id="fpEat">Add · eaten</button><button type="button" class="btn" id="fpPlan">Add · planned</button><button type="button" class="btn ghost" id="fpBack">Choose something else</button>';
+    }
+    o.innerHTML = h + '</div>';
+    o.querySelector('#fpClose').onclick = function () { fp = null; closeCheckin(); render(); };
+    var qi = o.querySelector('#fpQ');
+    if (qi) { qi.oninput = function () { fp.q = qi.value; var pos = qi.selectionStart; drawFoodPicker(); var n = document.getElementById('fpQ'); n.focus(); try { n.setSelectionRange(pos, pos); } catch (e) {} }; if (!fp.q) setTimeout(function () { try { qi.focus(); } catch (e) {} }, 50); }
+    o.querySelectorAll('[data-fp]').forEach(function (b) { b.onclick = function () { fp.pick = allFoods().filter(function (f) { return f.name === b.dataset.fp; })[0]; fp.qty = 1; drawFoodPicker(); }; });
+    o.querySelectorAll('[data-q]').forEach(function (b) { b.onclick = function () { fp.qty = Math.max(0.5, fp.qty + +b.dataset.q); drawFoodPicker(); }; });
+    var add = function (planned) {
+      var f = fp.pick, k = fp.qty;
+      state.food = state.food || {}; state.food[fp.key] = state.food[fp.key] || [];
+      state.food[fp.key].push({ meal: fp.meal, name: f.name, serving: f.serving, qty: k, kcal: f.kcal * k, p: f.p * k, c: f.c * k, f: f.f * k, planned: planned });
+      save(); var n = f.name; fp = null; closeCheckin(); render(); toast((planned ? 'Planned · ' : 'Added · ') + n);
+    };
+    var e1 = o.querySelector('#fpEat'); if (e1) e1.onclick = function () { add(false); };
+    var e2 = o.querySelector('#fpPlan'); if (e2) e2.onclick = function () { add(true); };
+    var bk = o.querySelector('#fpBack'); if (bk) bk.onclick = function () { fp.pick = null; drawFoodPicker(); };
+    var cu = o.querySelector('#fpCustom'); if (cu) cu.onclick = function () { fp.custom = true; drawFoodPicker(); };
+    var cb = o.querySelector('#cBack'); if (cb) cb.onclick = function () { fp.custom = false; drawFoodPicker(); };
+    var cs = o.querySelector('#cSave');
+    if (cs) cs.onclick = function () {
+      var g = function (id) { return o.querySelector(id).value; }, name = g('#cName').trim();
+      if (!name || !(+g('#cK') >= 0) || g('#cK') === '') { toast('Add at least a name and calories'); return; }
+      var f = { name: name, serving: g('#cServ').trim() || '1 serving', kcal: +g('#cK'), p: +g('#cP') || 0, c: +g('#cC') || 0, f: +g('#cF') || 0 };
+      state.customFoods = (state.customFoods || []).filter(function (x) { return x.name !== name; }); state.customFoods.push(f); save();
+      fp.custom = false; fp.pick = f; fp.qty = 1; drawFoodPicker();
+    };
+  }
+
   // ---------- insights ----------
   function renderLog() {
     var list = state.checkins.slice().reverse(), counts = {};
@@ -873,6 +1205,7 @@
     var view = document.getElementById('view');
     if (ui.tab === 'trail') { view.innerHTML = renderTrail(); bindTrail(view); }
     else if (ui.tab === 'log') { view.innerHTML = renderLog(); bindLog(view); }
+    else if (ui.tab === 'fit') { view.innerHTML = renderFit(); bindFit(view); }
     else { view.innerHTML = renderSettings(); bindSettings(view); }
     document.querySelectorAll('.tab[data-tab]').forEach(function (t) { t.classList.toggle('on', t.dataset.tab === ui.tab); t.setAttribute('aria-current', t.dataset.tab === ui.tab ? 'page' : 'false'); });
   }

@@ -1,6 +1,6 @@
 /* Attention service worker: offline shell, push reminders, tap-to-check-in. */
-var CACHE = 'attention-v8';
-var SHELL = ['./', 'index.html', 'style.css', 'app.js', 'manifest.webmanifest', 'moves.json', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/badge-96.png', 'fonts/archivo.woff2', 'fonts/space-mono-400.woff2', 'fonts/space-mono-700.woff2', 'fonts/plex-400.woff2', 'fonts/plex-500.woff2', 'fonts/plex-600.woff2', 'fonts/plex-700.woff2'];
+var CACHE = 'attention-v9';
+var SHELL = ['./', 'index.html', 'style.css', 'app.js', 'manifest.webmanifest', 'moves.json', 'foods.json', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/badge-96.png', 'fonts/archivo.woff2', 'fonts/space-mono-400.woff2', 'fonts/space-mono-700.woff2', 'fonts/plex-400.woff2', 'fonts/plex-500.woff2', 'fonts/plex-600.woff2', 'fonts/plex-700.woff2'];
 
 self.addEventListener('install', function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(SHELL); }).then(function () { return self.skipWaiting(); }));

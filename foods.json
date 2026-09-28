@@ -1,0 +1,955 @@
+{
+"note": "Typical values per serving; home recipes vary. Treat as estimates.",
+"foods": [
+{
+"name": "Steamed white rice",
+"serving": "1 cup cooked",
+"g": 160,
+"kcal": 205,
+"p": 4.2,
+"c": 45,
+"f": 0.4,
+"tags": "rice anna"
+},
+{
+"name": "Brown rice",
+"serving": "1 cup cooked",
+"g": 195,
+"kcal": 218,
+"p": 4.5,
+"c": 46,
+"f": 1.6,
+"tags": "rice"
+},
+{
+"name": "Chapati with ghee",
+"serving": "1 medium",
+"g": 40,
+"kcal": 120,
+"p": 3.5,
+"c": 18,
+"f": 4,
+"tags": "roti"
+},
+{
+"name": "Phulka (no oil)",
+"serving": "1 medium",
+"g": 30,
+"kcal": 80,
+"p": 3,
+"c": 16,
+"f": 0.5,
+"tags": "roti chapati"
+},
+{
+"name": "Plain paratha",
+"serving": "1 piece",
+"g": 80,
+"kcal": 260,
+"p": 5,
+"c": 32,
+"f": 12,
+"tags": ""
+},
+{
+"name": "Aloo paratha",
+"serving": "1 piece",
+"g": 120,
+"kcal": 300,
+"p": 6,
+"c": 40,
+"f": 13,
+"tags": ""
+},
+{
+"name": "Idli",
+"serving": "1 piece",
+"g": 40,
+"kcal": 58,
+"p": 2,
+"c": 12,
+"f": 0.2,
+"tags": ""
+},
+{
+"name": "Plain dosa",
+"serving": "1 medium",
+"g": 80,
+"kcal": 140,
+"p": 3,
+"c": 22,
+"f": 4.5,
+"tags": ""
+},
+{
+"name": "Masala dosa",
+"serving": "1 full",
+"g": 200,
+"kcal": 390,
+"p": 7,
+"c": 50,
+"f": 17,
+"tags": ""
+},
+{
+"name": "Rava dosa",
+"serving": "1 medium",
+"g": 90,
+"kcal": 190,
+"p": 3.5,
+"c": 25,
+"f": 8,
+"tags": ""
+},
+{
+"name": "Uttapam",
+"serving": "1 medium",
+"g": 120,
+"kcal": 200,
+"p": 5,
+"c": 32,
+"f": 6,
+"tags": ""
+},
+{
+"name": "Upma",
+"serving": "1 cup",
+"g": 200,
+"kcal": 250,
+"p": 6,
+"c": 38,
+"f": 8,
+"tags": ""
+},
+{
+"name": "Poha",
+"serving": "1 cup",
+"g": 180,
+"kcal": 250,
+"p": 5,
+"c": 42,
+"f": 7,
+"tags": "aval"
+},
+{
+"name": "Medu vada",
+"serving": "1 piece",
+"g": 50,
+"kcal": 135,
+"p": 4,
+"c": 12,
+"f": 8,
+"tags": "uddina vada"
+},
+{
+"name": "Pongal",
+"serving": "1 cup",
+"g": 220,
+"kcal": 300,
+"p": 8,
+"c": 40,
+"f": 12,
+"tags": ""
+},
+{
+"name": "Akki roti",
+"serving": "1 piece",
+"g": 90,
+"kcal": 180,
+"p": 3,
+"c": 32,
+"f": 4,
+"tags": "rice roti"
+},
+{
+"name": "Kadambuttu",
+"serving": "3 pieces",
+"g": 120,
+"kcal": 180,
+"p": 3.5,
+"c": 40,
+"f": 0.5,
+"tags": "coorg rice balls kadumbuttu"
+},
+{
+"name": "Noolputtu / idiyappam",
+"serving": "3 pieces",
+"g": 120,
+"kcal": 180,
+"p": 3,
+"c": 40,
+"f": 0.5,
+"tags": "string hoppers"
+},
+{
+"name": "Appam",
+"serving": "1 piece",
+"g": 60,
+"kcal": 120,
+"p": 2,
+"c": 22,
+"f": 2.5,
+"tags": "hopper"
+},
+{
+"name": "Sambar",
+"serving": "1 cup",
+"g": 240,
+"kcal": 140,
+"p": 7,
+"c": 20,
+"f": 4,
+"tags": ""
+},
+{
+"name": "Rasam",
+"serving": "1 cup",
+"g": 240,
+"kcal": 60,
+"p": 2,
+"c": 9,
+"f": 2,
+"tags": ""
+},
+{
+"name": "Dal (plain toor)",
+"serving": "1 cup",
+"g": 240,
+"kcal": 200,
+"p": 12,
+"c": 30,
+"f": 4,
+"tags": "lentils"
+},
+{
+"name": "Dal tadka",
+"serving": "1 cup",
+"g": 240,
+"kcal": 230,
+"p": 12,
+"c": 28,
+"f": 8,
+"tags": "lentils"
+},
+{
+"name": "Rajma curry",
+"serving": "1 cup",
+"g": 240,
+"kcal": 240,
+"p": 13,
+"c": 35,
+"f": 6,
+"tags": "kidney beans"
+},
+{
+"name": "Chana masala",
+"serving": "1 cup",
+"g": 240,
+"kcal": 270,
+"p": 13,
+"c": 38,
+"f": 8,
+"tags": "chickpeas chole"
+},
+{
+"name": "Coconut chutney",
+"serving": "2 tbsp",
+"g": 30,
+"kcal": 70,
+"p": 1,
+"c": 3,
+"f": 6,
+"tags": ""
+},
+{
+"name": "Curd / yogurt (whole milk)",
+"serving": "1 cup",
+"g": 245,
+"kcal": 150,
+"p": 8.5,
+"c": 11,
+"f": 8,
+"tags": "dahi mosaru"
+},
+{
+"name": "Greek yogurt (plain)",
+"serving": "150 g",
+"g": 150,
+"kcal": 130,
+"p": 15,
+"c": 6,
+"f": 5,
+"tags": ""
+},
+{
+"name": "Buttermilk",
+"serving": "1 glass",
+"g": 250,
+"kcal": 40,
+"p": 3,
+"c": 5,
+"f": 1,
+"tags": "majjige chaas"
+},
+{
+"name": "Paneer",
+"serving": "100 g",
+"g": 100,
+"kcal": 265,
+"p": 18,
+"c": 3.5,
+"f": 20,
+"tags": "cottage cheese"
+},
+{
+"name": "Palak paneer",
+"serving": "1 cup",
+"g": 240,
+"kcal": 300,
+"p": 14,
+"c": 12,
+"f": 22,
+"tags": ""
+},
+{
+"name": "Paneer butter masala",
+"serving": "1 cup",
+"g": 240,
+"kcal": 420,
+"p": 16,
+"c": 15,
+"f": 32,
+"tags": ""
+},
+{
+"name": "Mixed vegetable curry",
+"serving": "1 cup",
+"g": 240,
+"kcal": 150,
+"p": 4,
+"c": 15,
+"f": 9,
+"tags": "sabzi"
+},
+{
+"name": "Vegetable palya / thoran",
+"serving": "1 cup",
+"g": 150,
+"kcal": 120,
+"p": 3,
+"c": 12,
+"f": 7,
+"tags": "poriyal stir fry"
+},
+{
+"name": "Aloo sabzi",
+"serving": "1 cup",
+"g": 200,
+"kcal": 200,
+"p": 3,
+"c": 28,
+"f": 9,
+"tags": "potato"
+},
+{
+"name": "Egg, boiled",
+"serving": "1 large",
+"g": 50,
+"kcal": 78,
+"p": 6.3,
+"c": 0.6,
+"f": 5.3,
+"tags": ""
+},
+{
+"name": "Omelette",
+"serving": "2 eggs",
+"g": 120,
+"kcal": 190,
+"p": 13,
+"c": 1.5,
+"f": 15,
+"tags": ""
+},
+{
+"name": "Egg curry",
+"serving": "2 eggs + gravy",
+"g": 250,
+"kcal": 280,
+"p": 14,
+"c": 8,
+"f": 21,
+"tags": ""
+},
+{
+"name": "Egg whites",
+"serving": "3 whites",
+"g": 100,
+"kcal": 52,
+"p": 11,
+"c": 0.7,
+"f": 0.2,
+"tags": ""
+},
+{
+"name": "Chicken breast, grilled",
+"serving": "100 g",
+"g": 100,
+"kcal": 165,
+"p": 31,
+"c": 0,
+"f": 3.6,
+"tags": ""
+},
+{
+"name": "Chicken curry",
+"serving": "1 cup",
+"g": 240,
+"kcal": 300,
+"p": 25,
+"c": 8,
+"f": 18,
+"tags": ""
+},
+{
+"name": "Chicken biryani",
+"serving": "1 plate",
+"g": 300,
+"kcal": 500,
+"p": 22,
+"c": 60,
+"f": 18,
+"tags": ""
+},
+{
+"name": "Pandi curry (Coorg pork)",
+"serving": "1 cup",
+"g": 240,
+"kcal": 450,
+"p": 26,
+"c": 6,
+"f": 36,
+"tags": "pork"
+},
+{
+"name": "Mutton curry",
+"serving": "1 cup",
+"g": 240,
+"kcal": 420,
+"p": 28,
+"c": 6,
+"f": 32,
+"tags": "lamb"
+},
+{
+"name": "Fish curry",
+"serving": "1 cup",
+"g": 240,
+"kcal": 250,
+"p": 22,
+"c": 6,
+"f": 15,
+"tags": ""
+},
+{
+"name": "Fish fry",
+"serving": "1 piece",
+"g": 100,
+"kcal": 230,
+"p": 20,
+"c": 6,
+"f": 14,
+"tags": ""
+},
+{
+"name": "Tofu",
+"serving": "100 g",
+"g": 100,
+"kcal": 145,
+"p": 15,
+"c": 3,
+"f": 9,
+"tags": ""
+},
+{
+"name": "Soya chunks (dry)",
+"serving": "30 g",
+"g": 30,
+"kcal": 105,
+"p": 16,
+"c": 10,
+"f": 0.2,
+"tags": "meal maker"
+},
+{
+"name": "Sprouts salad",
+"serving": "1 cup",
+"g": 150,
+"kcal": 100,
+"p": 7,
+"c": 14,
+"f": 1,
+"tags": "moong"
+},
+{
+"name": "Veg biryani",
+"serving": "1 plate",
+"g": 300,
+"kcal": 400,
+"p": 9,
+"c": 62,
+"f": 12,
+"tags": ""
+},
+{
+"name": "Curd rice",
+"serving": "1 cup",
+"g": 220,
+"kcal": 230,
+"p": 6,
+"c": 34,
+"f": 7,
+"tags": ""
+},
+{
+"name": "Lemon rice",
+"serving": "1 cup",
+"g": 200,
+"kcal": 270,
+"p": 4,
+"c": 40,
+"f": 10,
+"tags": "chitranna"
+},
+{
+"name": "Fried rice",
+"serving": "1 plate",
+"g": 300,
+"kcal": 450,
+"p": 10,
+"c": 65,
+"f": 15,
+"tags": ""
+},
+{
+"name": "Hakka noodles",
+"serving": "1 plate",
+"g": 300,
+"kcal": 400,
+"p": 9,
+"c": 60,
+"f": 13,
+"tags": ""
+},
+{
+"name": "Oats (dry)",
+"serving": "40 g",
+"g": 40,
+"kcal": 150,
+"p": 5,
+"c": 27,
+"f": 2.5,
+"tags": ""
+},
+{
+"name": "Oats with milk",
+"serving": "1 bowl",
+"g": 300,
+"kcal": 280,
+"p": 12,
+"c": 40,
+"f": 8,
+"tags": "porridge"
+},
+{
+"name": "Whey protein",
+"serving": "1 scoop",
+"g": 30,
+"kcal": 120,
+"p": 24,
+"c": 3,
+"f": 1.5,
+"tags": "shake"
+},
+{
+"name": "Peanut butter",
+"serving": "1 tbsp",
+"g": 16,
+"kcal": 95,
+"p": 3.5,
+"c": 3.5,
+"f": 8,
+"tags": ""
+},
+{
+"name": "Whole-wheat bread",
+"serving": "1 slice",
+"g": 30,
+"kcal": 80,
+"p": 4,
+"c": 14,
+"f": 1,
+"tags": ""
+},
+{
+"name": "White bread",
+"serving": "1 slice",
+"g": 28,
+"kcal": 75,
+"p": 2.5,
+"c": 14,
+"f": 1,
+"tags": ""
+},
+{
+"name": "Chicken sandwich",
+"serving": "1 sandwich",
+"g": 180,
+"kcal": 350,
+"p": 22,
+"c": 35,
+"f": 12,
+"tags": ""
+},
+{
+"name": "Pizza",
+"serving": "1 slice",
+"g": 110,
+"kcal": 285,
+"p": 12,
+"c": 36,
+"f": 10,
+"tags": ""
+},
+{
+"name": "Burger",
+"serving": "1 burger",
+"g": 220,
+"kcal": 500,
+"p": 25,
+"c": 40,
+"f": 25,
+"tags": ""
+},
+{
+"name": "Samosa",
+"serving": "1 piece",
+"g": 90,
+"kcal": 260,
+"p": 4,
+"c": 30,
+"f": 14,
+"tags": ""
+},
+{
+"name": "Pakoda / bajji",
+"serving": "4 pieces",
+"g": 80,
+"kcal": 200,
+"p": 4,
+"c": 18,
+"f": 12,
+"tags": "bonda fritters"
+},
+{
+"name": "Salad (cucumber, tomato)",
+"serving": "1 bowl",
+"g": 150,
+"kcal": 35,
+"p": 1.5,
+"c": 7,
+"f": 0.3,
+"tags": ""
+},
+{
+"name": "Milk (whole)",
+"serving": "1 glass",
+"g": 250,
+"kcal": 150,
+"p": 8,
+"c": 12,
+"f": 8,
+"tags": ""
+},
+{
+"name": "Milk (toned)",
+"serving": "1 glass",
+"g": 250,
+"kcal": 120,
+"p": 8,
+"c": 12,
+"f": 4.5,
+"tags": ""
+},
+{
+"name": "Tea with milk & sugar",
+"serving": "1 cup",
+"g": 150,
+"kcal": 90,
+"p": 2,
+"c": 13,
+"f": 3,
+"tags": "chai"
+},
+{
+"name": "Filter coffee with milk & sugar",
+"serving": "1 cup",
+"g": 150,
+"kcal": 100,
+"p": 3,
+"c": 14,
+"f": 3.5,
+"tags": "kaapi"
+},
+{
+"name": "Black coffee",
+"serving": "1 cup",
+"g": 240,
+"kcal": 2,
+"p": 0.3,
+"c": 0,
+"f": 0,
+"tags": "coorg coffee"
+},
+{
+"name": "Coconut water",
+"serving": "1 coconut",
+"g": 250,
+"kcal": 45,
+"p": 1.7,
+"c": 9,
+"f": 0.5,
+"tags": "elaneer"
+},
+{
+"name": "Soft drink",
+"serving": "1 can (330 ml)",
+"g": 330,
+"kcal": 140,
+"p": 0,
+"c": 35,
+"f": 0,
+"tags": "cola"
+},
+{
+"name": "Beer",
+"serving": "1 bottle (330 ml)",
+"g": 330,
+"kcal": 150,
+"p": 1.5,
+"c": 13,
+"f": 0,
+"tags": ""
+},
+{
+"name": "Banana",
+"serving": "1 medium",
+"g": 118,
+"kcal": 105,
+"p": 1.3,
+"c": 27,
+"f": 0.4,
+"tags": ""
+},
+{
+"name": "Apple",
+"serving": "1 medium",
+"g": 180,
+"kcal": 95,
+"p": 0.5,
+"c": 25,
+"f": 0.3,
+"tags": ""
+},
+{
+"name": "Orange",
+"serving": "1 medium",
+"g": 130,
+"kcal": 62,
+"p": 1.2,
+"c": 15,
+"f": 0.2,
+"tags": ""
+},
+{
+"name": "Papaya",
+"serving": "1 cup",
+"g": 145,
+"kcal": 55,
+"p": 0.9,
+"c": 14,
+"f": 0.2,
+"tags": ""
+},
+{
+"name": "Mango",
+"serving": "1 cup",
+"g": 165,
+"kcal": 100,
+"p": 1.4,
+"c": 25,
+"f": 0.6,
+"tags": ""
+},
+{
+"name": "Watermelon",
+"serving": "1 cup",
+"g": 150,
+"kcal": 46,
+"p": 0.9,
+"c": 11.5,
+"f": 0.2,
+"tags": ""
+},
+{
+"name": "Guava",
+"serving": "1 medium",
+"g": 55,
+"kcal": 37,
+"p": 1.4,
+"c": 8,
+"f": 0.5,
+"tags": ""
+},
+{
+"name": "Almonds",
+"serving": "10 nuts",
+"g": 12,
+"kcal": 70,
+"p": 2.6,
+"c": 2.6,
+"f": 6,
+"tags": "badam"
+},
+{
+"name": "Peanuts (roasted)",
+"serving": "30 g",
+"g": 30,
+"kcal": 170,
+"p": 7.5,
+"c": 5,
+"f": 14,
+"tags": "groundnut"
+},
+{
+"name": "Cashews",
+"serving": "10 nuts",
+"g": 15,
+"kcal": 85,
+"p": 2.8,
+"c": 4.5,
+"f": 7,
+"tags": ""
+},
+{
+"name": "Walnuts",
+"serving": "7 halves",
+"g": 14,
+"kcal": 92,
+"p": 2.1,
+"c": 1.9,
+"f": 9.2,
+"tags": ""
+},
+{
+"name": "Roasted chana",
+"serving": "30 g",
+"g": 30,
+"kcal": 110,
+"p": 6.5,
+"c": 17,
+"f": 1.8,
+"tags": "chickpeas"
+},
+{
+"name": "Marie biscuits",
+"serving": "4 biscuits",
+"g": 28,
+"kcal": 110,
+"p": 2,
+"c": 18,
+"f": 3.5,
+"tags": ""
+},
+{
+"name": "Potato chips",
+"serving": "30 g",
+"g": 30,
+"kcal": 160,
+"p": 2,
+"c": 15,
+"f": 10,
+"tags": ""
+},
+{
+"name": "Dark chocolate",
+"serving": "20 g",
+"g": 20,
+"kcal": 110,
+"p": 1.5,
+"c": 9,
+"f": 8,
+"tags": ""
+},
+{
+"name": "Gulab jamun",
+"serving": "1 piece",
+"g": 50,
+"kcal": 150,
+"p": 2,
+"c": 22,
+"f": 6,
+"tags": "sweet"
+},
+{
+"name": "Mysore pak",
+"serving": "1 piece",
+"g": 40,
+"kcal": 200,
+"p": 2,
+"c": 15,
+"f": 15,
+"tags": "sweet"
+},
+{
+"name": "Ghee",
+"serving": "1 tsp",
+"g": 5,
+"kcal": 45,
+"p": 0,
+"c": 0,
+"f": 5,
+"tags": ""
+},
+{
+"name": "Cooking oil",
+"serving": "1 tbsp",
+"g": 14,
+"kcal": 120,
+"p": 0,
+"c": 0,
+"f": 14,
+"tags": ""
+},
+{
+"name": "Sugar",
+"serving": "1 tsp",
+"g": 4,
+"kcal": 16,
+"p": 0,
+"c": 4,
+"f": 0,
+"tags": ""
+},
+{
+"name": "Jaggery",
+"serving": "10 g",
+"g": 10,
+"kcal": 38,
+"p": 0,
+"c": 10,
+"f": 0,
+"tags": "bella"
+}
+]
+}
