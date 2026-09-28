@@ -1,7 +1,7 @@
 name: Mindful pings
 on:
   schedule:
-    - cron: '30 3,7,11 * * *'   # 9:00, 13:00, 17:00 India time
+    - cron: '28 3-14,16 * * *'   # 9:00, 13:00, 17:00 India time
   workflow_dispatch:
     inputs:
       mode:
