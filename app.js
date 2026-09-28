@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '13';
+  var APP_VERSION = '15';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am to set your daily goal, then 10 mindful pings at random times until 9pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -842,11 +842,12 @@
       return '<div class="row" style="align-items:flex-start"><span class="chip" style="background:' + (m[0] <= wk ? 'var(--green)' : 'var(--raised)') + ';color:' + (m[0] <= wk ? '#fff' : 'var(--bone)') + '">WK ' + m[0] + '</span><span style="font-size:14px">' + m[1] + (kg ? ' · ~' + kg + ' kg' : '') + '</span></div>';
     }).join('') + '</section>';
     // garmin
-    var acts = state.activities || [], wkActs = acts.filter(function (a) { return planWeek(new Date(a.d + 'T00:00:00')) === sel; });
+    h += stravaCard();
+    var acts = activitiesDeduped(), wkActs = acts.filter(function (a) { return planWeek(new Date(a.d + 'T00:00:00')) === sel; });
     var bySport = {}; wkActs.forEach(function (a) { bySport[a.sport] = (bySport[a.sport] || 0) + a.min; });
-    h += '<section class="card stack" style="gap:10px"><div class="row between"><h2>Garmin</h2><span class="eyebrow">' + acts.length + ' activities</span></div>' +
+    h += '<section class="card stack" style="gap:10px"><div class="row between"><h2>This week’s training</h2><span class="eyebrow">' + acts.length + ' activities</span></div>' +
       (wkActs.length ? '<div class="cats">' + Object.keys(bySport).map(function (k) { return '<span class="cat" style="--c:' + (SPORT[k] ? SPORT[k][1] : '#6B645B') + '"><i></i>' + (SPORT[k] ? SPORT[k][0] : k) + ' <b>' + Math.round(bySport[k]) + ' min</b></span>'; }).join('') + '</div>' : '<span class="muted" style="font-size:13px">No Garmin activities for week ' + sel + ' yet.</span>') +
-      '<button type="button" class="btn" id="gImp">Import from Garmin Connect (CSV)</button><input type="file" id="gFile" accept=".csv,text/csv" hidden>' +
+      '<button type="button" class="btn ghost" id="gImp">Or import a Garmin Connect CSV</button><input type="file" id="gFile" accept=".csv,text/csv" hidden>' +
       '<details><summary class="muted" style="font-size:13px">How to get the file</summary><ol class="steps" style="margin-top:8px"><li>On a computer, open <b>connect.garmin.com</b> and sign in.</li><li>Go to <b>Activities → All Activities</b>.</li><li>Scroll to load the weeks you want, then click <b>Export CSV</b> (top right).</li><li>Send the file to your phone (e.g. email or Drive) and tap Import above.</li></ol><p class="muted" style="font-size:12px;margin:6px 0 0">Garmin only lets approved companies pull data automatically, so a file import is the way for a personal app. Re-importing is safe: duplicates are skipped.</p></details></section>';
     return h;
   }
@@ -928,6 +929,7 @@
         mutate(function () { state.train = state.train || {}; state.train[k] = state.train[k] || {}; state.train[k][i] = !state.train[k][i]; });
       };
     });
+    bindStrava(view);
     var gi = view.querySelector('#gImp'), gf = view.querySelector('#gFile');
     if (gi) gi.onclick = function () { gf.click(); };
     if (gf) gf.onchange = function () {
@@ -995,6 +997,79 @@
     };
   }
 
+  // ---------- Garmin sync (Garmin → intervals.icu → encrypted file on GitHub → here) ----------
+  function repoRaw() {
+    var owner = location.hostname.split('.')[0], repo = location.pathname.split('/').filter(Boolean)[0];
+    return location.hostname.indexOf('github.io') > 0 && repo ? 'https://raw.githubusercontent.com/' + owner + '/' + repo + '/main/data/activities.enc.json' : 'data/activities.enc.json';
+  }
+  function repoActions() {
+    var owner = location.hostname.split('.')[0], repo = location.pathname.split('/').filter(Boolean)[0];
+    return 'https://github.com/' + owner + '/' + (repo || 'attention') + '/actions/workflows/sync.yml';
+  }
+  function b64bytes(s) { var b = atob(s), a = new Uint8Array(b.length); for (var i = 0; i < b.length; i++) a[i] = b.charCodeAt(i); return a; }
+  function decryptBox(box, pass) {
+    var enc = new TextEncoder();
+    return crypto.subtle.importKey('raw', enc.encode(pass), 'PBKDF2', false, ['deriveKey']).then(function (base) {
+      return crypto.subtle.deriveKey({ name: 'PBKDF2', salt: b64bytes(box.salt), iterations: 200000, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
+    }).then(function (key) {
+      return crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64bytes(box.iv) }, key, b64bytes(box.ct));
+    }).then(function (buf) { return JSON.parse(new TextDecoder().decode(buf)); });
+  }
+  var syncing = false;
+  function stravaSync(manual) {
+    var sv = state.strava || {};
+    if (!sv.pass || syncing) return Promise.resolve();
+    if (!manual && sv.lastTry && Date.now() - sv.lastTry < 20 * 60000) return Promise.resolve();
+    syncing = true; sv.lastTry = Date.now(); state.strava = sv; save();
+    return fetch(repoRaw() + '?t=' + Date.now(), { cache: 'no-store' }).then(function (r) {
+      if (r.status === 404) throw new Error('nothing synced yet: run “Garmin sync” on GitHub first');
+      if (!r.ok) throw new Error('download failed (' + r.status + ')');
+      return r.json();
+    }).then(function (box) { return decryptBox(box, sv.pass).catch(function () { throw new Error('wrong passphrase: it must match SYNC_PASSPHRASE on GitHub'); }); })
+      .then(function (data) {
+        var mine = (state.activities || []).filter(function (a) { return !isSynced(a); });
+        state.activities = mine.concat(data.activities);
+        sv.syncedAt = data.at; sv.count = data.activities.length; sv.error = null; save(); syncing = false;
+        if (manual) toast('Synced ' + data.activities.length + ' Garmin activities');
+        if (ui.tab === 'fit') render();
+      }).catch(function (e) { syncing = false; sv.error = e.message; save(); if (manual) toast('Sync failed: ' + e.message); if (ui.tab === 'fit') render(); });
+  }
+  // CSV and the automatic sync may both hold the same workout: prefer the sync, drop near-identical CSV rows.
+  function isSynced(a) { return /^(sync|strava):/.test(String(a.id)); }
+  function activitiesDeduped() {
+    var all = state.activities || [], st = all.filter(isSynced);
+    return all.filter(function (a) {
+      if (isSynced(a)) return true;
+      return !st.some(function (s) { return s.d === a.d && s.sport === a.sport && Math.abs(s.min - a.min) <= 3; });
+    });
+  }
+  function stravaCard() {
+    var sv = state.strava || {}, h = '<section class="card stack" style="gap:10px"><div class="row between"><h2>Garmin sync</h2><span class="eyebrow">Garmin → intervals.icu → here</span></div>';
+    if (!sv.pass) {
+      h += '<p class="muted" style="margin:0;font-size:13px">Pulls your Garmin workouts automatically: Garmin sends them to intervals.icu, GitHub collects them every 2 hours and locks them with your passphrase.</p>' +
+        '<div class="formgrid"><label class="wide">Sync passphrase<input id="svPass" type="password" placeholder="same as SYNC_PASSPHRASE on GitHub"></label></div>' +
+        '<button type="button" class="btn solid" id="svSave">Save passphrase & sync</button>';
+    } else {
+      h += '<div class="notice" style="' + (sv.error ? 'background:#FFE3DF' : '') + '">' + (sv.error ? 'Last sync failed: ' + esc(sv.error) : sv.syncedAt ? '✓ ' + sv.count + ' activities · updated ' + new Date(sv.syncedAt).toLocaleString('en', { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : 'Waiting for the first sync from GitHub.') + '</div>' +
+        '<div class="row"><button type="button" class="btn solid" id="svSync" style="flex:1">Sync now</button><button type="button" class="btn ghost" id="svReset">Passphrase</button></div>' +
+        '<a class="link" href="' + repoActions() + '" target="_blank" rel="noopener">Open the Garmin sync page on GitHub</a>';
+      var recent = (state.activities || []).filter(isSynced).sort(function (a, b) { return a.d < b.d ? 1 : -1; }).slice(0, 4);
+      recent.forEach(function (a) {
+        var sp = SPORT[a.sport] || [a.type, '#6B645B'];
+        h += '<div class="sess"><span class="fchk" aria-hidden="true" style="border:0;background:' + sp[1] + '"></span><div style="flex:1;min-width:0"><span class="d">' + new Date(a.d + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + '</span><span class="t">' + esc(a.title || sp[0]) + '</span><span class="d" style="font-family:var(--sans)">' + a.min + ' min' + (a.dist ? ' · ' + a.dist + ' km' : '') + (a.hr ? ' · ' + a.hr + ' bpm' : '') + (a.kcal ? ' · ' + a.kcal + ' kcal' : '') + '</span></div></div>';
+      });
+    }
+    return h + '</section>';
+  }
+  function bindStrava(view) {
+    var s = view.querySelector('#svSave');
+    if (s) s.onclick = function () {
+      var p = view.querySelector('#svPass').value; if (p.length < 8) { toast('Passphrase: at least 8 characters'); return; }
+      state.strava = Object.assign(state.strava || {}, { pass: p, error: null }); save(); render(); stravaSync(true);
+    };
+    var y = view.querySelector('#svSync'); if (y) y.onclick = function () { stravaSync(true); };
+    var r = view.querySelector('#svReset'); if (r) r.onclick = function () { delete state.strava.pass; save(); render(); };
+  }
   // ---------- insights ----------
   function renderLog() {
     var list = state.checkins.slice().reverse(), counts = {};
@@ -1205,7 +1280,7 @@
     var view = document.getElementById('view');
     if (ui.tab === 'trail') { view.innerHTML = renderTrail(); bindTrail(view); }
     else if (ui.tab === 'log') { view.innerHTML = renderLog(); bindLog(view); }
-    else if (ui.tab === 'fit') { view.innerHTML = renderFit(); bindFit(view); }
+    else if (ui.tab === 'fit') { view.innerHTML = renderFit(); bindFit(view); if (fitUi.view === 'plan') stravaSync(false); }
     else { view.innerHTML = renderSettings(); bindSettings(view); }
     document.querySelectorAll('.tab[data-tab]').forEach(function (t) { t.classList.toggle('on', t.dataset.tab === ui.tab); t.setAttribute('aria-current', t.dataset.tab === ui.tab ? 'page' : 'false'); });
   }
