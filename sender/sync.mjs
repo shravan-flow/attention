@@ -57,6 +57,8 @@ try {
       sleep: num(w.sleepSecs), sleepScore: num(w.sleepScore), weight: num(w.weight), kcalIn: num(w.kcalConsumed)
     })).filter(w => w.d && (w.steps != null || w.rhr != null || w.hrv != null || w.sleep != null || w.weight != null));
     console.log(`Found ${wellness.length} days of health data (steps, resting HR, sleep, HRV).`);
+    const latest = (Array.isArray(wl) ? wl : []).slice(-1)[0];
+    if (latest) console.log('Latest day from intervals.icu:', latest.id, JSON.stringify(Object.fromEntries(Object.entries(latest).filter(([k, v]) => v != null && typeof v !== 'object'))).slice(0, 600));
     if (!wellness.length) console.log('>>> No health data yet. In intervals.icu: Settings → Garmin → switch on wellness download.');
   } else console.log(`Could not read health data (${wr.status}); activities still saved.`);
 } catch (e) { console.log('Could not read health data: ' + e.message); }

@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '24';
+  var APP_VERSION = '26';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -1069,11 +1069,11 @@
   }
   function hm(secs) { var m = Math.round(secs / 60); return Math.floor(m / 60) + 'h ' + String(m % 60).padStart(2, '0'); }
   function healthHtml() {
-    var tk = dkey(new Date()), st = wellnessRecent('steps', 1), rh = wellnessRecent('rhr', 3), sl = wellnessRecent('sleep', 1), hv = wellnessRecent('hrv', 3), ex = Math.round(exerciseKcal(tk));
-    var when = function (x) { return !x ? '' : x.d === tk ? 'today' : 'yesterday'; };
+    var tk = dkey(new Date()), st = wellnessRecent('steps', 3), rh = wellnessRecent('rhr', 5), sl = wellnessRecent('sleep', 3), hv = wellnessRecent('hrv', 5), ex = Math.round(exerciseKcal(tk));
+    var when = function (x) { if (!x) return ''; var y = new Date(); y.setDate(y.getDate() - 1); return x.d === tk ? 'today' : x.d === dkey(y) ? 'yesterday' : niceDate(x.d + 'T12:00:00'); };
     if (!st && !rh && !sl && !hv) {
       var sv = state.strava || {};
-      return '<div class="card stack" style="gap:8px"><h2>From your Garmin</h2><p class="muted small">' + (sv.pass ? 'No health numbers yet. In intervals.icu: Settings → Garmin → switch on the wellness (health) download. Steps, resting heart rate, sleep and HRV then arrive here every couple of hours.' : 'Connect Garmin sync first (Fit → Plan → Garmin) to see steps, resting heart rate, sleep and HRV here.') + '</p></div>';
+      return '<div class="card stack" style="gap:8px"><h2>From your Garmin</h2>' + (sv.pass && sv.syncedAt ? '<div class="notice" style="background:#FFF1D6;color:#7A4B00">' + healthStatus(sv) + '</div>' : '') + burnHtml() + '<p class="muted small">' + (sv.pass ? 'No health numbers yet. In intervals.icu: Settings → Garmin → switch on the wellness (health) download. Steps, resting heart rate, sleep and HRV then arrive here every couple of hours.' : 'Connect Garmin sync first (Fit → Plan → Garmin) to see steps, resting heart rate, sleep and HRV here.') + '</p></div>';
     }
     var tileH = function (lab, v, sub, f, col) { return '<div class="gtile"><span class="cap">' + lab + '</span><b class="display">' + v + '</b><small>' + sub + '</small>' + spark(f, col) + '</div>'; };
     return '<div class="gtiles">' +
@@ -1081,8 +1081,27 @@
       tileH('Resting HR', rh ? Math.round(rh.v) + '<span> bpm</span>' : '–', rh ? (rh.d === tk ? 'this morning' : niceDate(rh.d + 'T12:00:00')) : 'no data', 'rhr', T.coral) +
       tileH('Sleep', sl ? hm(sl.v) : '–', sl ? 'last night' : 'no data', 'sleep', '#6B5BD6') +
       tileH('HRV', hv ? Math.round(hv.v) + '<span> ms</span>' : '–', hv ? 'overnight' : 'no data', 'hrv', T.mango) + '</div>' +
-      '<div class="list">' + row({ t: 'Workout calories today', sub: 'from Garmin workouts and badminton you logged', v: ex ? '~' + fmtN(ex) + ' kcal' : '0' }) + '</div>' +
-      '<p class="muted small">Numbers come from your watch via Garmin Connect and intervals.icu, a few hours behind. Whole-day calories and live heart rate aren’t shared by intervals.icu; workout calories are.</p>';
+      burnHtml() +
+      '<p class="muted small">Steps, heart rate, sleep and HRV come from your watch via Garmin Connect and intervals.icu, a few hours behind. Garmin doesn’t share whole-day calories with intervals.icu, so the app estimates them: your resting burn (from age, height and weight) + walking (from steps) + workout calories (' + (ex ? '~' + fmtN(ex) + ' kcal today' : 'none today') + '). It’s an estimate: usually close to Garmin’s own number, but not identical.</p>';
+  }
+  // Total burn = resting (BMR, so far today) + walking from steps + workouts (minus the resting part already counted)
+  function burnEstimate(key) {
+    var bc = bodyCalc(); if (!bc) return null;
+    var p = prof(), kg = bc.w, now = new Date(), isToday = key === dkey(now);
+    var frac = isToday ? (now.getHours() * 60 + now.getMinutes()) / 1440 : 1, resting = bc.bmr * frac;
+    var w = (state.wellness || []).filter(function (x) { return x.d === key; })[0], steps = w && w.steps != null ? w.steps : null;
+    var walk = steps ? .55 * kg * steps * (p.height * .415 / 100) / 1000 : 0;
+    var work = activitiesDeduped().filter(function (a) { return a.d === key; }).reduce(function (sum, a) { return sum + Math.max(0, (+a.kcal || 0) - (a.min || 0) * bc.bmr / 1440); }, 0);
+    return { total: Math.round(resting + walk + work), resting: Math.round(resting), walk: Math.round(walk), work: Math.round(work), steps: steps, partial: isToday };
+  }
+  function burnHtml() {
+    var tk = dkey(new Date()), y = new Date(); y.setDate(y.getDate() - 1);
+    var a = burnEstimate(tk), b = burnEstimate(dkey(y));
+    if (!a) return '<div class="list">' + row({ t: 'Calories burned', sub: 'add your height, weight and age in Body to see this', sheet: 'about' }) + '</div>';
+    var line = function (e) { return 'resting ' + fmtN(e.resting) + ' + steps ' + (e.steps == null ? '(no data)' : fmtN(e.walk)) + ' + workouts ' + fmtN(e.work); };
+    return '<div class="burn"><div class="row between"><span class="cap">Calories burned · estimate</span><span class="cap">so far today</span></div>' +
+      '<b class="display">' + fmtN(a.total) + '<span> kcal</span></b><small>' + line(a) + '</small>' +
+      '<div class="row between burny"><span>Yesterday, whole day</span><b>' + fmtN(b.total) + ' kcal</b></div><small>' + line(b) + '</small></div>';
   }
   function garminDaySheet() { return { title: 'Your Garmin', cap: garminStatus(), html: healthHtml(), bind: function () {} }; }
   function garminStatus() { var sv = state.strava || {}; return !sv.pass ? 'set up' : sv.error ? 'needs a look' : sv.syncedAt ? ago(sv.syncedAt) : 'waiting'; }
@@ -1297,7 +1316,7 @@
   function stravaSync(manual) {
     var sv = state.strava || {};
     if (!sv.pass || syncing) return Promise.resolve();
-    if (!manual && sv.lastTry && Date.now() - sv.lastTry < 20 * 60000) return Promise.resolve();
+    if (!manual && sv.lastTry && Date.now() - sv.lastTry < 10 * 60000) return Promise.resolve();
     syncing = true; sv.lastTry = Date.now(); state.strava = sv; save();
     return fetch(repoRaw() + '?t=' + Date.now(), { cache: 'no-store' }).then(function (r) {
       if (r.status === 404) throw new Error('nothing synced yet: run “Garmin sync” on GitHub first');
@@ -1307,7 +1326,7 @@
       .then(function (data) {
         var mine = (state.activities || []).filter(function (a) { return !isSynced(a); });
         state.activities = mine.concat(data.activities);
-        sv.syncedAt = data.at; sv.count = data.activities.length; sv.error = null; if (data.wellness) state.wellness = data.wellness; save(); syncing = false;
+        sv.syncedAt = data.at; sv.count = data.activities.length; sv.error = null; sv.hasWellness = !!data.wellness; sv.wdays = (data.wellness || []).length; if (data.wellness) state.wellness = data.wellness; save(); syncing = false;
         if (manual) toast('Synced ' + data.activities.length + ' Garmin activities');
         render();
       }).catch(function (e) { syncing = false; sv.error = e.message; save(); if (manual) toast('Sync failed: ' + e.message); render(); });
@@ -1322,6 +1341,12 @@
       return !st.some(function (s) { return s.d === a.d && s.sport === a.sport && Math.abs(s.min - a.min) <= 3; });
     });
   }
+  function healthStatus(sv) {
+    if (!sv.hasWellness) return 'Health data: <b>not in the GitHub file yet.</b> The sync on GitHub is still the old version: upload <b>sender/sync.mjs</b> from the latest zip, then Actions → Garmin sync → Run workflow, then Sync now here.';
+    if (!sv.wdays) return 'Health data: <b>intervals.icu sent none.</b> In intervals.icu: Settings → Garmin → switch on wellness, wait until steps show on its calendar, then run Garmin sync on GitHub again.';
+    var last = (state.wellness || []).map(function (w) { return w.d; }).sort().pop();
+    return '✓ Health data: ' + sv.wdays + ' days (latest ' + niceDate(last + 'T12:00:00') + ')';
+  }
   function stravaCard() {
     var sv = state.strava || {}, h = '<section class="card stack" style="gap:10px"><div class="row between"><h2>Garmin sync</h2><span class="eyebrow">Garmin → intervals.icu → here</span></div>';
     if (!sv.pass) {
@@ -1330,6 +1355,7 @@
         '<button type="button" class="btn solid" id="svSave">Save passphrase & sync</button>';
     } else {
       h += '<div class="notice" style="' + (sv.error ? 'background:#FFE1DB' : '') + '">' + (sv.error ? 'Last sync failed: ' + esc(sv.error) : sv.syncedAt ? '✓ ' + sv.count + ' activities · updated ' + new Date(sv.syncedAt).toLocaleString('en', { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : 'Waiting for the first sync from GitHub.') + '</div>' +
+        (sv.syncedAt && !sv.error ? '<div class="notice"' + (sv.hasWellness && sv.wdays ? ' style="background:rgba(18,163,154,.12);color:#0F4D40"' : ' style="background:#FFF1D6;color:#7A4B00"') + '>' + healthStatus(sv) + '</div>' : '') +
         '<div class="row"><button type="button" class="btn solid" id="svSync" style="flex:1">Sync now</button><button type="button" class="btn ghost" id="svReset">Passphrase</button></div>' +
         '<a class="link" href="' + repoActions() + '" target="_blank" rel="noopener">Open the Garmin sync page on GitHub</a>';
       var recent = (state.activities || []).filter(isSynced).sort(function (a, b) { return a.d < b.d ? 1 : -1; }).slice(0, 4);
@@ -2010,7 +2036,7 @@
     }
     h += '<div class="row between"><div class="row" style="gap:9px">' + NCOL.map(function (c) { return '<button type="button" class="nsw' + (nv.color === c ? ' on' : '') + '" data-ncol="' + c + '" style="background:' + c + '" aria-label="Colour"></button>'; }).join('') + '</div>' +
       '<div class="row" style="gap:6px"><button type="button" class="nib sm' + (nv.thick ? ' on' : '') + '" id="nThick" aria-label="Line thickness">' + (nv.thick ? 'thick' : 'thin') + '</button><button type="button" class="nib" id="nUndo" aria-label="Undo"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M9 7L4 12l5 5M4 12h11a5 5 0 0 1 0 10h-2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div></div>';
-    if (!editing) h += '<p class="muted small" style="text-align:center">' + ({ move: 'Drag things to move them. Tap a picture, then drag its mango corner (or pinch it) to resize. Tap text or a checklist to edit it.', text: 'Tap where the text should go, or tap existing text to edit it.', check: 'Tap where the checklist should go. Tap any box to tick it.', erase: 'Tap a line, shape, text, checklist or photo to remove it.', img: 'Choose a photo; then drag it into place.' }[nv.tool] || 'Draw with one finger. Pinch with two fingers to zoom.') + ' Saved as you go.</p>';
+    if (!editing) h += '<p class="muted small" style="text-align:center">' + ({ move: 'Drag things to move them. Tap a picture, text or checklist, then drag its mango corner (or pinch it) to resize. Tap selected text or a checklist again to edit it.', text: 'Tap where the text should go, or tap existing text to edit it.', check: 'Tap where the checklist should go. Tap any box to tick it.', erase: 'Tap a line, shape, text, checklist or photo to remove it.', img: 'Choose a photo; then drag it into place.' }[nv.tool] || 'Draw with one finger. Pinch with two fingers to zoom.') + ' Saved as you go.</p>';
     h += '<input type="file" id="nImg" accept="image/*" hidden><input type="file" id="vbFile" accept="image/*" hidden></div>';
     o.innerHTML = h;
     var vf = o.querySelector('#vbFind');
@@ -2088,7 +2114,7 @@
       var si = nv.edit != null ? nv.edit : nv.sel;
       if (si != null && pg.items[si]) {
         var b = bbox(ctx, pg.items[si]); ctx.save(); ctx.setLineDash([12, 10]); ctx.strokeStyle = '#12A39A'; ctx.lineWidth = 3; ctx.strokeRect(b.x - 12, b.y - 12, Math.max(b.w, 60) + 24, b.h + 24); ctx.restore();
-        if (pg.items[si].type === 'img' && nv.tool === 'move') { var hp = handlePos(pg.items[si]); ctx.save(); ctx.fillStyle = '#FFB23F'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(hp.x, hp.y, 26, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); ctx.strokeStyle = '#16302A'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(hp.x - 9, hp.y - 9); ctx.lineTo(hp.x + 9, hp.y + 9); ctx.moveTo(hp.x + 9, hp.y - 1); ctx.lineTo(hp.x + 9, hp.y + 9); ctx.lineTo(hp.x - 1, hp.y + 9); ctx.moveTo(hp.x - 9, hp.y + 1); ctx.lineTo(hp.x - 9, hp.y - 9); ctx.lineTo(hp.x + 1, hp.y - 9); ctx.stroke(); ctx.restore(); }
+        if (/^(img|text|check)$/.test(pg.items[si].type) && nv.tool === 'move' && nv.edit == null) { var hp = handlePos(pg.items[si], ctx); ctx.save(); ctx.fillStyle = '#FFB23F'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(hp.x, hp.y, 26, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); ctx.strokeStyle = '#16302A'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(hp.x - 9, hp.y - 9); ctx.lineTo(hp.x + 9, hp.y + 9); ctx.moveTo(hp.x + 9, hp.y - 1); ctx.lineTo(hp.x + 9, hp.y + 9); ctx.lineTo(hp.x - 1, hp.y + 9); ctx.moveTo(hp.x - 9, hp.y + 1); ctx.lineTo(hp.x - 9, hp.y - 9); ctx.lineTo(hp.x + 1, hp.y - 9); ctx.stroke(); ctx.restore(); }
       }
     }
     nv.paint = paint;
@@ -2124,6 +2150,7 @@
         rsz = null;
         var si2 = nv.sel;   // two fingers on a selected picture resize the picture instead of zooming
         if (nv.tool === 'move' && si2 != null && pg.items[si2] && pg.items[si2].type === 'img') { var im0 = pg.items[si2]; snap(); pinch.img = { it: im0, w0: im0.w, h0: im0.h, cx: im0.x + im0.w / 2, cy: im0.y + im0.h / 2 }; }
+        else if (nv.tool === 'move' && si2 != null && pg.items[si2] && /^(text|check)$/.test(pg.items[si2].type)) { snap(); pinch.txt = { it: pg.items[si2], s0: pg.items[si2].s }; }
         return;
       }
       if (ids.length > 2 || blocked) return;
@@ -2143,10 +2170,15 @@
       } else if (t === 'erase') {
         var i = hit(p); if (i >= 0) { snap(); var gone = pg.items.splice(i, 1)[0]; touch(); paint(); if (gone.type === 'img' && noteImgs(n).indexOf(gone.src) < 0) idbDel('img-' + gone.src).catch(function () {}); }
       } else if (t === 'move') {
-        var sItem = nv.sel != null ? pg.items[nv.sel] : null, hp0 = sItem && sItem.type === 'img' ? handlePos(sItem) : null;
-        if (hp0 && Math.hypot(p.x - hp0.x, p.y - hp0.y) < 55) { snap(); rsz = { it: sItem, x: p.x, y: p.y, w0: sItem.w, h0: sItem.h }; return; }
-        var j = hit(p); nv.sel = j >= 0 ? j : null;
-        if (j >= 0) { snap(); drag = { i: j, x: p.x, y: p.y, moved: 0 }; }
+        var sItem = nv.sel != null ? pg.items[nv.sel] : null, hp0 = sItem && /^(img|text|check)$/.test(sItem.type) ? handlePos(sItem, ctx) : null;
+        if (hp0 && Math.hypot(p.x - hp0.x, p.y - hp0.y) < 55) {
+          snap();
+          if (sItem.type === 'img') rsz = { it: sItem, x: p.x, y: p.y, w0: sItem.w, h0: sItem.h };
+          else { var bb0 = bbox(ctx, sItem); rsz = { it: sItem, x: p.x, y: p.y, s0: sItem.s, span: Math.max(bb0.w, 60) + bb0.h }; }
+          return;
+        }
+        var wasSel = nv.sel, j = hit(p); nv.sel = j >= 0 ? j : null;
+        if (j >= 0) { snap(); drag = { i: j, x: p.x, y: p.y, moved: 0, wasSel: wasSel === j }; }
         else pan = { x: e.clientX, y: e.clientY, sl: wrap.scrollLeft, st: wrap.scrollTop };
         paint();
       }
@@ -2157,12 +2189,14 @@
       if (pinch) {
         var ids = Object.keys(ptrs).filter(function (k) { return k !== 'tap'; }); if (ids.length < 2) return;
         var a = ptrs[ids[0]], b = ptrs[ids[1]], d = Math.hypot(a.x - b.x, a.y - b.y), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+        if (pinch.txt) { pinch.txt.it.s = Math.round(Math.max(18, Math.min(220, pinch.txt.s0 * d / pinch.d))); paint(); return; }
         if (pinch.img) { var pi = pinch.img, f = d / pinch.d, nw = Math.max(80, Math.min(1800, pi.w0 * f)); pi.it.w = Math.round(nw); pi.it.h = Math.round(nw * pi.h0 / pi.w0); pi.it.x = pi.cx - pi.it.w / 2; pi.it.y = pi.cy - pi.it.h / 2; paint(); return; }
         setZoom(pinch.z * d / pinch.d, mx, my);
         wrap.scrollLeft -= mx - pinch.mx; wrap.scrollTop -= my - pinch.my; pinch.mx = mx; pinch.my = my;
         return;
       }
       if (pan) { wrap.scrollLeft = pan.sl - (e.clientX - pan.x); wrap.scrollTop = pan.st - (e.clientY - pan.y); return; }
+      if (rsz && rsz.s0) { var q3 = P(e), f3 = Math.max(.25, (rsz.span + (q3.x - rsz.x) + (q3.y - rsz.y)) / rsz.span); rsz.it.s = Math.round(Math.max(18, Math.min(220, rsz.s0 * f3))); paint(); return; }
       if (rsz) { var q2 = P(e), ar = rsz.w0 / rsz.h0, nw2 = Math.max(80, Math.min(1800, rsz.w0 + ((q2.x - rsz.x) + (q2.y - rsz.y) * ar) / 2)); rsz.it.w = Math.round(nw2); rsz.it.h = Math.round(nw2 / ar); paint(); return; }
       if (!cur && !drag) return;
       var p = P(e);
@@ -2173,7 +2207,7 @@
     var up = function (e) {
       delete ptrs[e.pointerId]; delete ptrs.tap;
       var left = Object.keys(ptrs).length;
-      if (pinch && left < 2) { var wasImg = pinch.img; pinch = null; if (wasImg) touch(); else size(nv.zoom, true); }
+      if (pinch && left < 2) { var wasImg = pinch.img || pinch.txt; pinch = null; if (wasImg) touch(); else size(nv.zoom, true); }
       if (rsz) { rsz = null; touch(); paint(); }
       if (blocked) { if (!left) blocked = false; return; }
       if (cur) {
@@ -2182,8 +2216,8 @@
         cur = null; paint();
       }
       if (drag) {
-        var it = pg.items[drag.i], was = drag.i, moved = drag.moved; drag = null;
-        if (moved < 6) { nv.hist.pop(); if (it && (it.type === 'text' || it.type === 'check')) { snap(); openEdit(was); return; } }
+        var it = pg.items[drag.i], was = drag.i, moved = drag.moved, again = drag.wasSel; drag = null;
+        if (moved < 6) { nv.hist.pop(); if (again && it && (it.type === 'text' || it.type === 'check')) { snap(); openEdit(was); return; } paint(); return; }
         touch();
       }
       pan = null;
@@ -2195,7 +2229,7 @@
   function drawPanel(n, pg, touch) {
     var box = document.getElementById('nPanel'), it = pg.items[nv.edit]; if (!box || !it) return;
     var sizes = it.type === 'text' ? [[40, 'S'], [56, 'M'], [76, 'L'], [104, 'XL']] : [[44, 'S'], [56, 'M'], [72, 'L']];
-    var h = '<div class="row between"><span class="lab">' + (it.type === 'text' ? 'Text' : 'Checklist') + '</span><div class="row" style="gap:4px">' + sizes.map(function (s) { return '<button type="button" class="nib sm' + (it.s === s[0] ? ' on' : '') + '" data-tsz="' + s[0] + '">' + s[1] + '</button>'; }).join('') + '</div></div>';
+    var h = '<div class="row between"><span class="lab">' + (it.type === 'text' ? 'Text' : 'Checklist') + '</span><div class="row" style="gap:4px"><button type="button" class="nib" id="npSmaller" aria-label="Smaller">A−</button>' + sizes.map(function (s) { return '<button type="button" class="nib sm' + (it.s === s[0] ? ' on' : '') + '" data-tsz="' + s[0] + '">' + s[1] + '</button>'; }).join('') + '<button type="button" class="nib" id="npBigger" aria-label="Bigger">A+</button></div></div>';
     if (it.type === 'text') h += '<textarea id="npText" class="text" rows="3" placeholder="Type here… (new line = Enter)">' + esc(it.text) + '</textarea>';
     else {
       h += '<div class="nprows">' + it.rows.map(function (r, k) {
@@ -2205,7 +2239,13 @@
     h += '<div class="row"><button type="button" class="btn line small" id="npDel">Delete</button><button type="button" class="btn jungle small" id="npDone" style="flex:1">Done</button></div>';
     box.innerHTML = h;
     var paint = function () { if (nv.paint) nv.paint(); }, redrawPanel = function (focusRow) { drawPanel(n, pg, touch); if (focusRow != null) { var el = box.querySelector('[data-row="' + focusRow + '"]'); if (el) try { el.focus(); } catch (e) {} } };
-    box.querySelectorAll('[data-tsz]').forEach(function (b) { b.onclick = function () { it.s = +b.dataset.tsz; touch(); paint(); redrawPanel(); }; });
+    // act on the first touch and don't steal focus, so the keyboard stays open and the panel doesn't jump
+    box.querySelectorAll('[data-tsz]').forEach(function (b) {
+      var go = function (e) { e.preventDefault(); it.s = +b.dataset.tsz; touch(); paint(); box.querySelectorAll('[data-tsz]').forEach(function (x) { x.classList.toggle('on', x === b); }); };
+      b.addEventListener('pointerdown', go); b.addEventListener('click', function (e) { e.preventDefault(); });
+    });
+    var szs = box.querySelector('#npSmaller'), szb = box.querySelector('#npBigger');
+    [[szs, .85], [szb, 1.18]].forEach(function (x) { if (x[0]) x[0].addEventListener('pointerdown', function (e) { e.preventDefault(); it.s = Math.round(Math.max(18, Math.min(220, it.s * x[1]))); touch(); paint(); box.querySelectorAll('[data-tsz]').forEach(function (y) { y.classList.toggle('on', +y.dataset.tsz === it.s); }); }); });
     var ta = box.querySelector('#npText');
     if (ta) { ta.addEventListener('input', function () { it.text = ta.value; touch(); paint(); }); setTimeout(function () { try { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } catch (e) {} }, 60); }
     box.querySelectorAll('[data-row]').forEach(function (inp) {
@@ -2213,7 +2253,7 @@
       inp.addEventListener('input', function () { it.rows[k].t = inp.value; touch(); paint(); });
       inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); it.rows.splice(k + 1, 0, { t: '', d: false }); touch(); paint(); redrawPanel(k + 1); } });
     });
-    box.querySelectorAll('[data-rtick]').forEach(function (b) { b.onclick = function () { var r = it.rows[+b.dataset.rtick]; r.d = !r.d; touch(); paint(); redrawPanel(); }; });
+    box.querySelectorAll('[data-rtick]').forEach(function (b) { b.addEventListener('pointerdown', function (e) { e.preventDefault(); }); b.onclick = function () { var r = it.rows[+b.dataset.rtick]; r.d = !r.d; touch(); paint(); redrawPanel(); }; });
     box.querySelectorAll('[data-rdel]').forEach(function (b) { b.onclick = function () { it.rows.splice(+b.dataset.rdel, 1); if (!it.rows.length) it.rows.push({ t: '', d: false }); touch(); paint(); redrawPanel(); }; });
     var add = box.querySelector('#npAdd'); if (add) add.onclick = function () { it.rows.push({ t: '', d: false }); touch(); paint(); redrawPanel(it.rows.length - 1); };
     if (it.type === 'check') { var last = box.querySelector('[data-row="' + (it.rows.length - 1) + '"]'); if (last && !last.value) setTimeout(function () { try { last.focus(); } catch (e) {} }, 60); }
@@ -2224,7 +2264,10 @@
       nv.edit = null; touch(); drawNoteEditor();
     };
   }
-  function handlePos(it) { var pad = it.polaroid ? 14 : 8, bot = it.polaroid ? (it.cap ? 64 : 22) : 8; return { x: it.x + it.w + pad, y: it.y + it.h + bot }; }
+  function handlePos(it, ctx) {
+    if (it.type === 'text' || it.type === 'check') { var b = bbox(ctx || document.createElement('canvas').getContext('2d'), it); return { x: b.x + Math.max(b.w, 60) + 12, y: b.y + b.h + 12 }; }
+    var pad = it.polaroid ? 14 : 8, bot = it.polaroid ? (it.cap ? 64 : 22) : 8; return { x: it.x + it.w + pad, y: it.y + it.h + bot };
+  }
   function checkGeo(it) { return { b: it.s * .82, rh: it.s * 1.6 }; }
   function checkRowAt(it, p) {
     var g = checkGeo(it);
@@ -2901,6 +2944,8 @@
   render();
   syncGoal();
   loadHolidays(false);
+  stravaSync(false);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) stravaSync(false); });
   if (/[?&]win=1/.test(location.search)) { hitSingle(); openGoal(); }
   else if (/[?&]goal=1/.test(location.search)) openMorning();
   else if (/[?&]shared=1/.test(location.search)) { history.replaceState(history.state, '', location.pathname); receiveShared(); }
