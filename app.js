@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '29.1';
+  var APP_VERSION = '30';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -1706,10 +1706,12 @@
     if (vz) vizStop(); vz = null;
     if (nv) notesLeave(); nv = null;
     if (tk) { var tx = ideaById(tk.id); if (tx) tx.last = tk.page; save(); } tk = null;
-    var o = document.getElementById('overlay'); o.classList.remove('dark', 'vzo', 'nto', 'tko');
+    vb = null;
+    var o = document.getElementById('overlay'); o.classList.remove('dark', 'vzo', 'nto', 'tko', 'vbo');
   }
   function closeOverlayEl() {
-    var o = document.getElementById('overlay'); o.hidden = true; o.classList.remove('dark', 'vzo', 'nto', 'tko');
+    var o = document.getElementById('overlay'); o.hidden = true; o.classList.remove('dark', 'vzo', 'nto', 'tko', 'vbo');
+    updateEye();
     document.body.style.overflow = ui.sheet ? 'hidden' : '';
   }
   function showOverlay(cls) {
@@ -3877,6 +3879,71 @@
     o.querySelectorAll('[data-inew]').forEach(function (b) { b.onclick = function () { openThink(null); tk.mode = b.dataset.inew; drawThink(); }; });
   }
 
+
+  // ---------- vision boards, full screen and view only (the eye tab on Today) ----------
+  var vb = null;
+  function visionBoards() { return (NOTES || []).filter(function (n) { return n.kind === 'board' && notePages(n).some(function (p) { return p.items.length; }); }).sort(function (a, b) { return (b.pinned - a.pinned) || (b.updated < a.updated ? -1 : 1); }); }
+  function updateEye() {
+    var e = document.getElementById('visionEye'); if (!e) return;
+    e.hidden = !(ui.tab === 'trail' && NOTES && visionBoards().length);
+  }
+  function openVision(startId) {
+    loadNotes().then(function () {
+      var list = visionBoards(); if (!list.length) { toast('No vision boards yet'); return; }
+      resetOverlay(); closeSheet();
+      var i0 = Math.max(0, list.map(function (n) { return n.id; }).indexOf(startId));
+      vb = { list: list, i: i0 };
+      try { history.pushState({ vision: 1 }, ''); } catch (e) {}
+      drawVision(); showOverlay('vbo');
+      var tr = document.getElementById('vbTrack'); tr.scrollLeft = i0 * tr.clientWidth;
+    });
+  }
+  function closeVision(fromPop) {
+    if (!vb) return; vb = null; closeOverlayEl();
+    if (!fromPop && history.state && history.state.vision) { try { history.back(); } catch (e) {} }
+  }
+  function drawVision() {
+    var o = document.getElementById('overlay'), n = vb.list.length;
+    var W = Math.min(window.innerWidth, 560), availH = window.innerHeight - 170;
+    var cw = W, ch = Math.round(W * NH / NW); if (ch > availH) { ch = availH; cw = Math.round(ch * NW / NH); }
+    var h = '<div class="vbhead"><div><span class="cap">Vision · <b id="vbIdx">' + (vb.i + 1) + '</b> of ' + n + '</span><span class="vbt" id="vbTitle">' + (esc(vb.list[vb.i].title) || 'Untitled') + '</span></div><button type="button" class="vbx" id="vbClose" aria-label="Close">✕</button></div>';
+    h += '<div class="vbtrack" id="vbTrack">' + vb.list.map(function (b, bi) {
+      var pages = notePages(b).filter(function (p) { return p.items.length; });
+      return '<div class="vbslide"><div class="vbpages">' + pages.map(function (p, pi) {
+        return '<div class="vbpage"><canvas data-vb="' + bi + '" data-pg="' + notePages(b).indexOf(p) + '" style="width:' + cw + 'px;height:' + ch + 'px;background:' + b.board + '"></canvas></div>';
+      }).join('') + '</div>' + (pages.length > 1 ? '<span class="vbmore">' + pages.length + ' pages · swipe up</span>' : '') + '</div>';
+    }).join('') + '</div>';
+    h += '<div class="vbfoot"><div class="vbdots">' + vb.list.map(function (b, i) { return '<i' + (i === vb.i ? ' class="on"' : '') + '></i>'; }).join('') + '</div><span>' + (n > 1 ? 'Swipe for the next board · view only' : 'View only') + '</span></div>';
+    o.innerHTML = h;
+    var dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+    o.querySelectorAll('canvas[data-vb]').forEach(function (c) {
+      var b = vb.list[+c.dataset.vb], pg = notePages(b)[+c.dataset.pg];
+      c.width = Math.round(cw * dpr); c.height = Math.round(ch * dpr);
+      var paint = function () {
+        if (!vb) return;
+        var x = c.getContext('2d'); x.setTransform(1, 0, 0, 1, 0, 0); x.fillStyle = b.board; x.fillRect(0, 0, c.width, c.height);
+        x.scale(c.width / NW, c.height / NH);
+        pg.items.forEach(function (it) { drawItem(x, it, paint); });
+        // pictures still loading: repaint this page when each one arrives
+        pg.items.forEach(function (it) { var im = it.type === 'img' && imgCache[it.src]; if (im && !(im.complete && im.naturalWidth) && !im['_vb' + c.dataset.vb + c.dataset.pg]) { im['_vb' + c.dataset.vb + c.dataset.pg] = 1; im.addEventListener('load', paint); } });
+      };
+      paint();
+    });
+    o.querySelector('#vbClose').onclick = function () { closeVision(); };
+    var tr = o.querySelector('#vbTrack'), t = null;
+    tr.addEventListener('scroll', function () {
+      clearTimeout(t); t = setTimeout(function () {
+        if (!vb) return;
+        var i = Math.round(tr.scrollLeft / tr.clientWidth); if (i === vb.i || i < 0 || i >= vb.list.length) return;
+        vb.i = i; o.querySelector('#vbIdx').textContent = i + 1; o.querySelector('#vbTitle').textContent = vb.list[i].title || 'Untitled';
+        o.querySelectorAll('.vbdots i').forEach(function (d, k) { d.className = k === i ? 'on' : ''; });
+      }, 60);
+    }, { passive: true });
+  }
+  window.addEventListener('popstate', function () { if (vb) closeVision(true); });
+  document.getElementById('visionEye').addEventListener('click', function () { openVision(); });
+  window.addEventListener('resize', function () { if (vb) { var tr = document.getElementById('vbTrack'); drawVision(); var t2 = document.getElementById('vbTrack'); if (t2) t2.scrollLeft = vb.i * t2.clientWidth; } });
+
   // ---------- shell ----------
   function render() {
     migrate(state);
@@ -3886,6 +3953,7 @@
     else if (ui.tab === 'log') { view.innerHTML = renderLog(); bindLog(view); }
     else if (ui.tab === 'fit') { view.innerHTML = renderFit(); bindFit(view); if (fitUi.view === 'plan') stravaSync(false); }
     else { view.innerHTML = renderSettings(); bindSettings(view); stravaSync(false); }
+    updateEye();
     document.querySelectorAll('.tab[data-tab]').forEach(function (t) { t.classList.toggle('on', t.dataset.tab === ui.tab); t.setAttribute('aria-current', t.dataset.tab === ui.tab ? 'page' : 'false'); });
     drawSheet();
   }
@@ -3909,6 +3977,7 @@
   document.addEventListener('visibilitychange', function () { if (!document.hidden && todayNum() !== lastDay) { lastDay = todayNum(); ui.sel = null; render(); } });
 
   render();
+  loadNotes().then(updateEye);
   syncGoal();
   loadHolidays(false);
   stravaSync(false);

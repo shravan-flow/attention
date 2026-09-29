@@ -699,3 +699,26 @@ input.rin{min-height:44px;padding:8px 12px;text-align:right}
 .tkdrillrow small{display:block;font-size:12px;opacity:.9;margin-top:2px}
 .tkdrillrow .chev{stroke:#fff}
 .hpill .pp{font-size:12px}
+
+/* v30: vision boards full screen (view only) */
+.veye{position:fixed;right:0;top:50%;transform:translateY(-50%);z-index:12;width:46px;height:58px;border:0;border-radius:29px 0 0 29px;background:var(--mango);color:var(--jungle);display:flex;align-items:center;justify-content:center;padding-left:4px;box-shadow:0 6px 18px rgba(15,77,64,.3);cursor:pointer}
+.veye[hidden]{display:none}
+.veye:focus-visible{outline:3px solid var(--jungle);outline-offset:3px}
+.overlay.vbo{background:#0A1A15;color:#fff;padding:0;overflow:hidden;display:flex;flex-direction:column}
+.vbhead{display:flex;justify-content:space-between;align-items:center;padding:calc(18px + env(safe-area-inset-top)) 18px 10px}
+.vbhead>div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.vbhead .cap{color:#9CC2B6}.vbhead .cap b{font-weight:400}
+.vbt{font-size:18px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vbx{width:42px;height:42px;border-radius:50%;border:0;background:rgba(255,255,255,.12);color:#fff;font-size:18px;cursor:pointer;flex-shrink:0}
+.vbtrack{flex:1;display:flex;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.vbtrack::-webkit-scrollbar{display:none}
+.vbslide{flex:0 0 100%;scroll-snap-align:center;scroll-snap-stop:always;position:relative;display:flex;flex-direction:column;min-height:0}
+.vbpages{flex:1;overflow-y:auto;scroll-snap-type:y mandatory;scrollbar-width:none}
+.vbpages::-webkit-scrollbar{display:none}
+.vbpage{height:100%;display:flex;align-items:center;justify-content:center;scroll-snap-align:center}
+.vbpage canvas{display:block;box-shadow:0 10px 40px rgba(0,0,0,.45)}
+.vbmore{position:absolute;right:14px;bottom:6px;font-size:11px;color:#9CC2B6;background:rgba(0,0,0,.35);padding:4px 10px;border-radius:999px}
+.vbfoot{display:flex;flex-direction:column;align-items:center;gap:10px;padding:10px 0 calc(22px + env(safe-area-inset-bottom));font-size:12px;color:#9CC2B6}
+.vbdots{display:flex;gap:7px}
+.vbdots i{width:7px;height:7px;border-radius:9px;background:rgba(255,255,255,.35);transition:width .2s}
+.vbdots i.on{width:20px;background:var(--mango)}
