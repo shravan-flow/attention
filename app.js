@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '28';
+  var APP_VERSION = '29';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -163,6 +163,7 @@
     if ((state.vizDone || {})[dk]) xp += 5;
     xp += Math.min(movesOn(dkey(dayDate(n))).length, 12) * 5;
     xp += Math.min(trainingOn(dkey(dayDate(n))) + badmintonOn(dkey(dayDate(n))), 2) * 10;
+    xp += chessXp(dk) + thinkXp(dk);
     return xp;
   }
   function totalXp() { var t = 0; for (var i = 1; i <= 30; i++) t += dayXp(i); return t; }
@@ -284,6 +285,7 @@
       tile('data-tab-go="fit:food"', bc ? fmtN(Math.max(0, bc.kcal + ex - eaten.kcal)) : fmtN(eaten.kcal), bc ? 'kcal left' : 'kcal eaten') + '</div>';
     var vd = (state.vizDone || {})[key], vs = vizSettings(), pills = '';
     if (!vd) pills += '<button type="button" class="hpill" data-viz="1"><span class="pp">' + PLAY + '</span>Visualize <i>' + vs.mins + ' min</i></button>';
+    if (!drillDoneToday()) pills += '<button type="button" class="hpill" data-drill="1"><span class="pp">🧠</span>Think <i>3 min</i></button>';
     questsFor(today).forEach(function (q) {
       if (d[q.f]) return;
       pills += q.mins ? '<button type="button" class="hpill" data-begin="' + q.f + '" data-mins="' + q.mins + '"><span class="pp">' + PLAY + '</span>' + q.n + ' <i>' + q.mins + ' min</i></button>'
@@ -548,7 +550,7 @@
     resetOverlay();
     var dr = state.ciDraft;
     if (dr && Date.now() - dr.at < 10 * 60000) { ci = Object.assign({ stage: 'reflect', secs: 60, running: false, left: 60 }, dr.ci); drawCheckin(); document.getElementById('overlay').hidden = false; document.body.style.overflow = 'hidden'; return; }
-    ci = { stage: openTargets().length ? 'goal' : 'breathe', secs: 60, running: false, left: 60, picks: [], presence: 0, note: '', gNew: '', tu: {}, th: {} };
+    ci = { stage: openTargets().length ? 'goal' : 'setup', secs: 60, running: false, left: 60, picks: [], presence: 0, note: '', gNew: '', tu: {}, th: {} };
     drawCheckin();
     document.getElementById('overlay').hidden = false;
     document.body.style.overflow = 'hidden';
@@ -559,7 +561,7 @@
   }
   function drawCheckin() {
     var o = document.getElementById('overlay'), h = '<div class="inner">';
-    o.classList.toggle('dark', ci.stage === 'breathe');
+    o.classList.toggle('dark', ['breathe', 'setup', 'cairn', 'chessload', 'lesson', 'puzzle', 'pzdone'].indexOf(ci.stage) >= 0);
     h += '<div class="row between"><span class="eyebrow">Mindful check-in</span><div class="row" style="gap:8px">' + (ci.stage === 'reflect' ? '<button type="button" class="btn ghost small" id="ciDiscard">Discard</button>' : '') + '<button type="button" class="btn ghost small" id="ciClose">Close</button></div></div>';
     if (ci.stage === 'reflect') h += '<span class="muted" style="font-size:12px;margin-top:-10px">Saved as you type. Close any time and come back.</span>';
     if (ci.stage === 'goal') {
@@ -573,6 +575,12 @@
       });
       h += '<button type="button" class="btn solid" id="gcSave">Save → breathe</button>';
       h += '<button type="button" class="btn ghost" id="gcSkip">Skip the targets this time</button>';
+    } else if (ci.stage === 'setup') { h += setupHtml();
+    } else if (ci.stage === 'cairn') { h += cairnHtml();
+    } else if (ci.stage === 'chessload') { h += '<div class="gprobe"><span class="gglow"></span><span class="gnote">Setting up the board…</span></div>';
+    } else if (ci.stage === 'lesson') { h += lessonHtml();
+    } else if (ci.stage === 'puzzle') { h += puzzleHtml();
+    } else if (ci.stage === 'pzdone') { h += pzDoneHtml();
     } else if (ci.stage === 'breathe') {
       h += '<div><h1>Pause here.</h1><p class="muted" style="margin:6px 0 0">Let whatever you were doing wait for a minute. Just follow the light.</p></div>';
       h += '<div class="breath"><svg class="rings" id="orb" viewBox="0 0 260 260" width="260" height="260" aria-hidden="true"><g><circle cx="130" cy="130" r="24" fill="none" stroke="#FFD27A" stroke-width="7" stroke-linecap="round" stroke-dasharray="18.1 7.0"/></g><g class="rev"><circle cx="130" cy="130" r="37" fill="none" stroke="#FFB23F" stroke-width="7" stroke-linecap="round" stroke-dasharray="20.9 8.1"/></g><g><circle cx="130" cy="130" r="50" fill="none" stroke="#FF9A4D" stroke-width="7" stroke-linecap="round" stroke-dasharray="22.6 8.8"/></g><g class="rev"><circle cx="130" cy="130" r="63" fill="none" stroke="#FF6B57" stroke-width="7" stroke-linecap="round" stroke-dasharray="23.8 9.2"/></g><g><circle cx="130" cy="130" r="76" fill="none" stroke="#F0587A" stroke-width="7" stroke-linecap="round" stroke-dasharray="24.6 9.6"/></g><g class="rev"><circle cx="130" cy="130" r="89" fill="none" stroke="#C95B9A" stroke-width="7" stroke-linecap="round" stroke-dasharray="25.2 9.8"/></g><g><circle cx="130" cy="130" r="102" fill="none" stroke="#3FB3A6" stroke-width="7" stroke-linecap="round" stroke-dasharray="25.6 10.0"/></g><g class="rev"><circle cx="130" cy="130" r="115" fill="none" stroke="#12A39A" stroke-width="7" stroke-linecap="round" stroke-dasharray="26.0 10.1"/></g></svg><svg class="prog" viewBox="0 0 260 260" width="260" height="260" aria-hidden="true"><circle id="ciRing" cx="130" cy="130" r="127" fill="none" stroke="#FFB23F" stroke-width="3" stroke-linecap="round" stroke-dasharray="798" stroke-dashoffset="798"/></svg>' +
@@ -617,13 +625,18 @@
           targetUpdate(t, tx, win);
         });
       });
-      ci.asked = true; ci.stage = 'breathe'; drawCheckin();
+      ci.asked = true; ci.stage = 'setup'; drawCheckin();
       if (hits) setTimeout(function () { toast(hits + ' target' + (hits > 1 ? 's' : '') + ' hit · +' + hits * 20 + ' XP'); }, 1800);
       else if (ups) toast('Update saved');
     };
-    if (gck) gck.onclick = function () { ci.asked = true; ci.stage = 'breathe'; drawCheckin(); };
+    if (gck) gck.onclick = function () { ci.asked = true; ci.stage = 'setup'; drawCheckin(); };
     var ft = o.querySelector('.gcT'); if (ft) setTimeout(function () { try { ft.focus(); } catch (e) {} }, 50);
-    var sk = o.querySelector('#ciSkip'); if (sk) sk.onclick = function () { if (ci.iv) clearInterval(ci.iv); clearTimeout(ci.bt); ci.stage = 'reflect'; drawCheckin(); };
+    var sk = o.querySelector('#ciSkip'); if (sk) sk.onclick = function () { if (ci.iv) clearInterval(ci.iv); clearTimeout(ci.bt); if (ci.stage === 'breathe' && ci.running) { ci.running = false; afterBreath(); return; } ci.stage = 'reflect'; drawCheckin(); };
+    if (ci.stage === 'setup') bindSetup(o);
+    if (ci.stage === 'cairn') bindCairn(o);
+    if (ci.stage === 'puzzle') bindPuzzle(o);
+    if (ci.stage === 'pzdone') bindPzDone(o);
+    var gtry = o.querySelector('#gTry'); if (gtry) gtry.onclick = function () { ci.lessonSeen = true; ci.stage = 'puzzle'; drawCheckin(); };
     o.querySelectorAll('[data-pres]').forEach(function (b) { b.onclick = function () { ci.presence = +b.dataset.pres; saveNote(); drawCheckin(); }; });
     o.querySelectorAll('[data-pick]').forEach(function (b) {
       b.onclick = function () { var i = +b.dataset.pick, at = ci.picks.indexOf(i); if (at >= 0) ci.picks.splice(at, 1); else ci.picks.push(i); saveNote(); drawCheckin(); };
@@ -635,6 +648,8 @@
       saveNote();
       var gN = (ci.gNew || '').trim();
       var entry = { t: new Date().toISOString(), secs: ci.done || 0, presence: ci.presence || null, distractions: ci.picks.map(function (i) { return DISTRACTIONS[i]; }), note: ci.note.trim() };
+      if (ci.cairn) entry.cairn = { diff: ci.cairn.diff, stones: ci.cairn.n, drifts: ci.cairn.drifts, probeOk: ci.cairn.pOk, probeMiss: ci.cairn.pMiss };
+      if (ci.chessRes) entry.chess = ci.chessRes;
       closeCheckin();
       mutate(function () {
         delete state.ciDraft;
@@ -647,7 +662,7 @@
     if (!ci) return;
     var n = document.getElementById('ciNote'); if (n) ci.note = n.value;
     var b = document.getElementById('ciGoalNew'); if (b) ci.gNew = b.value;
-    if (ci.stage === 'reflect') { state.ciDraft = { at: Date.now(), ci: { picks: ci.picks.slice(), presence: ci.presence, note: ci.note, gNew: ci.gNew, done: ci.done || 0, asked: !!ci.asked, tu: {}, th: {} } }; save(); }
+    if (ci.stage === 'reflect') { state.ciDraft = { at: Date.now(), ci: { picks: ci.picks.slice(), presence: ci.presence, note: ci.note, gNew: ci.gNew, done: ci.done || 0, asked: !!ci.asked, tu: {}, th: {}, cairn: ci.cairn ? { diff: ci.cairn.diff, n: ci.cairn.n, drifts: ci.cairn.drifts, pOk: ci.cairn.pOk, pMiss: ci.cairn.pMiss } : null, chessRes: ci.chessRes || null } }; save(); }
   }
 
   // ---------- targets screen (opened from pings and the Today card) ----------
@@ -682,7 +697,7 @@
       if (ci.left <= 0) {
         clearInterval(ci.iv); clearTimeout(ci.bt);
         if (navigator.vibrate) navigator.vibrate(150);
-        ci.stage = 'reflect'; drawCheckin();
+        ci.running = false; afterBreath();
       }
     }, 1000);
   }
@@ -1690,10 +1705,11 @@
     fp = null;
     if (vz) vizStop(); vz = null;
     if (nv) notesLeave(); nv = null;
-    var o = document.getElementById('overlay'); o.classList.remove('dark', 'vzo', 'nto');
+    if (tk) { var tx = ideaById(tk.id); if (tx) tx.last = tk.page; save(); } tk = null;
+    var o = document.getElementById('overlay'); o.classList.remove('dark', 'vzo', 'nto', 'tko');
   }
   function closeOverlayEl() {
-    var o = document.getElementById('overlay'); o.hidden = true; o.classList.remove('dark', 'vzo', 'nto');
+    var o = document.getElementById('overlay'); o.hidden = true; o.classList.remove('dark', 'vzo', 'nto', 'tko');
     document.body.style.overflow = ui.sheet ? 'hidden' : '';
   }
   function showOverlay(cls) {
@@ -1759,7 +1775,7 @@
     if (nv.id) return drawNoteEditor();
     var keep = o.scrollTop;
     var h = '<div class="inner"><div class="row between"><h1 class="display" style="font-size:34px">Notes</h1><button type="button" class="btn ghost small" id="nClose">Close</button></div>';
-    h += '<div class="seg2 seg4" role="tablist">' + [['pad', 'Scribble'], ['vision', 'Vision'], ['cal', 'Calendar'], ['journal', 'Journal']].map(function (t) {
+    h += '<div class="seg2 seg4 seg5" role="tablist">' + [['pad', 'Scribble'], ['vision', 'Vision'], ['cal', 'Calendar'], ['ideas', 'Ideas'], ['journal', 'Journal']].map(function (t) {
       return '<button type="button" role="tab" data-ntab="' + t[0] + '" aria-selected="' + (nv.tab === t[0]) + '">' + t[1] + '</button>';
     }).join('') + '</div>';
     if (nv.tab === 'pad' || nv.tab === 'vision') {
@@ -1775,6 +1791,8 @@
       h += '<div class="nfoot"><button type="button" class="btn coral" id="nNew">' + (boards ? '+ New vision board' : '+ New note') + '</button></div>';
     } else if (nv.tab === 'cal') {
       h += calendarHtml();
+    } else if (nv.tab === 'ideas') {
+      h += ideasTabHtml();
     } else {
       var ks = Object.keys(state.journal || {}).filter(function (k) { var j = state.journal[k]; return j.well || j.away || j.more || j.mood; }).sort().reverse();
       if (!ks.length) h += '<p class="muted" style="margin:0">Your nightly journal shows up here. The 10 pm ping opens it, or start one now.</p>';
@@ -1787,6 +1805,7 @@
     o.innerHTML = h + '</div>';
     if (nv.keepScroll) { o.scrollTop = keep; nv.keepScroll = false; }
     o.querySelector('#nClose').onclick = closeNotes;
+    if (nv.tab === 'ideas') bindIdeasTab(o);
     o.querySelectorAll('[data-ntab]').forEach(function (b) { b.onclick = function () { nv.tab = b.dataset.ntab; drawNotes(); }; });
     o.querySelectorAll('[data-nopen]').forEach(function (b) { b.onclick = function () { nv.id = b.dataset.nopen; nv.hist = []; nv.sel = null; nv.page = 0; nv.zoom = 1; nv.edit = null; var n0 = noteById(nv.id); if (n0 && n0.kind === 'board') { nv.tool = 'move'; nv.color = '#FFFFFF'; } drawNotes(); }; });
     var nn = o.querySelector('#nNew'); if (nn) nn.onclick = function () {
@@ -2939,15 +2958,910 @@
   })();
   // rows and cards that open a sheet or jump to another tab
   document.addEventListener('click', function (e) {
-    var t = e.target.closest && e.target.closest('[data-sheet],[data-tab-go],[data-viz],[data-ocal]');
+    var t = e.target.closest && e.target.closest('[data-sheet],[data-tab-go],[data-viz],[data-ocal],[data-drill]');
     if (!t) return;
     if (t.dataset.viz) { openViz(false); return; }
+    if (t.dataset.drill) { e.stopPropagation(); openDrill(); return; }
     if (t.dataset.ocal) { openNotes('cal', t.dataset.ocal); return; }
     if (t.dataset.sheet) { openSheet(t.dataset.sheet); return; }
     var g = t.dataset.tabGo.split(':');
     closeSheet(); ui.tab = g[0]; if (g[1]) fitUi.view = g[1];
     render(); window.scrollTo(0, 0);
   });
+
+  // ---------- mindful games in the check-in: Stone Cairn, then a chess lesson + puzzle ----------
+  function gameCfg() {
+    var g = state.games = state.games || {};
+    if (!g.breath) g.breath = 'cairn';
+    if (!g.cairn) g.cairn = 'm';
+    if (!g.chess) g.chess = 'b';
+    if (!g.kind) g.kind = 'course';
+    g.best = g.best || {};
+    return g;
+  }
+  var CAIRN = { e: { n: 5, name: 'Easy', sub: '5 breaths' }, m: { n: 10, name: 'Medium', sub: '10 breaths' }, h: { n: 10, name: 'Hard', sub: 'dark + probes' } };
+  var CLEVEL = { b: 'Beginner', c: 'Club', s: 'Strong', x: 'Skip' };
+  var CKIND = { course: 'Course', mix: 'Mix', material: 'Win material', mate: 'Checkmates', endgame: 'Endgames', opening: 'Openings' };
+  var CKIND_TAGS = {
+    material: ['fork', 'pin', 'skewer', 'hanging', 'discovered', 'trapped', 'removedef', 'doublecheck', 'sacrifice', 'material'],
+    mate: ['mate1', 'mate2', 'mate3'],
+    endgame: ['eg-pawn', 'eg-rook', 'eg-minor', 'eg-queen', 'endgame'],
+    opening: ['opening']
+  };
+  function gOpt(attr, val, cur, label) { return '<button type="button" class="gopt" ' + attr + '="' + val + '" aria-pressed="' + (val === cur) + '">' + label + '</button>'; }
+
+  // --- setup screen (the first thing after the target check) ---
+  function setupHtml() {
+    var g = gameCfg(), h = '';
+    h += '<div><h1 style="font-size:30px;line-height:1.05">' + (g.chess === 'x' ? 'Breathe,<br><i class="lite">one stone at a time</i>' : 'Breathe, then<br><i class="lite">one chess lesson</i>') + '</h1></div>';
+    h += '<div class="gsec"><span class="eyebrow">Breathing</span><div class="optrow">' + gOpt('data-gbr', 'cairn', g.breath, 'Stone Cairn') + gOpt('data-gbr', 'circle', g.breath, 'Plain circle') + '</div></div>';
+    if (g.breath === 'cairn') {
+      h += '<div class="gsec"><span class="eyebrow">Difficulty</span><div class="optrow">' + Object.keys(CAIRN).map(function (k) { return gOpt('data-gcd', k, g.cairn, CAIRN[k].name + ' · ' + CAIRN[k].sub); }).join('') + '</div>' +
+        '<span class="gnote">' + (g.cairn === 'h' ? 'The screen stays dark and your count is hidden. A soft chime now and then asks which number you are on.' : 'Tap anywhere on each out-breath and a stone is set. Mind wandered? Tap “I drifted”. Noticing is the practice.') + '</span></div>';
+    } else {
+      h += '<div class="gsec"><span class="eyebrow">Length</span><div class="optrow">' + gOpt('data-gsecs', '60', String(ci.secs), '1 minute') + gOpt('data-gsecs', '120', String(ci.secs), '2 minutes') + '</div></div>';
+    }
+    h += '<div class="gsec"><span class="eyebrow">Chess level</span><div class="optrow">' + Object.keys(CLEVEL).map(function (k) { return gOpt('data-gcl', k, g.chess, CLEVEL[k]); }).join('') + '</div></div>';
+    if (g.chess !== 'x') {
+      h += '<div class="gsec"><span class="eyebrow">Puzzle kind</span><div class="optrow">' + Object.keys(CKIND).map(function (k) { return gOpt('data-gck', k, g.kind, CKIND[k]); }).join('') + '</div></div>';
+      if (g.kind === 'course') {
+        var li = (state.chess && state.chess.lesson) || 0, L = CH && CH.lessons[li % CH.lessons.length];
+        h += '<div class="gcourse"><span class="gk">♞</span><span><b>Course: lesson ' + (li % 40 + 1) + ' of ' + (CH ? CH.lessons.length : 40) + (L ? ' · ' + esc(L.title) : '') + '</b><small>Each check-in teaches one idea, then a puzzle uses it</small></span></div>';
+      }
+    }
+    h += '<div style="flex:1"></div><button type="button" class="btn solid" id="gBegin">Begin</button><button type="button" class="btn ghost" id="ciSkip">Skip to reflection</button>';
+    return h;
+  }
+  function bindSetup(o) {
+    var g = gameCfg();
+    var set = function (k, v) { g[k] = v; save(); drawCheckin(); };
+    o.querySelectorAll('[data-gbr]').forEach(function (b) { b.onclick = function () { set('breath', b.dataset.gbr); }; });
+    o.querySelectorAll('[data-gcd]').forEach(function (b) { b.onclick = function () { set('cairn', b.dataset.gcd); }; });
+    o.querySelectorAll('[data-gcl]').forEach(function (b) { b.onclick = function () { set('chess', b.dataset.gcl); }; });
+    o.querySelectorAll('[data-gck]').forEach(function (b) { b.onclick = function () { set('kind', b.dataset.gck); }; });
+    o.querySelectorAll('[data-gsecs]').forEach(function (b) { b.onclick = function () { ci.secs = +b.dataset.gsecs; ci.left = ci.secs; drawCheckin(); }; });
+    var bg = o.querySelector('#gBegin');
+    if (bg) bg.onclick = function () {
+      if (g.chess !== 'x') loadChess();
+      if (g.breath === 'cairn') { ci.cairn = { diff: g.cairn, n: 0, drifts: 0, pOk: 0, pMiss: 0, last: 0, probeAt: probePlan(g.cairn), t0: Date.now() }; ci.stage = 'cairn'; drawCheckin(); }
+      else { ci.stage = 'breathe'; drawCheckin(); startBreath(); }
+    };
+  }
+  // after the breathing part: chess (if on), else straight to the reflection
+  function afterBreath() {
+    var g = gameCfg();
+    if (g.chess === 'x') { ci.stage = 'reflect'; drawCheckin(); return; }
+    ci.stage = 'chessload'; drawCheckin();
+    loadChess().then(function () {
+      if (!ci || ci.stage !== 'chessload') return;
+      startChess(); drawCheckin();
+    }).catch(function () {
+      if (!ci) return;
+      toast('Chess needs the internet the first time'); ci.stage = 'reflect'; drawCheckin();
+    });
+  }
+
+  // --- Stone Cairn ---
+  function probePlan(d) {
+    if (d !== 'h') return [];
+    var a = 2 + Math.floor(Math.random() * 3), b = a + 3 + Math.floor(Math.random() * 3);
+    return [a, Math.min(b, 9)];
+  }
+  var STONES = ['#8FA89D', '#B7C7BF', '#6F8F83', '#C9D6CF', '#9BB3A8', '#DCE6E1', '#A7BDB2', '#7E9C90', '#C2D1C9', '#E4ECE8'];
+  function cairnSvg(n, total) {
+    var s = '', y = 330, w0 = 190;
+    for (var i = 0; i < n; i++) {
+      var w = Math.max(56, w0 - i * (w0 - 56) / Math.max(total - 1, 1)), hgt = Math.max(26, 58 - i * 3), jit = ((i * 37) % 11) - 5;
+      y -= hgt - 8;
+      s += '<g class="stone' + (i === n - 1 ? ' new' : '') + '"><ellipse cx="' + (150 + jit) + '" cy="' + (y + hgt / 2) + '" rx="' + (w / 2) + '" ry="' + (hgt / 2) + '" fill="' + STONES[i % STONES.length] + '"/><ellipse cx="' + (150 + jit) + '" cy="' + (y + hgt / 2 + 4) + '" rx="' + (w / 2 - 4) + '" ry="' + (hgt / 2 - 6) + '" fill="rgba(0,0,0,.12)"/></g>';
+    }
+    return '<svg class="cairn" viewBox="0 0 300 350" aria-hidden="true"><ellipse cx="150" cy="338" rx="120" ry="9" fill="rgba(0,0,0,.35)"/>' + s + '</svg>';
+  }
+  function cairnHtml() {
+    var c = ci.cairn, D = CAIRN[c.diff], g = gameCfg(), best = g.best[c.diff] || 0, hard = c.diff === 'h';
+    var h = '<div><span class="eyebrow">Stone Cairn · ' + D.name + '</span></div>';
+    if (c.probe) {
+      h += '<div class="gprobe"><span class="gglow"></span><h1 style="font-size:30px;text-align:center">Which number<br><i class="lite">are you on?</i></h1><div class="gnums">' +
+        [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(function (n) { return '<button type="button" data-gnum="' + n + '">' + n + '</button>'; }).join('') + '</div>' +
+        '<span class="gnote" style="text-align:center">Right answer keeps your stones.</span></div>';
+      return h;
+    }
+    if (c.msg) h += '<div class="gmsg">' + c.msg + '</div>';
+    if (!hard) h += '<div class="row between" style="align-items:flex-end"><span class="display gcount">' + c.n + '<small> / ' + D.n + '</small></span><span class="gnote" style="text-align:right">' + (c.drifts ? 'drifted ' + (c.drifts === 1 ? 'once' : c.drifts + ' times') : 'no drift yet') + '<br>best cairn ' + best + '</span></div>';
+    h += '<button type="button" class="gtap' + (hard ? ' hard' : '') + (c.fall ? ' fall' : '') + '" id="gTap" aria-label="Tap on each out-breath">' + (hard ? '<span class="gglow"></span>' : cairnSvg(c.n, D.n)) + '<span class="gtip">' + (c.n ? 'tap on the next out-breath' : 'breathe in… and tap as you breathe out') + '</span></button>';
+    h += '<button type="button" class="btn ghost" id="gDrift">I drifted</button>';
+    return h;
+  }
+  function chime() {
+    try {
+      var ac = window.__ac || (window.__ac = new (window.AudioContext || window.webkitAudioContext)()), t = ac.currentTime;
+      [528, 792].forEach(function (f, i) {
+        var o = ac.createOscillator(), g = ac.createGain(); o.frequency.value = f; o.type = 'sine';
+        g.gain.setValueAtTime(0, t + i * .12); g.gain.linearRampToValueAtTime(.12, t + i * .12 + .03); g.gain.exponentialRampToValueAtTime(.001, t + i * .12 + 1.6);
+        o.connect(g); g.connect(ac.destination); o.start(t + i * .12); o.stop(t + i * .12 + 1.7);
+      });
+    } catch (e) {}
+  }
+  function bindCairn(o) {
+    var c = ci.cairn, D = CAIRN[c.diff];
+    o.querySelectorAll('[data-gnum]').forEach(function (b) {
+      b.onclick = function () {
+        var n = +b.dataset.gnum; c.probe = false;
+        if (n === c.n) { c.pOk++; c.msg = '✓ Yes, ' + n + '. Keep going.'; }
+        else { c.pMiss++; c.drifts++; c.msg = 'You were on ' + c.n + '. The cairn starts again.'; c.n = 0; c.probeAt = probePlan('h'); }
+        drawCheckin();
+      };
+    });
+    var tap = o.querySelector('#gTap');
+    if (tap) tap.onclick = function () {
+      var now = Date.now();
+      if (now - c.last < 1500) { c.msg = 'Slower: one tap for each out-breath.'; c.last = now; drawCheckin(); return; }
+      c.last = now; c.msg = ''; c.n++; c.fall = false;
+      if (navigator.vibrate) navigator.vibrate(18);
+      if (c.n >= D.n) {
+        var g = gameCfg(); g.best[c.diff] = Math.max(g.best[c.diff] || 0, c.n); save();
+        c.done = true; ci.done = Math.round((now - c.t0) / 1000);
+        if (navigator.vibrate) navigator.vibrate([60, 60, 120]);
+        c.msg = '✓ Cairn of ' + c.n + (c.drifts ? '' : ', no drift') + '.';
+        drawCheckin(); setTimeout(function () { if (ci && ci.stage === 'cairn') afterBreath(); }, 1300);
+        return;
+      }
+      if (c.probeAt.indexOf(c.n) >= 0) {
+        c.probeAt = c.probeAt.filter(function (x) { return x !== c.n; });
+        drawCheckin();
+        setTimeout(function () { if (ci && ci.stage === 'cairn') { chime(); c.probe = true; drawCheckin(); } }, 1600 + Math.random() * 1500);
+        return;
+      }
+      drawCheckin();
+    };
+    var dr = o.querySelector('#gDrift');
+    if (dr) dr.onclick = function () {
+      c.drifts++; c.fall = c.n > 0; c.msg = 'Noticed. That is the practice. Start a new cairn.';
+      drawCheckin();
+      setTimeout(function () { if (ci && ci.stage === 'cairn') { c.n = 0; c.fall = false; drawCheckin(); } }, c.fall ? 700 : 0);
+    };
+  }
+
+  // --- chess data + rules (loaded the first time chess is used) ---
+  var CH = null, chLoading = null;
+  function loadScript(src) { return new Promise(function (res, rej) { var s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = rej; document.head.appendChild(s); }); }
+  function loadChess() {
+    if (CH && window.Chess) return Promise.resolve(CH);
+    if (chLoading) return chLoading;
+    chLoading = Promise.all([window.Chess ? 1 : loadScript('chesslib.js'), fetch('chess.json').then(function (r) { if (!r.ok) throw new Error('no chess'); return r.json(); })])
+      .then(function (a) { CH = a[1]; return CH; }).catch(function (e) { chLoading = null; throw e; });
+    return chLoading;
+  }
+  function chessState() { var c = state.chess = state.chess || {}; c.lesson = c.lesson || 0; c.log = c.log || []; c.seen = c.seen || []; return c; }
+  function pickPuzzle(tags, lvl, avoid) {
+    var cs = chessState(), seen = {}; cs.seen.forEach(function (i) { seen[i] = 1; }); if (avoid != null) seen[avoid] = 1;
+    var L = { b: 0, c: 1, s: 2 }[lvl]; if (L == null) L = 0;
+    var match = function (p) { return !tags || tags.some(function (t) { return p.t.indexOf(t) >= 0; }); };
+    var prim = function (p) { return !tags || p.t.indexOf(tags[0]) >= 0; };
+    var tries = [
+      function (p, i) { return !seen[i] && p.d === L && prim(p); },
+      function (p, i) { return !seen[i] && Math.abs(p.d - L) <= 1 && prim(p); },
+      function (p, i) { return !seen[i] && p.d === L && match(p); },
+      function (p, i) { return !seen[i] && Math.abs(p.d - L) <= 1 && match(p); },
+      function (p, i) { return !seen[i] && match(p); },
+      function (p, i) { return p.d === L && match(p); },
+      function (p, i) { return !seen[i] && p.d === L; },
+      function () { return true; }
+    ];
+    for (var k = 0; k < tries.length; k++) {
+      var pool = []; CH.puzzles.forEach(function (p, i) { if (tries[k](p, i)) pool.push(i); });
+      if (pool.length) return pool[Math.floor(Math.random() * pool.length)];
+    }
+    return 0;
+  }
+  function lessonFor(p) {
+    if (p.pt) for (var j = 0; j < CH.lessons.length; j++) if (CH.lessons[j].tags[0] === p.pt) return CH.lessons[j];
+    for (var i = 0; i < CH.lessons.length; i++) if (CH.lessons[i].tags && p.t.indexOf(CH.lessons[i].tags[0]) >= 0 && CH.lessons[i].tags[0] !== 'any') return CH.lessons[i];
+    return null;
+  }
+  function startChess(again) {
+    var g = gameCfg(), cs = chessState(), L = null, tags = null;
+    if (g.kind === 'course') { L = CH.lessons[cs.lesson % CH.lessons.length]; tags = L.tags[0] === 'any' ? null : L.tags; }
+    else if (CKIND_TAGS[g.kind]) tags = CKIND_TAGS[g.kind];
+    var id = pickPuzzle(tags, g.chess, again ? ci.pz && ci.pz.id : null);
+    ci.pz = { id: id, lesson: L, step: 0, tries: 0, hint: 0, t0: Date.now() };
+    pzReset();
+    ci.stage = L && !again && !ci.lessonSeen ? 'lesson' : 'puzzle';
+  }
+  function pzReset() {
+    var P = CH.puzzles[ci.pz.id];
+    ci.pz.game = new window.Chess(P.f);
+    ci.pz.me = ci.pz.game.turn();
+    ci.pz.sel = null; ci.pz.step = 0; ci.pz.res = null; ci.pz.lastMv = P.lm ? [P.lm.slice(0, 2), P.lm.slice(2, 4)] : null;
+  }
+
+  // --- board drawing (pieces: cburnett set, see style.css) ---
+  var FILES = 'abcdefgh';
+  function fenBoard(fen) {
+    var rows = fen.split(' ')[0].split('/'), b = {};
+    rows.forEach(function (r, ri) { var f = 0; for (var i = 0; i < r.length; i++) { var ch = r[i]; if (/\d/.test(ch)) f += +ch; else { b[FILES[f] + (8 - ri)] = (ch === ch.toUpperCase() ? 'w' : 'b') + ch.toLowerCase(); f++; } } });
+    return b;
+  }
+  function boardHtml(o) {
+    var B = fenBoard(o.fen), flip = !!o.flip, h = '<div class="cboard' + (o.small ? ' small' : '') + '"' + (o.id ? ' id="' + o.id + '"' : '') + '><div class="cgrid">';
+    for (var r = 0; r < 8; r++) for (var f = 0; f < 8; f++) {
+      var rank = flip ? r + 1 : 8 - r, file = flip ? 7 - f : f, sq = FILES[file] + rank, light = (file + rank) % 2 === 1;
+      var cls = 'sq ' + (light ? 'l' : 'd');
+      if (o.last && o.last.indexOf(sq) >= 0) cls += ' lm';
+      if (o.hi && o.hi.indexOf(sq) >= 0) cls += ' hi';
+      if (o.bad && o.bad.indexOf(sq) >= 0) cls += ' bad';
+      if (o.sel === sq) cls += ' sel';
+      var pc = B[sq], dot = o.dots && o.dots.indexOf(sq) >= 0;
+      var coord = (f === 0 ? '<i class="rk">' + rank + '</i>' : '') + (r === 7 ? '<i class="fl">' + FILES[file] + '</i>' : '');
+      h += (o.static ? '<span' : '<button type="button"') + ' class="' + cls + '" data-sq="' + sq + '" aria-label="' + sq + (pc ? ' ' + PNAME[pc[1]] : '') + '">' + coord + (pc ? '<span class="cp ' + pc + '"></span>' : '') + (dot ? '<b class="' + (pc ? 'cap' : 'dot') + '"></b>' : '') + (o.static ? '</span>' : '</button>');
+    }
+    h += '</div>';
+    if (o.arrows && o.arrows.length) {
+      var xy = function (sq) { var fi = FILES.indexOf(sq[0]), ra = +sq[1]; return flip ? [7 - fi + .5, ra - .5] : [fi + .5, 8 - ra + .5]; };
+      h += '<svg class="carrows" viewBox="0 0 8 8" aria-hidden="true"><defs><marker id="amk" markerWidth="3" markerHeight="3" refX="1.4" refY="1.5" orient="auto"><path d="M0 0L3 1.5L0 3z" fill="#FFB23F"/></marker><marker id="amc" markerWidth="3" markerHeight="3" refX="1.4" refY="1.5" orient="auto"><path d="M0 0L3 1.5L0 3z" fill="#FF6B57"/></marker></defs>' +
+        o.arrows.map(function (a) { var p = xy(a[0]), q = xy(a[1]), dx = q[0] - p[0], dy = q[1] - p[1], L = Math.sqrt(dx * dx + dy * dy) || 1, k = (L - .42) / L; return '<line x1="' + p[0] + '" y1="' + p[1] + '" x2="' + (p[0] + dx * k).toFixed(2) + '" y2="' + (p[1] + dy * k).toFixed(2) + '" stroke="' + (a[2] === 't' ? '#FF6B57' : '#FFB23F') + '" stroke-width=".2" stroke-linecap="round" opacity=".92" marker-end="url(#' + (a[2] === 't' ? 'amc' : 'amk') + ')"/>'; }).join('') + '</svg>';
+    }
+    return h + '</div>';
+  }
+  var PNAME = { p: 'pawn', n: 'knight', b: 'bishop', r: 'rook', q: 'queen', k: 'king' };
+
+  // --- lesson card ---
+  function lessonHtml() {
+    var L = ci.pz.lesson, cs = chessState(), ex = L.ex != null ? CH.puzzles[L.ex] : null;
+    var h = '<div class="row between"><span class="eyebrow">Lesson ' + (cs.lesson % CH.lessons.length + 1) + ' of ' + CH.lessons.length + ' · ' + esc(L.group) + '</span></div>';
+    h += '<h1 style="font-size:34px;line-height:1">' + esc(L.title) + '</h1>';
+    h += '<p class="gbody">' + L.body + '</p>';
+    if (ex) {
+      var fl = ex.f.split(' ')[1] === 'b';
+      h += boardHtml({ fen: ex.f, flip: fl, static: true, small: true, hi: [ex.l[0].slice(0, 2)], arrows: ex.a || [[ex.l[0].slice(0, 2), ex.l[0].slice(2, 4), 'k']] });
+      h += '<span class="gnote">Example: ' + (fl ? 'Black' : 'White') + ' plays <b>' + esc(ex.s[0]) + '</b>. ' + esc(ex.e || '') + '</span>';
+    }
+    h += '<div class="gtipbox"><b>Remember</b> · ' + L.tip + '</div>';
+    h += '<div style="flex:1"></div><button type="button" class="btn solid" id="gTry">Got it · try a puzzle</button><button type="button" class="btn ghost" id="ciSkip">Skip to reflection</button>';
+    return h;
+  }
+
+  // --- puzzle ---
+  function puzzleTitle(P) {
+    var side = ci.pz.me === 'w' ? 'White' : 'Black';
+    if (P.t.indexOf('mate1') >= 0) return side + ' to move.<br><i class="lite">Checkmate in one</i>';
+    if (P.t.indexOf('mate2') >= 0) return side + ' to move.<br><i class="lite">Mate in two</i>';
+    if (P.t.indexOf('mate3') >= 0) return side + ' to move.<br><i class="lite">Mate in three</i>';
+    return side + ' to move.<br><i class="lite">Find a good move</i>';
+  }
+  function puzzleHtml() {
+    var pz = ci.pz, P = CH.puzzles[pz.id], g = gameCfg(), G = pz.game;
+    var dots = [], hi = [];
+    if (pz.sel) G.moves({ square: pz.sel, verbose: true }).forEach(function (m) { if (dots.indexOf(m.to) < 0) dots.push(m.to); });
+    var key = P.l[pz.step * 2];
+    if (pz.hint >= 1 && key) hi.push(key.slice(0, 2));
+    var arrows = pz.hint >= 2 && key ? [[key.slice(0, 2), key.slice(2, 4), 'k']] : null;
+    var h = '<div class="row between"><span class="eyebrow">' + (pz.lesson ? 'Puzzle · uses lesson ' + (chessState().lesson % CH.lessons.length + 1) : 'Puzzle · ' + CKIND[g.kind]) + '</span><button type="button" class="btn ghost small" id="gSkipP">Skip</button></div>';
+    h += '<div class="row between" style="align-items:flex-start"><h1 style="font-size:28px;line-height:1.05">' + puzzleTitle(P) + '</h1><span class="gpill">' + ['Beginner', 'Club', 'Strong'][P.d] + '</span></div>';
+    h += boardHtml({ fen: G.fen(), flip: pz.me === 'b', sel: pz.sel, dots: dots, hi: hi, last: pz.lastMv, bad: pz.bad, arrows: arrows, id: 'cb' });
+    h += '<div class="gmsg' + (pz.msgBad ? ' bad' : '') + '" id="gPzMsg">' + (pz.msg || (pz.step ? '✓ Correct. Keep going.' : 'Any good move counts. The best move earns a ★.')) + '</div>';
+    h += '<div style="flex:1"></div><div class="row" style="gap:10px"><button type="button" class="btn ghost" style="flex:1" id="gHint">' + (pz.hint >= 2 ? 'Show answer' : '💡 Hint') + '</button><button type="button" class="btn ghost" style="flex:1" id="gAnother">Another</button></div>';
+    return h;
+  }
+  function uciOf(m) { return m.from + m.to + (m.promotion || ''); }
+  function sanList(fen, ucis) {
+    try { var G = new window.Chess(fen), out = []; ucis.forEach(function (u) { var m = G.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] || 'q' }); if (m) out.push(m.san); }); return out; } catch (e) { return []; }
+  }
+  function evText(v) { if (v >= 90000) return 'forced mate'; if (v <= -90000) return 'you get mated'; var p = v / 100; return (p > 0 ? '+' : '') + p.toFixed(1); }
+  function bindPuzzle(o) {
+    var pz = ci.pz, P = CH.puzzles[pz.id];
+    o.querySelectorAll('.cboard .sq').forEach(function (b) {
+      b.onclick = function () {
+        if (pz.busy) return;
+        var sq = b.dataset.sq, G = pz.game, pc = G.get(sq);
+        if (pz.sel) {
+          var mv = G.moves({ square: pz.sel, verbose: true }).filter(function (m) { return m.to === sq; });
+          if (mv.length) { playerMove(mv.filter(function (m) { return !m.promotion || m.promotion === 'q'; })[0] || mv[0]); return; }
+        }
+        pz.sel = pc && pc.color === pz.me && pz.sel !== sq ? sq : null; pz.msg = pz.msg && pz.msgBad ? pz.msg : pz.msg; drawCheckin();
+      };
+    });
+    o.querySelector('#gHint').onclick = function () {
+      if (pz.hint >= 2) { pz.res = { grade: 'shown' }; ci.stage = 'pzdone'; drawCheckin(); return; }
+      pz.hint++; pz.msg = pz.hint === 1 ? 'Look at the highlighted piece.' : 'Here is the move. Play it on the board.'; pz.msgBad = false; drawCheckin();
+    };
+    o.querySelector('#gAnother').onclick = function () { logPuzzle(pz, 'skip'); startChess(true); drawCheckin(); };
+    o.querySelector('#gSkipP').onclick = function () { logPuzzle(pz, 'skip'); ci.stage = 'reflect'; drawCheckin(); };
+  }
+  function playerMove(m) {
+    var pz = ci.pz, P = CH.puzzles[pz.id], G = pz.game, u = uciOf(m), grades = (P.g || [])[pz.step] || {}, main = P.l[pz.step * 2];
+    var gr = grades[u] || grades[u.slice(0, 4)] || null, fenBefore = G.fen();
+    G.move({ from: m.from, to: m.to, promotion: m.promotion || 'q' });
+    pz.sel = null; pz.lastMv = [m.from, m.to]; pz.bad = null;
+    var isMain = u === main || u.slice(0, 4) === main.slice(0, 4);
+    if (!isMain && G.in_checkmate()) gr = ['b', 99999];
+    if (isMain) {
+      if (pz.step * 2 + 1 < P.l.length) {
+        pz.busy = true; pz.msg = '✓ Correct. Keep going.'; pz.msgBad = false; drawCheckin();
+        setTimeout(function () {
+          if (!ci || ci.stage !== 'puzzle') return;
+          var r = P.l[pz.step * 2 + 1]; G.move({ from: r.slice(0, 2), to: r.slice(2, 4), promotion: r[4] || 'q' });
+          pz.lastMv = [r.slice(0, 2), r.slice(2, 4)]; pz.step++; pz.hint = 0; pz.busy = false; pz.msg = '✓ Correct. Keep going.'; drawCheckin();
+        }, 650);
+        return;
+      }
+      pz.res = { grade: pz.hint ? 'hint' : 'best', san: m.san };
+    } else if (gr && gr[0] === 'b') {
+      pz.res = { grade: pz.hint ? 'hint' : 'best', san: m.san, alt: true, ev: gr[1] };
+    } else if (gr && gr[0] === 'g') {
+      pz.res = { grade: 'good', san: m.san, ev: gr[1], check: G.in_check(), cap: m.captured, fenBefore: fenBefore };
+    } else if (gr && gr[0] === 'o') {
+      pz.res = { grade: 'ok', san: m.san, ev: gr[1], fenBefore: fenBefore };
+    } else {
+      pz.tries++; pz.busy = true; pz.bad = [m.from, m.to];
+      pz.msg = '✕ ' + m.san + ' lets the advantage slip.' + (pz.tries >= 2 ? ' Try the hint.' : ' Look again.'); pz.msgBad = true; drawCheckin();
+      if (navigator.vibrate) navigator.vibrate(40);
+      setTimeout(function () { if (!ci || ci.stage !== 'puzzle') return; G.undo(); pz.busy = false; pz.bad = null; pz.lastMv = null; drawCheckin(); }, 900);
+      return;
+    }
+    ci.stage = 'pzdone'; drawCheckin();
+  }
+  function logPuzzle(pz, grade) {
+    if (!pz || pz.logged) return; pz.logged = true;
+    var cs = chessState();
+    cs.log.push({ id: pz.id, g: grade, d: dkey(new Date()), t: new Date().toISOString(), s: Math.round((Date.now() - pz.t0) / 1000) });
+    if (cs.log.length > 600) cs.log = cs.log.slice(-600);
+    cs.seen.push(pz.id); if (cs.seen.length > 400) cs.seen = cs.seen.slice(-400);
+    ci.chessRes = { id: pz.id, g: grade };
+  }
+  function pzDoneHtml() {
+    var pz = ci.pz, P = CH.puzzles[pz.id], r = pz.res, best = sanList(P.f, P.l), h = '';
+    var bestLine = best.map(function (s, i) { return (i % 2 ? '<span class="opp">' + s + '</span>' : '<b>' + s + '</b>'); }).join(' ');
+    var after = P.n ? ' Then: ' + esc(P.n) + '.' : '';
+    h += '<div class="row between"><span class="eyebrow">' + (pz.lesson ? 'Puzzle · uses lesson ' + (chessState().lesson % CH.lessons.length + 1) : 'Puzzle · ' + CKIND[gameCfg().kind]) + '</span></div>';
+    var big = function (ic, cls, t, sub) { return '<div class="gres"><span class="gic ' + cls + '">' + ic + '</span><div><h1 style="font-size:26px;line-height:1.1">' + t + '</h1><span class="gnote">' + sub + '</span></div></div>'; };
+    if (r.grade === 'best' || r.grade === 'hint') {
+      h += big(r.grade === 'best' ? '★' : '✓', 'ok', (r.alt ? 'That works too · ' : P.t.indexOf('mate1') >= 0 || /#/.test(r.san) ? 'Checkmate · ' : 'Best move · ') + esc(r.san), r.grade === 'best' ? 'Solved' + (pz.tries ? ' after ' + pz.tries + ' tr' + (pz.tries > 1 ? 'ies' : 'y') : ' first go') + ' · +5 XP' : 'Solved with a hint · +3 XP');
+      h += boardHtml({ fen: pz.game.fen(), flip: pz.me === 'b', static: true, last: pz.lastMv });
+      h += '<div class="gtipbox"><b>Why it works</b> · ' + esc(P.e || '') + (r.alt ? ' The line we had in mind: ' + bestLine + '.' : best.length > 1 ? ' The whole line: ' + bestLine + '.' : '') + after + '</div>';
+    } else if (r.grade === 'good') {
+      h += big('✓', 'ok', 'Good move · ' + esc(r.san), (r.check ? 'Check, and ' : '') + (r.cap ? 'it wins the ' + PNAME[r.cap] + '. ' : 'you stay ahead. ') + 'Engine: ' + evText(r.ev) + ' · +3 XP');
+      h += boardHtml({ fen: r.fenBefore, flip: pz.me === 'b', static: true, hi: [P.l[pz.step * 2].slice(0, 2)], arrows: pz.step === 0 && P.a ? P.a : [[P.l[pz.step * 2].slice(0, 2), P.l[pz.step * 2].slice(2, 4), 'k']] });
+      h += '<div class="gtipbox"><b>★ Even stronger: ' + esc(best[pz.step * 2] || '') + '</b><br>' + esc(P.e || '') + after + '</div>';
+    } else if (r.grade === 'ok') {
+      h += big('~', 'mid', 'Playable · ' + esc(r.san), 'Nothing lost, but there was more here. Engine: ' + evText(r.ev));
+      h += boardHtml({ fen: r.fenBefore, flip: pz.me === 'b', static: true, arrows: pz.step === 0 && P.a ? P.a : [[P.l[pz.step * 2].slice(0, 2), P.l[pz.step * 2].slice(2, 4), 'k']] });
+      h += '<div class="gtipbox"><b>The strong move: ' + esc(best[pz.step * 2] || '') + '</b><br>' + esc(P.e || '') + after + '</div>';
+    } else {
+      h += big('→', 'mid', 'The answer: ' + esc(best[0] || ''), 'No XP this time. See it once and it sticks.');
+      h += boardHtml({ fen: P.f, flip: pz.me === 'b', static: true, arrows: P.a || [[P.l[0].slice(0, 2), P.l[0].slice(2, 4), 'k']] });
+      h += '<div class="gtipbox">' + esc(P.e || '') + (best.length > 1 ? ' The whole line: ' + bestLine + '.' : '') + after + '</div>';
+    }
+    var L = pz.lesson || lessonFor(P);
+    if (L && !pz.lesson) h += '<div class="gtipbox lite"><b>Lesson · ' + esc(L.title) + '</b><br>' + L.tip + '</div>';
+    h += '<div style="flex:1"></div><div class="row" style="gap:10px">' + (r.grade === 'good' || r.grade === 'ok' ? '<button type="button" class="btn ghost" style="flex:1" id="gRetry">Try the best</button>' : '<button type="button" class="btn ghost" style="flex:1" id="gAnother2">Another puzzle</button>') + '<button type="button" class="btn solid" style="flex:1" id="gCont">Continue</button></div>';
+    return h;
+  }
+  function bindPzDone(o) {
+    var pz = ci.pz, r = pz.res;
+    if (!pz.logged) mutate(function () {
+      logPuzzle(pz, r.grade);
+      if (pz.lesson && (r.grade === 'best' || r.grade === 'good' || r.grade === 'hint')) { chessState().lesson++; ci.lessonSeen = true; }
+    });
+    var rt = o.querySelector('#gRetry'); if (rt) rt.onclick = function () {
+      var P = CH.puzzles[pz.id], G = pz.game; G.load(r.fenBefore); pz.lastMv = null; pz.res = null; pz.hint = 1; pz.msg = 'Find the stronger move. The piece is highlighted.'; pz.msgBad = false;
+      pz.logged = true; ci.stage = 'puzzle'; drawCheckin();
+    };
+    var an = o.querySelector('#gAnother2'); if (an) an.onclick = function () { ci.lessonSeen = true; startChess(true); drawCheckin(); };
+    o.querySelector('#gCont').onclick = function () { ci.stage = 'reflect'; drawCheckin(); };
+  }
+  // XP for the chess puzzles (added to the day's XP)
+  function chessXp(dk) {
+    var x = 0; ((state.chess || {}).log || []).forEach(function (e) { if (e.d !== dk) return; x += e.g === 'best' ? 5 : e.g === 'good' || e.g === 'hint' ? 3 : 0; });
+    return Math.min(x, 40);
+  }
+
+  // ---------- Think: first-principles tool (question → delete → physics floor → simplify → speed → automate → test) ----------
+  var tk = null, tkSaveT = null;
+  var TK_RAIL = ['Question', 'Delete', 'Physics', 'Simplify', 'Speed', 'Automate', 'Test'];
+  var TK_FULL = ['q', 'del', 'phys', 'ssa', 'red', 'test'];
+  var TK_MODES = {
+    full: { ic: '⚙️', t: 'The full algorithm · 25 min', s: 'Question → Delete → Physics floor → Simplify → Speed → Automate → Test', pages: TK_FULL },
+    idiot: { ic: '🧮', t: 'Idiot index · 5 min', s: 'What it costs vs. what its raw materials cost', pages: ['phys'] },
+    red: { ic: '🔥', t: 'Red team · 5 min', s: 'AI attacks your idea as hard as it can', pages: ['red'] },
+    fermi: { ic: '📏', t: 'Fermi estimate · 3 min', s: 'Get the order of magnitude in your head', pages: ['fermi'] }
+  };
+  var VAGUE = /^\s*$|standard|everyone|every one|always|industry|customers? expect|market|nobody|no one|don.?t know|not sure|usual|convention|norm|spec sheet says|they say|tradition/i;
+  function ideas() { return (state.ideas = state.ideas || []); }
+  function ideaById(id) { return ideas().filter(function (x) { return x.id === id; })[0]; }
+  function newIdea(title, mode) {
+    var x = { id: 'i' + Date.now().toString(36), title: title, mode: mode || 'full', created: new Date().toISOString(), updated: new Date().toISOString(), reqs: [], parts: [], mats: [], price: '', target: '', truths: [], limit: '', simplify: [], speed: [], automate: [], attacks: [], conf: 50, rebuilt: '', test: { what: '', cost: '', time: '', pass: '' }, chat: [], fermi: null };
+    ideas().unshift(x); save(); return x;
+  }
+  function tkSave() { var x = tk && ideaById(tk.id); if (x) x.updated = new Date().toISOString(); clearTimeout(tkSaveT); tkSaveT = setTimeout(save, 250); }
+  function setPath(o, path, v) { var p = path.split('.'); for (var i = 0; i < p.length - 1; i++) o = o[p[i]]; o[p[p.length - 1]] = v; }
+  function hasAI() { return !!state.aiKey; }
+  function noAI() { return '<span class="tknote">AI suggestions need your Gemini key (Settings → Visualization). You can fill everything in by hand.</span>'; }
+  function aiBtn(kind, label) { return hasAI() ? '<button type="button" class="tkai" data-tkai="' + kind + '"' + (tk.busy ? ' disabled' : '') + '>' + (tk.busy === kind ? 'Thinking…' : '✨ ' + label) + '</button>' : ''; }
+  function coachBox(t, lab) { return '<div class="tkcoach"><b>' + (lab || 'Coach') + '</b> · ' + t + '</div>'; }
+  function floorOf(x) { return x.mats.reduce(function (a, m) { return a + (+m.cost || 0); }, 0); }
+  function idx(price, floor) { price = +price || 0; if (!price || !floor) return null; var v = price / floor; return v >= 10 ? Math.round(v) : Math.round(v * 10) / 10; }
+  function rupee(n) { return '₹' + Math.round(+n || 0).toLocaleString('en-IN'); }
+  function reqFlag(r) { return VAGUE.test(r.owner || ''); }
+  function tkRailIdx(x, page) {
+    if (page === 'q') return 0; if (page === 'del') return 1; if (page === 'phys') return 2;
+    if (page === 'ssa') return x.simplify.filter(Boolean).length < 3 ? 3 : x.speed.filter(Boolean).length < 1 ? 4 : 5;
+    return 6;
+  }
+  function tkRail(x, page) {
+    var cur = tkRailIdx(x, page);
+    return '<div class="tkrail">' + TK_RAIL.map(function (s, k) { return '<button type="button" data-tkrail="' + k + '" class="' + (k <= cur ? 'on' : '') + (k === cur ? ' cur' : '') + '"><i></i><span>' + s + '</span></button>'; }).join('') + '</div>';
+  }
+
+  function openThink(id, page) {
+    resetOverlay(); closeSheet();
+    tk = { id: id || null, page: page || (id ? null : 'start'), mode: 'full', title: '', busy: null };
+    if (id) { var x = ideaById(id); if (!x) { tk = null; return; } tk.page = page || x.last || TK_MODES[x.mode].pages[0]; }
+    drawThink(); showOverlay('tko');
+  }
+  function closeThink() { var x = tk && ideaById(tk.id); if (x) { x.last = tk.page; save(); } tk = null; closeOverlayEl(); render(); }
+  function drawThink() {
+    var o = document.getElementById('overlay'), x = tk.id ? ideaById(tk.id) : null, pg = tk.page, keep = tk.keepScroll ? o.scrollTop : 0;
+    var h = '<div class="inner tk">';
+    if (pg === 'start') h += tkStart();
+    else if (pg === 'drill') h += drillHtml();
+    else if (!x) h += '<p>Not found.</p>';
+    else if (pg === 'q') h += tkQuestion(x);
+    else if (pg === 'del') h += tkDelete(x);
+    else if (pg === 'phys') h += tkPhys(x);
+    else if (pg === 'ssa') h += tkSSA(x);
+    else if (pg === 'red') h += tkRed(x);
+    else if (pg === 'test') h += tkTest(x);
+    else if (pg === 'tree') h += tkTree(x);
+    else if (pg === 'chat') h += tkChat(x);
+    else if (pg === 'fermi') h += tkFermi(x);
+    o.innerHTML = h + '</div>';
+    o.scrollTop = keep; tk.keepScroll = false;
+    bindThink(o, x);
+  }
+  function tkHead(x, cap, right) {
+    return '<div class="row between"><span class="eyebrow">' + cap + '</span><div class="row" style="gap:8px">' + (right || '') + '<button type="button" class="btn ghost small" id="tkClose">Close</button></div></div>' +
+      (x ? '<button type="button" class="tkidea" data-tkgo="tree">' + esc(x.title) + '</button>' : '');
+  }
+  function tkFoot(x, pg) {
+    var pages = TK_MODES[x.mode].pages, i = pages.indexOf(pg), prev = i > 0 ? pages[i - 1] : null, next = i >= 0 && i < pages.length - 1 ? pages[i + 1] : null;
+    return '<div class="tkfoot"><button type="button" class="btn ghost small" data-tkgo="chat">💬 Talk it through</button><div class="row" style="gap:8px">' +
+      (prev ? '<button type="button" class="btn ghost" data-tkgo="' + prev + '">Back</button>' : '') +
+      (next ? '<button type="button" class="btn solid" data-tkgo="' + next + '">Next</button>' : '<button type="button" class="btn solid" data-tkgo="tree">Done · see tree</button>') + '</div></div>';
+  }
+
+  // --- start ---
+  function tkStart() {
+    var h = '<div class="row between"><span class="eyebrow">Think · first principles</span><button type="button" class="btn ghost small" id="tkClose">Close</button></div>';
+    h += '<div class="hero tkhero" style="background:' + T.jungle + ';color:#fff">' + sun('rgba(255,178,63,.28)', 130, -34, -44) + '<span class="cap">Reason from physics, not analogy</span><span class="display" style="font-size:30px;line-height:1.05">What are you trying<br><i class="lite">to make true?</i></span>' +
+      '<textarea class="text" id="tkTitle" rows="2" placeholder="e.g. an e-bike torque sensor at a third of today’s price">' + esc(tk.title) + '</textarea></div>';
+    h += '<span class="eyebrow">How deep?</span><div class="stack" style="gap:10px">' + Object.keys(TK_MODES).map(function (k) {
+      var m = TK_MODES[k]; return '<button type="button" class="tkmode' + (tk.mode === k ? ' on' : '') + '" data-tkmode="' + k + '"><span class="ic">' + m.ic + '</span><span><b>' + m.t + '</b><small>' + m.s + '</small></span></button>';
+    }).join('') + '</div>';
+    h += '<div style="flex:1"></div><button type="button" class="btn coral" id="tkStart">Start</button>';
+    return h;
+  }
+
+  // --- 1 question every requirement ---
+  function tkQuestion(x) {
+    var n = x.reqs.length, fl = x.reqs.filter(reqFlag).length, cut = x.reqs.filter(function (r) { return r.tag === 'del' || r.tag === 'less'; }).length;
+    var h = tkHead(x, 'Step 1 of 7 · Question') + '<h1 class="tkh">Every requirement<br><i class="lite">needs a name on it</i></h1>' + tkRail(x, 'q');
+    h += '<p class="tksub">List everything this “must” be or do: specs, sizes, prices, standards. Then write the <b>person</b> who asked for each one, not a department or “the industry”.</p>';
+    h += '<div class="tklist">' + x.reqs.map(function (r, i) {
+      var bad = reqFlag(r);
+      return '<div class="tkitem"><div class="row" style="gap:8px"><input class="tkin b" data-f="reqs.' + i + '.t" value="' + esc(r.t) + '" placeholder="Requirement"><button type="button" class="tkx" data-tkdel="reqs.' + i + '" aria-label="Remove">✕</button></div>' +
+        '<label class="tkowner' + (bad ? ' bad' : '') + '">👤 <input data-f="reqs.' + i + '.owner" value="' + esc(r.owner || '') + '" placeholder="Who asked for this? A person’s name"></label>' +
+        '<span class="tkflag"' + (bad ? '' : ' hidden') + '>' + (r.owner ? 'That’s analogy, not a person. Who exactly?' : 'No person owns this yet.') + '</span>' +
+        '<input class="tkin s" data-f="reqs.' + i + '.note" value="' + esc(r.note || '') + '" placeholder="Why? Physics, or just habit?">' +
+        '<div class="tkchips">' + [['keep', 'Keep'], ['less', 'Less dumb'], ['del', 'Delete']].map(function (c) { return '<button type="button" data-tktag="reqs.' + i + '" data-v="' + c[0] + '" aria-pressed="' + (r.tag === c[0]) + '" class="c-' + c[0] + '">' + c[1] + '</button>'; }).join('') + '</div></div>';
+    }).join('') + '</div>';
+    h += '<div class="row" style="gap:8px;flex-wrap:wrap"><button type="button" class="btn ghost small" data-tkadd="reqs">+ Add requirement</button>' + aiBtn('reqs', 'Suggest requirements') + '</div>' + (hasAI() ? '' : noAI());
+    h += coachBox(!n ? 'Start with what everyone “knows” this must be. The most dangerous requirements come from smart people, because nobody questions them.' :
+      fl ? fl + ' of ' + n + ' have no real person behind them. “Industry standard” or “customers expect it” is <b>analogy</b>, not physics. Challenge those first.' :
+      cut ? 'Good: ' + cut + ' requirement' + (cut > 1 ? 's' : '') + ' made less dumb or deleted. Every one left should survive the question “what law of physics needs this?”' :
+      'Each one has an owner. Now ask them: what happens if we drop it or loosen it by half?');
+    return h + tkFoot(x, 'q');
+  }
+
+  // --- 2 delete ---
+  function tkDelete(x) {
+    var del = x.parts.filter(function (p) { return p.st === 'del'; }).length, back = x.parts.filter(function (p) { return p.st === 'back'; }).length, tot = del + back, pct = tot ? Math.round(back / tot * 100) : 0;
+    var h = tkHead(x, 'Step 2 of 7 · Delete') + '<h1 class="tkh">The best part<br><i class="lite">is no part</i></h1>' + tkRail(x, 'del');
+    h += '<p class="tksub">List the parts and process steps. Try to delete each one. If it turns out you really need it, mark it <b>added back</b>.</p>';
+    h += '<div class="tklist">' + x.parts.map(function (p, i) {
+      return '<div class="tkitem' + (p.st === 'del' ? ' gone' : '') + '"><div class="row" style="gap:8px"><input class="tkin b" data-f="parts.' + i + '.t" value="' + esc(p.t) + '" placeholder="Part or step"><button type="button" class="tkx" data-tkdel="parts.' + i + '" aria-label="Remove">✕</button></div>' +
+        '<input class="tkin s" data-f="parts.' + i + '.note" value="' + esc(p.note || '') + '" placeholder="What does it do? What takes over if it goes?">' +
+        '<div class="tkchips">' + [['keep', 'Keep'], ['del', 'Deleted'], ['back', 'Added back']].map(function (c) { return '<button type="button" data-tkst="parts.' + i + '" data-v="' + c[0] + '" aria-pressed="' + ((p.st || 'keep') === c[0]) + '" class="c-' + c[0] + '">' + c[1] + '</button>'; }).join('') + '</div></div>';
+    }).join('') + '</div>';
+    h += '<div class="row" style="gap:8px;flex-wrap:wrap"><button type="button" class="btn ghost small" data-tkadd="parts">+ Add part or step</button>' + aiBtn('parts', 'List likely parts') + '</div>' + (hasAI() ? '' : noAI());
+    h += '<div class="tkstats"><div><b>' + del + '</b><small>deleted</small></div><div><b>' + back + '</b><small>added back</small></div><div><b>' + pct + '%</b><small>added back</small></div></div>';
+    h += coachBox(!x.parts.length ? 'Write down every part and every step, even the obvious ones.' :
+      !del ? 'Nothing deleted yet. Try deleting every part, then add back only what you truly need.' :
+      !back ? 'You haven’t added anything back. If you never add back, you probably didn’t delete enough. Aim to overshoot, so about 10% comes back.' :
+      'You added back ' + back + ' of ' + tot + '. That means you pushed hard enough. Now improve only what survived.');
+    return h + tkFoot(x, 'del');
+  }
+
+  // --- 3 physics floor ---
+  function tkPhys(x) {
+    var fl = floorOf(x), ix = idx(x.price, fl);
+    var h = tkHead(x, x.mode === 'idiot' ? 'Idiot index' : 'Step 3 of 7 · Physics floor') + '<h1 class="tkh">Idiot index</h1>' + (x.mode === 'full' ? tkRail(x, 'phys') : '');
+    h += '<p class="tksub">What do the <b>raw materials</b> cost at commodity prices? That is the floor. Everything above it is design, process and volume.</p>';
+    h += '<div class="card tkmat"><span class="eyebrow">Raw materials' + (x.matsAI ? ' · AI estimates, edit any number' : '') + '</span>' + x.mats.map(function (m, i) {
+      return '<div class="tkmrow"><input class="tkin b" data-f="mats.' + i + '.t" value="' + esc(m.t) + '" placeholder="Material"><input class="tkin s" data-f="mats.' + i + '.q" value="' + esc(m.q || '') + '" placeholder="qty × ₹/kg"><label class="tkcost">₹<input inputmode="decimal" data-f="mats.' + i + '.cost" data-num="1" value="' + esc(m.cost) + '"></label><button type="button" class="tkx" data-tkdel="mats.' + i + '" aria-label="Remove">✕</button></div>';
+    }).join('') + '<div class="tkmrow tot"><b>Physics floor</b><b id="tkFloor">' + rupee(fl) + '</b></div>' +
+      '<div class="row" style="gap:8px;flex-wrap:wrap"><button type="button" class="btn ghost small" data-tkadd="mats">+ Add material</button>' + aiBtn('mats', 'Estimate materials') + '</div></div>';
+    h += '<label class="tkprice">Market price today <span>₹<input inputmode="decimal" data-f="price" data-num="1" value="' + esc(x.price) + '" placeholder="12000"></span></label>';
+    h += '<div class="tkidx" id="tkIdx"' + (ix ? '' : ' hidden') + '><div><span class="cap">Market ÷ floor</span><span class="t">' + (ix >= 5 ? 'Everything above the floor is design, process and volume. That’s your room.' : ix >= 2 ? 'Some room. Look at process steps and part count.' : 'Close to the floor: gains must come from using less material.') + '</span></div><b class="display">' + (ix || '') + '×</b></div>';
+    h += '<span class="eyebrow">Bedrock truths · physics you can’t argue with</span><div class="tklist">' + x.truths.map(function (t, i) { return '<div class="row tktruth" style="gap:8px"><span>◆</span><input class="tkin" data-f="truths.' + i + '" value="' + esc(t) + '" placeholder="e.g. steel deforms under load (Hooke’s law)"><button type="button" class="tkx" data-tkdel="truths.' + i + '" aria-label="Remove">✕</button></div>'; }).join('') + '</div>' +
+      '<button type="button" class="btn ghost small" data-tkadd="truths" style="align-self:flex-start">+ Add a truth</button>';
+    h += '<span class="eyebrow">The performance limit</span><textarea class="text" data-f="limit" rows="3" placeholder="What is the best physics allows? e.g. the most signal, the least weight, the highest efficiency">' + esc(x.limit) + '</textarea>' + aiBtn('limit', 'Work out the physics limit') + (hasAI() ? '' : noAI());
+    return h + (x.mode === 'full' ? tkFoot(x, 'phys') : '<div class="tkfoot"><button type="button" class="btn ghost small" data-tkgo="chat">💬 Talk it through</button><button type="button" class="btn solid" data-tkgo="full">Run the full algorithm</button></div>');
+  }
+
+  // --- 4-6 simplify, speed up, automate (in that order) ---
+  function tkSSA(x) {
+    var s1 = x.simplify.filter(Boolean).length, s2 = x.speed.filter(Boolean).length, lock2 = s1 < 3, lock3 = lock2 || s2 < 1;
+    tk.lockSig = lock2 + ',' + (s2 < 1);
+    var h = tkHead(x, 'Steps 4–6 · in this order') + '<h1 class="tkh">Simplify, speed up,<br><i class="lite">then automate</i></h1>' + tkRail(x, 'ssa');
+    var sec = function (n, key, title, lock, why) {
+      var s = '<div class="tkstep' + (lock ? ' lock' : '') + '"><span class="n">' + (lock ? '🔒' : n) + '</span><div class="b"><b>' + title + '</b>';
+      if (lock) return s + '<span class="tknote">' + why + '</span></div></div>';
+      s += x[key].map(function (t, i) { return '<div class="row" style="gap:8px"><input class="tkin" data-f="' + key + '.' + i + '" value="' + esc(t) + '" placeholder="…"><button type="button" class="tkx" data-tkdel="' + key + '.' + i + '" aria-label="Remove">✕</button></div>'; }).join('');
+      return s + '<button type="button" class="btn ghost small" data-tkadd="' + key + '" style="align-self:flex-start">+ Add</button></div></div>';
+    };
+    h += sec(4, 'simplify', 'Simplify what survived', false);
+    h += sec(5, 'speed', 'Speed up the cycle', lock2, 'Unlocks after Simplify has 3 entries (' + s1 + ' so far).');
+    h += sec(6, 'automate', 'Automate', lock3, 'Last. Never automate a step you should have deleted.');
+    h += aiBtn('ssa', 'Suggest for each step') + (hasAI() ? '' : noAI());
+    h += coachBox('The common mistake is doing these backwards: automating, then speeding up, then simplifying something that shouldn’t exist at all.', 'Why locked');
+    return h + tkFoot(x, 'ssa');
+  }
+
+  // --- red team ---
+  function tkRed(x) {
+    var h = tkHead(x, 'Red team · argue against yourself') + '<h1 class="tkh">Try to kill<br><i class="lite">your own idea</i></h1>' + (x.mode === 'full' ? tkRail(x, 'red') : '');
+    h += x.attacks.map(function (a, i) {
+      var done = (a.reply || '').trim();
+      return '<div class="card tkatk"><div class="row between"><span class="cap" style="color:' + T.coral + '">Attack ' + (i + 1) + '</span><span class="row" style="gap:6px"><span class="tkpill ' + (done ? 'ok' : 'open') + '">' + (done ? 'Answered' : 'Open') + '</span><button type="button" class="tkx" data-tkdel="attacks.' + i + '" aria-label="Remove">✕</button></span></div>' +
+        '<textarea class="tkin b" rows="2" data-f="attacks.' + i + '.t" placeholder="The strongest reason this fails">' + esc(a.t) + '</textarea><textarea class="tkreply" rows="2" data-f="attacks.' + i + '.reply" placeholder="Your reply…">' + esc(a.reply || '') + '</textarea></div>';
+    }).join('');
+    h += '<div class="row" style="gap:8px;flex-wrap:wrap"><button type="button" class="btn ghost small" data-tkadd="attacks">+ Add an attack</button>' + aiBtn('red', 'Attack my idea') + '</div>' + (hasAI() ? '' : noAI());
+    h += '<div class="tkconf"><div class="row between"><span class="eyebrow">How sure are you it works?</span><b id="tkConfV">' + x.conf + '%</b></div><input type="range" min="0" max="100" step="5" data-f="conf" data-num="1" value="' + x.conf + '" aria-label="Confidence"><span class="tknote">Write a number, not a feeling. You’ll re-rate it after the test.</span></div>';
+    return h + (x.mode === 'full' ? tkFoot(x, 'red') : '<div class="tkfoot"><button type="button" class="btn ghost small" data-tkgo="chat">💬 Talk it through</button><button type="button" class="btn solid" data-tkgo="full">Run the full algorithm</button></div>');
+  }
+
+  // --- test ---
+  function tkTest(x) {
+    var del = x.parts.filter(function (p) { return p.st === 'del'; }).length, fl = floorOf(x), i1 = idx(x.price, fl), i2 = idx(x.target, fl), open = x.attacks.filter(function (a) { return !(a.reply || '').trim(); }).length;
+    var tt = x.test.tid ? findTarget(x.test.tid) : null;
+    var h = tkHead(x, 'Step 7 of 7 · Test', '<button type="button" class="btn ghost small" data-tkgo="tree">Tree</button>') + tkRail(x, 'test');
+    h += '<div class="hero tkhero" style="background:' + T.jungle + ';color:#fff">' + sun('rgba(255,178,63,.28)', 120, -30, -40) + '<span class="cap">Rebuilt from physics</span><textarea class="text" rows="3" data-f="rebuilt" placeholder="Your rebuilt idea in one sentence">' + esc(x.rebuilt) + '</textarea>' +
+      '<div class="optrow">' + (del ? '<span class="tkpill w">' + del + ' part' + (del > 1 ? 's' : '') + ' deleted</span>' : '') + (i1 ? '<span class="tkpill w">Idiot index ' + i1 + '×' + (i2 ? ' → ' + i2 + '×' : '') + '</span>' : '') + (open ? '<span class="tkpill red">' + open + ' attack' + (open > 1 ? 's' : '') + ' open</span>' : '') + '</div></div>';
+    if (fl) h += '<label class="tkprice">Target price after the rebuild <span>₹<input inputmode="decimal" data-f="target" data-num="1" value="' + esc(x.target) + '"></span></label>';
+    h += '<div class="card stack" style="gap:10px"><span class="eyebrow">Cheapest test that could prove you wrong</span><textarea class="tkin b" rows="2" data-f="test.what" placeholder="e.g. press a ring onto a stock axle, load 0–100 Nm on the bench, log the signal">' + esc(x.test.what) + '</textarea>' +
+      '<div class="tk3">' + [['cost', 'Cost', '₹2,500'], ['time', 'Time', '3 days'], ['pass', 'Pass if', '±3% linear']].map(function (f) { return '<label><span class="cap">' + f[1] + '</span><input data-f="test.' + f[0] + '" value="' + esc(x.test[f[0]]) + '" placeholder="' + f[2] + '"></label>'; }).join('') + '</div></div>';
+    h += aiBtn('rebuilt', 'Write the rebuilt idea + a test') + (hasAI() ? '' : noAI());
+    if (tt) h += '<div class="notice ok">✓ On your targets for ' + new Date(tt.key + 'T00:00:00').toLocaleDateString('en', { weekday: 'long', day: 'numeric', month: 'short' }) + (tt.t.achievedAt ? ' · done' : '') + '.</div>' +
+      (tt.t.achievedAt ? '<div class="tkconf"><div class="row between"><span class="eyebrow">After the test: how sure now?</span><b id="tkConf2V">' + (x.conf2 == null ? x.conf : x.conf2) + '%</b></div><input type="range" min="0" max="100" step="5" data-f="conf2" data-num="1" value="' + (x.conf2 == null ? x.conf : x.conf2) + '"><span class="tknote">Before: ' + x.conf + '%</span></div>' : '');
+    else {
+      var d = new Date(); d.setDate(d.getDate() + 2);
+      h += '<div class="card row" style="gap:10px;align-items:center"><div style="flex:1"><b style="font-size:14px">Add as a target</b><br><span class="tknote">Shows on Today, high priority</span></div><input type="date" id="tkDate" value="' + dkey(d) + '" class="tkdate"><button type="button" class="btn solid small" id="tkTarget">Add</button></div>';
+    }
+    return h + tkFoot(x, 'test');
+  }
+
+  // --- idea tree ---
+  function tkTree(x) {
+    var habits = x.reqs.filter(function (r) { return r.t && (r.tag === 'del' || r.tag === 'less' || reqFlag(r)); }).map(function (r) { return { t: r.t, k: r.tag === 'del' ? 'deleted' : 'habit' }; })
+      .concat(x.parts.filter(function (p) { return p.st === 'del' && p.t; }).map(function (p) { return { t: p.t, k: 'deleted' }; }));
+    var truths = x.truths.filter(Boolean), fl = floorOf(x), ix = idx(x.price, fl);
+    var node = function (t, cls) { return '<span class="tknode ' + cls + '">' + t + '</span>'; };
+    var h = tkHead(x, 'Idea tree', '<button type="button" class="btn ghost small" id="tkShare">Share</button>');
+    h += '<div class="tktree">' + node('💡 ' + esc(x.title), 'root');
+    if (habits.length) h += '<i class="tkline"></i><span class="cap">Habits and analogies</span><div class="tkrowN">' + habits.slice(0, 9).map(function (a) { return node(esc(a.t) + (a.k === 'deleted' ? ' <s>deleted</s>' : ''), 'habit'); }).join('') + '</div>';
+    if (truths.length || ix) h += '<i class="tkline"></i><span class="cap">Bedrock truths</span><div class="tkrowN">' + truths.map(function (t) { return node('◆ ' + esc(t), 'truth'); }).join('') + (ix ? node('Floor ' + rupee(fl) + ' · idiot index ' + ix + '×', 'truth') : '') + '</div>';
+    h += '<i class="tkline"></i>' + node('🔁 ' + (esc(x.rebuilt) || '<span class="tknote">Rebuilt idea: not written yet</span>'), 'rebuilt');
+    if ((x.test.what || '').trim()) h += '<i class="tkline"></i>' + node('<span class="cap">Next test</span><br>' + esc(x.test.what), 'test');
+    h += '</div><div class="tklegend"><span class="habit">■ habit</span><span class="truth">■ bedrock truth</span><span class="rebuilt">■ rebuilt idea</span></div>';
+    var pages = TK_MODES[x.mode].pages;
+    h += '<div style="flex:1"></div><div class="row" style="gap:10px"><button type="button" class="btn ghost" style="flex:1" data-tkgo="' + pages[0] + '">Edit steps</button><button type="button" class="btn solid" style="flex:1" id="tkDone">Done</button></div>';
+    return h;
+  }
+  function treeText(x) {
+    var fl = floorOf(x), ix = idx(x.price, fl), L = ['First principles: ' + x.title, ''];
+    var r = x.reqs.filter(function (q) { return q.t; }); if (r.length) { L.push('Requirements:'); r.forEach(function (q) { L.push('- ' + q.t + ' (' + (q.owner || 'no owner') + ')' + (q.tag ? ' → ' + { keep: 'keep', less: 'less dumb', del: 'delete' }[q.tag] : '')); }); L.push(''); }
+    var d = x.parts.filter(function (p) { return p.st === 'del'; }); if (d.length) { L.push('Deleted: ' + d.map(function (p) { return p.t; }).join(', ')); L.push(''); }
+    if (ix) L.push('Physics floor ' + rupee(fl) + ', market ' + rupee(x.price) + ', idiot index ' + ix + '×');
+    if (x.truths.length) L.push('Truths: ' + x.truths.filter(Boolean).join('; '));
+    if (x.rebuilt) L.push('', 'Rebuilt: ' + x.rebuilt);
+    if (x.test.what) L.push('Test: ' + x.test.what + [x.test.cost, x.test.time, x.test.pass ? 'pass if ' + x.test.pass : ''].filter(Boolean).map(function (s) { return ' · ' + s; }).join(''));
+    return L.join('\n');
+  }
+
+  // --- coach chat with analogy detector ---
+  function hlText(t, hl) {
+    var s = esc(t);
+    (hl || []).forEach(function (p) { if (!p) return; var e = esc(p); var i = s.toLowerCase().indexOf(e.toLowerCase()); if (i >= 0) s = s.slice(0, i) + '<mark>' + s.slice(i, i + e.length) + '</mark>' + s.slice(i + e.length); });
+    return s;
+  }
+  function tkChat(x) {
+    if (!x.chat.length) x.chat.push({ r: 'ai', t: 'Start with how things are today. Why is it done the way it is now? List every reason you can think of: cost, size, how it’s made, who asked for it.', tag: 'Question' });
+    var h = tkHead(x, 'Coach · analogy detector', '<button type="button" class="btn ghost small" data-tkgo="' + (tk.from || TK_MODES[x.mode].pages[0]) + '">Back</button>');
+    h += '<div class="tkchat" id="tkChat">' + x.chat.map(function (m) {
+      if (m.r === 'me') return '<div class="bub me">' + hlText(m.t, m.hl) + '</div>';
+      var tg = m.tag || '', cls = /analogy/i.test(tg) ? 'bad' : /physics/i.test(tg) ? 'good' : '';
+      return '<div class="bub ai">' + (tg ? '<span class="cap ' + cls + '">' + esc(tg) + '</span>' : '') + esc(m.t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>') + '</div>';
+    }).join('') + (tk.busy === 'chat' ? '<div class="bub ai"><span class="tknote">Thinking…</span></div>' : '') + '</div>';
+    h += hasAI() ? '<div class="tkcompose"><textarea class="text" id="tkMsg" rows="2" placeholder="Type or speak…">' + esc(tk.draft || '') + '</textarea>' +
+      (('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) ? '<button type="button" class="tkmic" id="tkMic" aria-label="Speak">🎤</button>' : '') + '<button type="button" class="btn solid small" id="tkSend">Send</button></div>' : noAI();
+    return h;
+  }
+
+  // --- Fermi estimate ---
+  function tkFermi(x) {
+    var f = x.fermi = x.fermi || { q: x.title, guess: '', res: null };
+    var h = tkHead(x, 'Fermi estimate') + '<h1 class="tkh">Get the order<br><i class="lite">of magnitude</i></h1>';
+    h += '<label class="lab rng">Question<textarea class="text" rows="2" data-f="fermi.q" placeholder="e.g. how many e-bikes are sold in India each year?">' + esc(f.q) + '</textarea></label>';
+    h += '<label class="lab rng">Your guess, before any maths<input class="text" data-f="fermi.guess" value="' + esc(f.guess) + '" placeholder="e.g. 1 lakh"></label>';
+    h += aiBtn('fermi', 'Work it out') + (hasAI() ? '' : noAI());
+    if (f.res) {
+      h += '<div class="card stack" style="gap:8px"><span class="eyebrow">Worked out</span>' + (f.res.steps || []).map(function (s) { return '<div class="tkmrow"><span>' + esc(s.f) + '</span><b>' + esc(s.v) + '</b></div>'; }).join('') +
+        '<div class="tkmrow tot"><b>Answer</b><b>' + esc(f.res.answer) + '</b></div>' + (f.res.verdict ? '<span class="tknote"><b>Your guess:</b> ' + esc(f.res.verdict) + '</span>' : '') + (f.res.note ? '<span class="tknote">' + esc(f.res.note) + '</span>' : '') + '</div>';
+    }
+    return h + '<div class="tkfoot"><button type="button" class="btn ghost small" data-tkgo="chat">💬 Talk it through</button><button type="button" class="btn solid" data-tkgo="tree">Done</button></div>';
+  }
+
+  // --- AI ---
+  function ideaCtx(x) {
+    var L = ['Idea: ' + x.title];
+    if (x.reqs.length) L.push('Requirements: ' + x.reqs.map(function (r) { return r.t + ' (owner: ' + (r.owner || 'none') + (r.tag ? ', ' + r.tag : '') + ')'; }).join('; '));
+    if (x.parts.length) L.push('Parts/steps: ' + x.parts.map(function (p) { return p.t + (p.st === 'del' ? ' [deleted]' : p.st === 'back' ? ' [added back]' : ''); }).join('; '));
+    if (x.mats.length) L.push('Raw materials: ' + x.mats.map(function (m) { return m.t + ' ' + (m.q || '') + ' ₹' + m.cost; }).join('; ') + '; market price ₹' + (x.price || '?'));
+    if (x.truths.length) L.push('Bedrock truths: ' + x.truths.join('; '));
+    if (x.simplify.length) L.push('Simplify: ' + x.simplify.join('; '));
+    if (x.speed.length) L.push('Speed up: ' + x.speed.join('; '));
+    if (x.automate.length) L.push('Automate: ' + x.automate.join('; '));
+    if (x.attacks.length) L.push('Attacks: ' + x.attacks.map(function (a) { return a.t + (a.reply ? ' → reply: ' + a.reply : ''); }).join(' | '));
+    if (x.rebuilt) L.push('Rebuilt idea: ' + x.rebuilt);
+    return L.join('\n');
+  }
+  var TK_SYS = 'You coach first-principles thinking the way Elon Musk has described it: make every requirement less dumb (each must have a named person as owner), delete parts and process steps (if you are not adding back about 10%, you did not delete enough), reason from physics and raw-material cost (the "idiot index": finished cost divided by raw-material cost) rather than by analogy to what others do, then simplify, then speed up, and only then automate. The user is an Indian mechanical design engineer: use ₹ and metric units, current Indian commodity prices, and be concrete, short and technically correct. Never invent quotes.';
+  function tkAsk(prompt, temp) {
+    return geminiCall({ contents: [{ parts: [{ text: TK_SYS + '\n\n' + prompt }] }], generationConfig: { responseMimeType: 'application/json', temperature: temp == null ? .6 : temp } })
+      .then(function (t) { return JSON.parse(t.replace(/^\s*```(json)?/, '').replace(/```\s*$/, '')); });
+  }
+  function runAI(kind, x) {
+    var c = ideaCtx(x), P;
+    if (kind === 'reqs') P = c + '\n\nList 5 to 7 requirements people usually assume this must meet (specs, standards, features, price points). For each, say briefly why it might be real physics or just habit. Reply JSON: {"items":[{"t":"requirement","note":"why it may or may not be real"}]}';
+    else if (kind === 'parts') P = c + '\n\nList 6 to 10 parts and process steps a typical version of this has today (what exists now, before any deletion). Reply JSON: {"items":[{"t":"part or step","note":"what it does"}]}';
+    else if (kind === 'mats') P = c + '\n\nEstimate the raw materials in one unit at commodity prices in India (kg × ₹/kg, or per component for electronics). Also the typical market price today in ₹ if you know it, 2 to 4 bedrock physical truths that constrain it, and the physical performance limit. Reply JSON: {"items":[{"t":"material","q":"0.12 kg × ₹90/kg","cost":11}],"price":12000,"truths":["..."],"limit":"2-4 sentences"}';
+    else if (kind === 'limit') P = c + '\n\nWork out the physical performance limit for this idea from first principles, with the key numbers, in 3 to 5 short sentences, and how far typical products today are from it. Reply JSON: {"limit":"...","truths":["bedrock truth", "..."]}';
+    else if (kind === 'ssa') P = c + '\n\nFor what survived deletion, suggest 3 ways to simplify, 2 ways to speed up the cycle (design, test or production), and 1 to 2 things to automate last. Reply JSON: {"simplify":["..."],"speed":["..."],"automate":["..."]}';
+    else if (kind === 'red') P = c + '\n\nAct as a harsh but fair red team. Give the 3 strongest, most specific reasons this fails (technical, market or execution). Do not repeat attacks already listed. Reply JSON: {"attacks":["...","...","..."]}';
+    else if (kind === 'rebuilt') P = c + '\n\nWrite the rebuilt idea in one sentence built only on the bedrock truths, and the cheapest, fastest experiment that could prove it wrong within a week or two. Reply JSON: {"rebuilt":"...","test":{"what":"...","cost":"₹…","time":"… days","pass":"measurable pass condition"}}';
+    else if (kind === 'fermi') P = 'Fermi-estimate: ' + x.fermi.q + '\nThe user guessed: ' + (x.fermi.guess || 'no guess') + '\nBreak it into 3 to 6 factors with rough values (India context when relevant), give the answer as an order of magnitude, and compare the user’s guess. Reply JSON: {"steps":[{"f":"factor","v":"value"}],"answer":"≈ …","verdict":"right order of magnitude / about 10× too high / …","note":"one line on the biggest uncertainty"}';
+    tk.busy = kind; tk.keepScroll = true; drawThink();
+    tkAsk(P).then(function (r) {
+      if (!tk) return;
+      var add = function (key, arr, map) { (arr || []).forEach(function (a) { x[key].push(map ? map(a) : a); }); };
+      if (kind === 'reqs') add('reqs', r.items, function (a) { return { t: a.t, owner: '', note: a.note || '', tag: '' }; });
+      if (kind === 'parts') add('parts', r.items, function (a) { return { t: a.t, note: a.note || '', st: 'keep' }; });
+      if (kind === 'mats') { x.mats = (r.items || []).map(function (a) { return { t: a.t, q: a.q || '', cost: Math.round(+a.cost || 0) }; }); x.matsAI = true; if (!x.price && r.price) x.price = String(Math.round(+r.price)); if (!x.truths.length) add('truths', r.truths); if (!x.limit && r.limit) x.limit = r.limit; }
+      if (kind === 'limit') { x.limit = r.limit || x.limit; if (!x.truths.length) add('truths', r.truths); }
+      if (kind === 'ssa') { add('simplify', r.simplify); add('speed', r.speed); add('automate', r.automate); }
+      if (kind === 'red') add('attacks', r.attacks, function (a) { return { t: a, reply: '' }; });
+      if (kind === 'rebuilt') { if (r.rebuilt) x.rebuilt = r.rebuilt; if (r.test) ['what', 'cost', 'time', 'pass'].forEach(function (k) { if (r.test[k] && !(x.test[k] || '').trim()) x.test[k] = r.test[k]; }); }
+      if (kind === 'fermi') x.fermi.res = r;
+      tk.busy = null; tkSave(); tk.keepScroll = true; drawThink();
+    }).catch(function (e) { if (!tk) return; tk.busy = null; tk.keepScroll = true; drawThink(); toast('AI: ' + (e.message || 'failed')); });
+  }
+  function sendChat(x, text) {
+    x.chat.push({ r: 'me', t: text }); tk.draft = ''; tk.busy = 'chat'; tkSave(); drawThink(); scrollChat();
+    var hist = x.chat.slice(-12).map(function (m) { return (m.r === 'me' ? 'USER: ' : 'COACH: ') + m.t; }).join('\n');
+    var P = ideaCtx(x) + '\nThe user is on the step: ' + (TK_RAIL[tkRailIdx(x, tk.from || 'q')] || 'Question') + '.\n\nConversation so far:\n' + hist +
+      '\n\nAs the coach, reply to the USER’s last message. First find any phrases in it that reason by analogy (what others do, what has always been done, what customers expect, "industry standard") rather than from physics, cost of materials, energy, forces or time. Quote those phrases exactly. Then reply in 1 to 3 short sentences: if there was analogy, point it out and ask them to redo it from physics; if it was all physics, confirm it and ask the next sharpest question that moves the idea forward. Reply JSON: {"analogy":["exact phrase"],"tag":"Analogy spotted ×N" or "Physics ✓" or "Question" or "Challenge","reply":"..."}';
+    tkAsk(P, .5).then(function (r) {
+      if (!tk) return;
+      var me = x.chat[x.chat.length - 1]; me.hl = (r.analogy || []).filter(function (p) { return p && me.t.toLowerCase().indexOf(String(p).toLowerCase()) >= 0; });
+      var tag = r.tag || ''; if (me.hl.length && !/analogy/i.test(tag)) tag = 'Analogy spotted ×' + me.hl.length;
+      x.chat.push({ r: 'ai', t: r.reply || '…', tag: tag });
+      tk.busy = null; tkSave(); drawThink(); scrollChat();
+    }).catch(function (e) { if (!tk) return; tk.busy = null; drawThink(); toast('AI: ' + (e.message || 'failed')); });
+  }
+  function scrollChat() { var o = document.getElementById('overlay'); o.scrollTop = o.scrollHeight; }
+
+  function bindThink(o, x) {
+    var cl = o.querySelector('#tkClose'); if (cl) cl.onclick = closeThink;
+    o.querySelectorAll('[data-tkgo]').forEach(function (b) {
+      b.onclick = function () {
+        var g = b.dataset.tkgo;
+        if (g === 'full') { x.mode = 'full'; save(); g = 'q'; }
+        if (g === 'chat') tk.from = tk.page;
+        tk.page = g; if (x) x.last = g; save(); drawThink(); o.scrollTop = 0; if (g === 'chat') scrollChat();
+      };
+    });
+    o.querySelectorAll('[data-tkrail]').forEach(function (b) { b.onclick = function () { var k = +b.dataset.tkrail; tk.page = k === 0 ? 'q' : k === 1 ? 'del' : k === 2 ? 'phys' : k <= 5 ? 'ssa' : 'red'; x.last = tk.page; save(); drawThink(); o.scrollTop = 0; }; });
+    // start page
+    o.querySelectorAll('[data-tkmode]').forEach(function (b) { b.onclick = function () { var t = o.querySelector('#tkTitle'); tk.title = t ? t.value : tk.title; tk.mode = b.dataset.tkmode; drawThink(); }; });
+    var st = o.querySelector('#tkStart');
+    if (st) st.onclick = function () {
+      var t = o.querySelector('#tkTitle').value.trim();
+      if (!t) { toast('Write the idea first'); o.querySelector('#tkTitle').focus(); return; }
+      var nx = newIdea(t, tk.mode); tk.id = nx.id; tk.page = TK_MODES[tk.mode].pages[0];
+      if (tk.mode === 'fermi') nx.fermi = { q: t, guess: '', res: null };
+      save(); drawThink();
+    };
+    // text fields
+    o.querySelectorAll('[data-f]').forEach(function (el) {
+      el.addEventListener('input', function () {
+        var v = el.value; if (el.dataset.num) v = el.type === 'range' ? +v : v.replace(/[^\d.]/g, '');
+        setPath(x, el.dataset.f, v); tkSave();
+        if (el.dataset.f === 'conf') { var cv = o.querySelector('#tkConfV'); if (cv) cv.textContent = v + '%'; }
+        if (el.dataset.f === 'conf2') { var c2 = o.querySelector('#tkConf2V'); if (c2) c2.textContent = v + '%'; }
+        if (tk.page === 'phys' && /^mats\.\d+\.cost$|^price$/.test(el.dataset.f)) {
+          var fl = floorOf(x), ix = idx(x.price, fl), fe = o.querySelector('#tkFloor'), ie = o.querySelector('#tkIdx');
+          if (fe) fe.textContent = rupee(fl);
+          if (ie) { ie.hidden = !ix; ie.querySelector('b').textContent = (ix || '') + '×'; }
+        }
+      });
+      // update in place (a full redraw here would swallow the tap on the next button)
+      el.addEventListener('change', function () {
+        var f = el.dataset.f, m;
+        if ((m = /^reqs\.(\d+)\.owner$/.exec(f))) {
+          var r = x.reqs[+m[1]], bad = reqFlag(r), lab = el.closest('.tkowner'), fl = lab && lab.parentNode.querySelector('.tkflag');
+          if (lab) lab.classList.toggle('bad', bad);
+          if (fl) { fl.hidden = !bad; fl.textContent = r.owner ? 'That’s analogy, not a person. Who exactly?' : 'No person owns this yet.'; }
+        } else if ((m = /^attacks\.(\d+)\.reply$/.exec(f))) {
+          var pl = el.closest('.tkatk').querySelector('.tkpill'), done = !!el.value.trim();
+          pl.className = 'tkpill ' + (done ? 'ok' : 'open'); pl.textContent = done ? 'Answered' : 'Open';
+        } else if (/^(simplify|speed)\./.test(f) && tk.page === 'ssa') {
+          var lk = (x.simplify.filter(Boolean).length < 3) + ',' + (x.speed.filter(Boolean).length < 1);
+          if (lk !== tk.lockSig) { var pg = tk.page; setTimeout(function () { if (tk && tk.page === pg) { tk.keepScroll = true; drawThink(); } }, 350); }
+        }
+      });
+    });
+    o.querySelectorAll('[data-tkadd]').forEach(function (b) {
+      b.onclick = function () {
+        var k = b.dataset.tkadd, blank = { reqs: { t: '', owner: '', note: '', tag: '' }, parts: { t: '', note: '', st: 'keep' }, mats: { t: '', q: '', cost: '' }, attacks: { t: '', reply: '' } }[k];
+        x[k].push(blank ? JSON.parse(JSON.stringify(blank)) : ''); tkSave(); tk.keepScroll = true; drawThink();
+        var ins = o.querySelectorAll('[data-f^="' + k + '.' + (x[k].length - 1) + '"]'); if (ins[0]) try { ins[0].focus(); } catch (e) {}
+      };
+    });
+    o.querySelectorAll('[data-tkdel]').forEach(function (b) { b.onclick = function () { var p = b.dataset.tkdel.split('.'); x[p[0]].splice(+p[1], 1); tkSave(); tk.keepScroll = true; drawThink(); }; });
+    o.querySelectorAll('[data-tktag]').forEach(function (b) { b.onclick = function () { var p = b.dataset.tktag.split('.'), r = x[p[0]][+p[1]]; r.tag = r.tag === b.dataset.v ? '' : b.dataset.v; tkSave(); tk.keepScroll = true; drawThink(); }; });
+    o.querySelectorAll('[data-tkst]').forEach(function (b) { b.onclick = function () { var p = b.dataset.tkst.split('.'); x[p[0]][+p[1]].st = b.dataset.v; tkSave(); tk.keepScroll = true; drawThink(); }; });
+    o.querySelectorAll('[data-tkai]').forEach(function (b) { b.onclick = function () { runAI(b.dataset.tkai, x); }; });
+    var ta = o.querySelector('#tkTarget');
+    if (ta) ta.onclick = function () {
+      var what = (x.test.what || '').trim(); if (!what) { toast('Write the test first'); return; }
+      var dv = o.querySelector('#tkDate').value || tomorrowKey();
+      mutate(function () {
+        addTarget(dv, 'Test: ' + what.slice(0, 90), 'h');
+        var arr = state.targets[dv]; x.test.tid = arr[arr.length - 1].id; x.testAt = dkey(new Date());
+      });
+      toast('Added to your targets'); tk.keepScroll = true; drawThink();
+    };
+    var sh = o.querySelector('#tkShare');
+    if (sh) sh.onclick = function () {
+      var txt = treeText(x);
+      if (navigator.share) navigator.share({ title: x.title, text: txt }).catch(function () {});
+      else if (navigator.clipboard) navigator.clipboard.writeText(txt).then(function () { toast('Copied'); });
+    };
+    var dn = o.querySelector('#tkDone'); if (dn) dn.onclick = function () { closeThink(); openNotes('ideas'); };
+    // chat
+    var msg = o.querySelector('#tkMsg');
+    if (msg) {
+      msg.addEventListener('input', function () { tk.draft = msg.value; });
+      o.querySelector('#tkSend').onclick = function () { var t = msg.value.trim(); if (t && !tk.busy) sendChat(x, t); };
+      var mic = o.querySelector('#tkMic');
+      if (mic) mic.onclick = function () {
+        var SR = window.SpeechRecognition || window.webkitSpeechRecognition, r = new SR(); r.lang = 'en-IN'; r.interimResults = false;
+        mic.classList.add('on');
+        r.onresult = function (e) { var t = e.results[0][0].transcript; msg.value = (msg.value ? msg.value + ' ' : '') + t; tk.draft = msg.value; };
+        r.onend = function () { mic.classList.remove('on'); };
+        r.onerror = function () { mic.classList.remove('on'); };
+        try { r.start(); } catch (e) { mic.classList.remove('on'); }
+      };
+    }
+    if (tk.page === 'drill') bindDrill(o);
+  }
+
+  // ---------- daily drill: Fermi estimates, idiot index, "why is it this shape?" ----------
+  var DRILLS = [
+    { k: 'mc', lab: 'Fermi + idiot index', q: 'A ₹1,200 bicycle chain.<br><i class="lite">What’s the steel worth?</i>', o: ['₹3', '₹30', '₹300', '₹3k'], a: 1, x: 'About 0.3 kg of steel × roughly ₹80/kg ≈ <b>₹25</b>. Idiot index ≈ <b>50×</b>. The rest is heat treatment, precision and very fast machines.' },
+    { k: 'steps', lab: 'Why is it this shape?', q: 'Why does a bicycle chain<br><i class="lite">have rollers?</i>', x: 'A roller <b>rolls</b> against the sprocket tooth instead of sliding. Rolling friction is far lower than sliding friction, so less energy turns into heat and the teeth wear much slower. Bedrock truth: sliding contact wastes energy and wears; rolling contact doesn’t (nearly as much).' },
+    { k: 'mc', lab: 'Fermi estimate', q: 'A 500 Wh e-bike battery.<br><i class="lite">How high could its energy lift you (75 kg)?</i>', o: ['25 m', '250 m', '2.5 km', '25 km'], a: 2, x: '500 Wh = 1.8 MJ. Height = E ÷ (m × g) = 1,800,000 ÷ (75 × 9.8) ≈ <b>2,450 m</b>. A small battery holds a mountain’s worth of lifting.' },
+    { k: 'mc', lab: 'Fermi estimate', q: 'Your bedroom is 3 × 4 × 3 m.<br><i class="lite">How much does the air in it weigh?</i>', o: ['0.4 kg', '4 kg', '40 kg', '400 kg'], a: 2, x: '36 m³ × about 1.2 kg/m³ ≈ <b>43 kg</b>. Roughly the weight of a child. Air is light, not weightless.' },
+    { k: 'steps', lab: 'Why is it this shape?', q: 'Why are drink cans round,<br><i class="lite">with a domed bottom?</i>', x: 'A can is a small <b>pressure vessel</b>. A cylinder spreads the internal pressure evenly as hoop stress, so there are no weak corners. The dome curves outward like an arch against the pressure, letting the base be much thinner. Bedrock truth: curved shells carry pressure in tension with the least material.' },
+    { k: 'mc', lab: 'Idiot index', q: 'A ₹800 steel water bottle.<br><i class="lite">What’s the stainless steel worth?</i>', o: ['₹8', '₹80', '₹800', '₹8k'], a: 1, x: 'About 0.3 kg of stainless steel × roughly ₹250/kg ≈ <b>₹75</b>. Idiot index ≈ <b>10×</b>. Deep drawing, welding the double wall and the vacuum take the rest.' },
+    { k: 'mc', lab: 'Fermi estimate', q: 'A 75 W ceiling fan runs 10 hours a day.<br><i class="lite">What does it cost per month at ₹8/kWh?</i>', o: ['₹18', '₹180', '₹1,800', '₹18,000'], a: 1, x: '75 W × 10 h × 30 days = 22.5 kWh × ₹8 ≈ <b>₹180</b>. A BLDC fan at about 30 W would cut that to about ₹70.' },
+    { k: 'steps', lab: 'The physics limit', q: 'What is the least energy<br><i class="lite">to boil 1 litre of water from 25 °C?</i>', x: 'Q = m × c × ΔT = 1 kg × 4,186 J/kg·K × 75 K ≈ <b>314 kJ ≈ 0.087 kWh</b>. A good electric kettle gets 80–90% of its energy into the water, so it is already close to the limit. A gas stove is much further away (often under 50%).' },
+    { k: 'mc', lab: 'Fermi estimate', q: 'How many times does your heart<br><i class="lite">beat in one year?</i>', o: ['370 thousand', '3.7 million', '37 million', '370 million'], a: 2, x: '70 beats/min × 60 × 24 × 365 ≈ <b>37 million</b>.' },
+    { k: 'mc', lab: 'Fermi estimate', q: 'A 1,000 kg car at 60 km/h.<br><i class="lite">Dropped from what height would it hit as hard?</i>', o: ['1.4 m', '14 m', '140 m', '1.4 km'], a: 1, x: '60 km/h ≈ 16.7 m/s. h = v² ÷ 2g = 278 ÷ 19.6 ≈ <b>14 m</b>, about a four-storey fall. Energy grows with the square of speed.' },
+    { k: 'steps', lab: 'Why is it this shape?', q: 'Why are steel beams<br><i class="lite">shaped like an I?</i>', x: 'In bending, the material far from the centre line does most of the work (stiffness grows with the <b>square of the distance</b> from the neutral axis). The flanges put metal where it counts; the thin web just holds them apart. Same stiffness, far less steel.' },
+    { k: 'mc', lab: 'Fermi estimate', q: 'A Coorg monsoon drops ~2,500 mm of rain.<br><i class="lite">How much water lands on one acre?</i>', o: ['1 lakh litres', '10 lakh litres', '1 crore litres', '10 crore litres'], a: 2, x: '1 acre ≈ 4,047 m² × 2.5 m ≈ 10,000 m³ = <b>1 crore litres</b>.' },
+    { k: 'mc', lab: 'Fermi estimate', q: 'Noon sun on a 1 m² solar panel.<br><i class="lite">How much electric power comes out?</i>', o: ['2 W', '20 W', '200 W', '2,000 W'], a: 2, x: 'Sunlight at noon is about 1,000 W/m². A good panel converts about 20% ≈ <b>200 W</b>. The physics limit for a single-junction silicon cell is about 30%.' },
+    { k: 'steps', lab: 'Why is it this shape?', q: 'Why do coffee beans<br><i class="lite">have to be dried before storage?</i>', x: 'Moulds, yeasts and bacteria need <b>free water</b> to grow. Drying beans to about 11–12% moisture lowers the water activity below what most of them need, so the beans stop fermenting and rotting. Bedrock truth: life needs available water.' },
+    { k: 'mc', lab: 'Fermi estimate', q: 'How many AA batteries hold the energy<br><i class="lite">of 1 litre of petrol?</i>', o: ['35', '350', '3,500', '35,000'], a: 2, x: 'Petrol ≈ 34 MJ per litre ≈ 9.4 kWh. An alkaline AA holds about 3 Wh. 9,400 ÷ 3 ≈ <b>3,000–3,500</b>. That gap is why fuel still wins on energy density.' },
+    { k: 'steps', lab: 'The physics limit', q: 'A 250 W motor lifts you + bike (100 kg)<br><i class="lite">up a 10% slope. What’s the top speed?</i>', x: 'Power = m × g × v × sin θ. sin θ ≈ 0.1, so v = 250 ÷ (100 × 9.8 × 0.1) ≈ <b>2.5 m/s ≈ 9 km/h</b> from the motor alone, with no losses. Your legs and less weight are the only ways to go faster.' },
+    { k: 'mc', lab: 'Fermi estimate', q: 'How many litres of air<br><i class="lite">do you breathe in a day?</i>', o: ['100', '1,000', '10,000', '1,00,000'], a: 2, x: 'About 0.5 L per breath × 15 breaths/min × 1,440 min ≈ <b>10,800 L</b>.' },
+    { k: 'steps', lab: 'Delete a part', q: 'Why are manhole covers round,<br><i class="lite">and what would you delete from one?</i>', x: 'A circle has the same width in every direction, so the cover <b>can’t fall through</b> its own hole; it needs no orientation and can be rolled. Many requirements (hinges, locks, lettering) are habits; the shape itself is physics.' },
+    { k: 'mc', lab: 'Idiot index', q: 'A ₹2,000 aluminium pressure cooker.<br><i class="lite">What’s the aluminium worth?</i>', o: ['₹4', '₹40', '₹400', '₹4k'], a: 2, x: 'About 1.5 kg of aluminium × roughly ₹250/kg ≈ <b>₹375</b>. Idiot index ≈ <b>5×</b>. A simple, high-volume product sits close to its floor.' },
+    { k: 'steps', lab: 'Why is it this shape?', q: 'Why do road tyres have tread,<br><i class="lite">but racing slicks don’t?</i>', x: 'On a dry road, grip comes from <b>rubber touching the road</b>: more contact area, more grip, so slicks have no grooves. On a wet road, water must escape or the tyre floats (aquaplaning). Tread is a drainage system, needed only because of water.' }
+  ];
+  function drillIdx() { var n = 0; Object.keys(state.drills || {}).forEach(function (k) { if (state.drills[k].done) n++; }); return n; }
+  function todayDrill() {
+    state.drills = state.drills || {};
+    var k = dkey(new Date()), d = state.drills[k];
+    if (!d) { var i = drillIdx() % DRILLS.length; d = state.drills[k] = { i: i, pick: null, ans: [], done: false }; }
+    return d;
+  }
+  function drillStreak() {
+    var s = 0, d = new Date(); if (!((state.drills || {})[dkey(d)] || {}).done) d.setDate(d.getDate() - 1);
+    while (((state.drills || {})[dkey(d)] || {}).done) { s++; d.setDate(d.getDate() - 1); }
+    return s;
+  }
+  function openDrill() { resetOverlay(); closeSheet(); tk = { id: null, page: 'drill', busy: null }; drawThink(); showOverlay('tko'); }
+  function drillHtml() {
+    var d = todayDrill(), D = DRILLS[d.i], mon = dkey(new Date()).slice(0, 7), ms = Object.keys(state.drills).filter(function (k) { return k.slice(0, 7) === mon; }), right = ms.filter(function (k) { var x = state.drills[k]; return x.done && DRILLS[x.i].k === 'mc' && x.pick === DRILLS[x.i].a; }).length, mcs = ms.filter(function (k) { var x = state.drills[k]; return x.done && DRILLS[x.i].k === 'mc'; }).length;
+    var h = '<div class="row between"><span class="eyebrow">Daily drill · 3 min</span><button type="button" class="btn ghost small" id="tkClose">' + (d.done ? 'Close' : 'Skip') + '</button></div>';
+    h += '<div class="hero tkhero" style="background:' + T.coral + ';color:#fff">' + sun('rgba(255,255,255,.18)', 110, -30, -40) + '<span class="cap">Day ' + (drillIdx() + (d.done ? 0 : 1)) + ' · ' + D.lab + '</span><span class="display" style="font-size:26px;line-height:1.08">' + D.q + '</span></div>';
+    if (D.k === 'mc') {
+      h += '<div class="card stack" style="gap:12px"><span class="eyebrow">Your guess · order of magnitude</span><div class="tkopts">' + D.o.map(function (t, i) {
+        var cls = d.pick == null ? '' : i === D.a ? ' right' : i === d.pick ? ' wrong' : '';
+        return '<button type="button" data-dpick="' + i + '" class="' + (d.pick === i ? 'on' : '') + cls + '"' + (d.pick != null ? ' disabled' : '') + '>' + t + '</button>';
+      }).join('') + '</div>';
+      if (d.pick != null) h += '<div class="tkworked"><span class="cap" style="color:' + (d.pick === D.a ? T.lagoon : T.coral) + '">' + (d.pick === D.a ? '✓ Right order of magnitude' : 'Worked out') + '</span><span>' + D.x + '</span></div>';
+      h += '</div>';
+    } else {
+      var steps = ['What job must it do?', 'What would happen without it, or with a different shape?', 'What basic truth makes it work?', 'Where else could that truth help you?'];
+      h += '<div class="card stack" style="gap:14px">' + steps.map(function (s, i) {
+        var ans = d.ans[i], on = i === d.ans.length && !d.done;
+        return '<div class="tkds' + (ans != null ? ' done' : on ? ' on' : '') + '"><span class="n">' + (ans != null ? '✓' : i + 1) + '</span><div><b>' + s + '</b>' + (ans != null ? '<span class="tknote">' + esc(ans || '—') + '</span>' : on ? '<textarea class="text" id="dAns" rows="2" placeholder="Your answer…"></textarea>' : '') + '</div></div>';
+      }).join('') + '</div>';
+      if (d.ans.length >= 4) h += '<div class="card tkworked"><span class="cap" style="color:' + T.lagoon + '">Here’s the physics</span><span>' + D.x + '</span></div>';
+    }
+    h += '<div class="tkstats"><div><b>' + (D.k === 'mc' && d.pick != null ? (d.pick === D.a ? '✓' : '✗') : '·') + '</b><small>' + (D.k === 'mc' ? 'right order' : 'today') + '</small></div><div><b>' + right + '/' + mcs + '</b><small>this month</small></div><div><b>🔥' + drillStreak() + '</b><small>day streak</small></div></div>';
+    h += '<span class="tknote">Rotates each day: Fermi estimate · idiot index · physics limit · “why is it this shape?”</span><div style="flex:1"></div>';
+    if (!d.done && D.k === 'steps' && d.ans.length < 4) h += '<button type="button" class="btn solid" id="dNext">Next step</button>';
+    else if (!d.done && (D.k === 'steps' || d.pick != null)) h += '<button type="button" class="btn solid" id="dDone">Done · +5 XP</button>';
+    else if (d.done) h += '<button type="button" class="btn solid" id="tkClose2">Next drill tomorrow</button>';
+    return h;
+  }
+  function bindDrill(o) {
+    var d = todayDrill();
+    o.querySelectorAll('[data-dpick]').forEach(function (b) { b.onclick = function () { d.pick = +b.dataset.dpick; save(); drawThink(); }; });
+    var nx = o.querySelector('#dNext'); if (nx) nx.onclick = function () { var a = o.querySelector('#dAns'); d.ans.push(a ? a.value.trim() : ''); save(); drawThink(); };
+    var dn = o.querySelector('#dDone'); if (dn) dn.onclick = function () { mutate(function () { d.done = true; d.at = new Date().toISOString(); }); drawThink(); };
+    var c2 = o.querySelector('#tkClose2'); if (c2) c2.onclick = closeThink;
+    var da = o.querySelector('#dAns'); if (da) setTimeout(function () { try { da.focus(); } catch (e) {} }, 60);
+  }
+  function drillDoneToday() { return !!((state.drills || {})[dkey(new Date())] || {}).done; }
+  function thinkXp(dk) {
+    var x = ((state.drills || {})[dk] || {}).done ? 5 : 0;
+    x += Math.min(ideas().filter(function (i) { return i.testAt === dk; }).length, 2) * 10;
+    return x;
+  }
+  // Notes → Ideas tab
+  function ideasTabHtml() {
+    var d = (state.drills || {})[dkey(new Date())] || {}, list = ideas();
+    var h = '<button type="button" class="tkdrillrow" id="nDrill"><span class="ic">🧠</span><span><b>' + (d.done ? 'Today’s drill done' : 'Daily drill · 3 min') + '</b><small>' + (d.done ? '🔥 ' + drillStreak() + '-day streak · next one tomorrow' : 'Fermi estimate, idiot index or “why is it this shape?”') + '</small></span>' + CHEV + '</button>';
+    if (!list.length) h += '<p class="muted" style="margin:0">Break an idea down to physics: question the requirements, delete parts, find the raw-material floor, then test it. Start with anything you’re working on.</p>';
+    else h += '<div class="list">' + list.map(function (x) {
+      var fl = floorOf(x), ix = idx(x.price, fl), st = x.test && x.test.tid ? ['Testing', '#CDEFEA'] : x.rebuilt ? ['Rebuilt', '#FFE6B8'] : ['Step: ' + (x.mode === 'full' ? TK_RAIL[tkRailIdx(x, x.last || 'q')] : TK_MODES[x.mode].t.split(' ·')[0]), '#FFE0D9'];
+      var sub = [x.truths.filter(Boolean).length ? x.truths.filter(Boolean).length + ' truths' : '', ix ? 'idiot index ' + ix + '×' : '', x.parts.filter(function (p) { return p.st === 'del'; }).length ? x.parts.filter(function (p) { return p.st === 'del'; }).length + ' deleted' : '', niceDate(x.updated)].filter(Boolean).join(' · ');
+      return '<button type="button" class="r" data-iopen="' + x.id + '"><span class="t">' + esc(x.title) + '<small>' + sub + '</small></span><span class="tkpill" style="background:' + st[1] + '">' + st[0] + '</span>' + CHEV + '</button>';
+    }).join('') + '</div>';
+    h += '<div class="optrow">' + ['idiot', 'red', 'fermi'].map(function (k) { return '<button type="button" class="opt sm" data-inew="' + k + '">' + TK_MODES[k].ic + ' ' + TK_MODES[k].t.split(' ·')[0] + '</button>'; }).join('') + '</div>';
+    h += '<div class="nfoot"><button type="button" class="btn coral" data-inew="full">+ Break down a new idea</button></div>';
+    return h;
+  }
+  function bindIdeasTab(o) {
+    var dr = o.querySelector('#nDrill'); if (dr) dr.onclick = function () { openDrill(); };
+    o.querySelectorAll('[data-iopen]').forEach(function (b) { b.onclick = function () { openThink(b.dataset.iopen); }; });
+    o.querySelectorAll('[data-inew]').forEach(function (b) { b.onclick = function () { openThink(null); tk.mode = b.dataset.inew; drawThink(); }; });
+  }
 
   // ---------- shell ----------
   function render() {
