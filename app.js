@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '21';
+  var APP_VERSION = '22';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -276,6 +276,9 @@
       '<span class="cap">Day ' + today + ' of 30' + (st ? ' · ' + st + '-day streak' : '') + '</span>' +
       '<span class="hrow"><span class="dring">' + dayRing(112, 6) + '<b class="display">' + today + '</b></span><span class="display greet">' + greet() + '<br><i>' + esc(myName()) + '</i></span></span></button>';
     h += goalCard();
+    var up = [], dd0 = new Date();
+    for (var hi = 0; hi < 8; hi++) { var dk = dkey(dd0); holidaysOn(dk).filter(function (x) { return x.t === 'public'; }).forEach(function (x) { up.push({ d: dk, n: x.n }); }); dd0.setDate(dd0.getDate() + 1); }
+    if (up.length) h += '<div class="list">' + up.slice(0, 2).map(function (x) { return '<button type="button" class="r" data-ocal="' + x.d + '"><span class="dot" style="background:' + T.hib + '"></span><span class="t">' + esc(x.n) + '<small>' + (x.d === key ? 'today · public holiday' : new Date(x.d + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + ' · public holiday') + '</small></span>' + CHEV + '</button>'; }).join('') + '</div>';
     h += timerBlock();
     var hasNote = !!(d.note || '').trim();
     var vd = (state.vizDone || {})[key], vs = vizSettings(), jn = state.journal[key] || {};
@@ -293,7 +296,7 @@
   var TICK = '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   function tsub(t) {
     var lu = t.updates[t.updates.length - 1];
-    return t.achievedAt ? 'hit at ' + timeOf(t.achievedAt) : lu ? 'Latest: ' + esc(lu.text) + ' · ' + timeOf(lu.t) : t.planned ? 'planned the night before' : 'no update yet';
+    return t.achievedAt ? 'hit at ' + timeOf(t.achievedAt) : t.calId && !lu ? '📅 from your calendar' : lu ? 'Latest: ' + esc(lu.text) + ' · ' + timeOf(lu.t) : t.planned ? 'planned the night before' : 'no update yet';
   }
   function tickBtn(t, cls) { return '<button type="button" class="tck ' + (cls || '') + (t.achievedAt ? ' on' : '') + '" data-thit="' + t.id + '" aria-pressed="' + !!t.achievedAt + '" aria-label="' + (t.achievedAt ? 'Mark as not hit: ' : 'Mark as hit: ') + esc(t.text) + '">' + (t.achievedAt ? TICK : '') + '</button>'; }
   function goalCard() {
@@ -1569,14 +1572,14 @@
   // ---------- notes: scribble pad (IndexedDB, so photos don't fill the phone's quick storage) ----------
   var NOTES = null, nsT = null, nv = null, imgCache = {};
   var NW = 1000, NH = 1300;
-  var NCOL = ['#16302A', '#0F4D40', '#12A39A', '#FF6B57', '#FFB23F', '#E8457A'];
+  var NCOL = ['#16302A', '#FFFFFF', '#12A39A', '#FF6B57', '#FFB23F', '#E8457A'];
   var NBG = ['#FFE6B8', '#FFFFFF', '#CDEFEA', '#FFD9D3'];
   function loadNotes() { return NOTES ? Promise.resolve(NOTES) : idbGet('notes').then(function (n) { NOTES = n || []; return NOTES; }).catch(function () { NOTES = []; return NOTES; }); }
   function saveNotes(now) { clearTimeout(nsT); var go = function () { idbPut('notes', NOTES).catch(function () { toast('Could not save the note'); }); }; if (now) go(); else nsT = setTimeout(go, 300); }
   function noteById(id) { return (NOTES || []).filter(function (n) { return n.id === id; })[0]; }
-  function openNotes(tab) {
+  function openNotes(tab, day) {
     resetOverlay(); closeSheet();
-    loadNotes().then(function () { nv = { tab: tab || 'pad', id: null, tool: 'pen', color: NCOL[0], thick: false, hist: [] }; drawNotes(); showOverlay('nto'); });
+    loadNotes().then(function () { nv = { tab: tab || 'pad', calSel: day || null, calMonth: day ? day.slice(0, 7) : null, id: null, tool: 'pen', color: NCOL[0], thick: false, hist: [] }; drawNotes(); showOverlay('nto'); });
   }
   function closeNotes() { notesLeave(); nv = null; closeOverlayEl(); }
   // notes used to have one page; now each note has a list of pages
@@ -1595,7 +1598,7 @@
   function noteThumb(n) {
     try {
       var c = document.createElement('canvas'); c.width = 300; c.height = 390;
-      var x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, 300, 390); x.scale(300 / NW, 390 / NH);
+      var x = c.getContext('2d'); x.fillStyle = n.kind === 'board' ? n.board : '#fff'; x.fillRect(0, 0, 300, 390); x.scale(300 / NW, 390 / NH);
       var pg = notePages(n).filter(function (p) { return p.items.length; })[0];
       pg.items.forEach(function (it) { drawItem(x, it, null); });
       return c.toDataURL('image/jpeg', .72);
@@ -1620,18 +1623,26 @@
   var NNAME = { move: 'Move', pen: 'Pen', line: 'Line', rect: 'Box', circle: 'Circle', arrow: 'Arrow', text: 'Text', check: 'Checklist', img: 'Photo', erase: 'Eraser' };
   function drawNotes() {
     var o = document.getElementById('overlay');
+    if (nv.crop) return drawCrop();
     if (nv.id) return drawNoteEditor();
+    var keep = o.scrollTop;
     var h = '<div class="inner"><div class="row between"><h1 class="display" style="font-size:34px">Notes</h1><button type="button" class="btn ghost small" id="nClose">Close</button></div>';
-    h += '<div class="seg2" role="tablist"><button type="button" role="tab" data-ntab="pad" aria-selected="' + (nv.tab === 'pad') + '">Scribble pad</button><button type="button" role="tab" data-ntab="journal" aria-selected="' + (nv.tab === 'journal') + '">Journal</button></div>';
-    if (nv.tab === 'pad') {
-      var list = NOTES.slice().sort(function (a, b) { return (b.pinned - a.pinned) || (b.updated < a.updated ? -1 : 1); });
-      if (!list.length) h += '<p class="muted" style="margin:0">Nothing yet. Tap <b>New note</b> to sketch an idea, pin a photo or jot something down.</p>';
+    h += '<div class="seg2 seg4" role="tablist">' + [['pad', 'Scribble'], ['vision', 'Vision'], ['cal', 'Calendar'], ['journal', 'Journal']].map(function (t) {
+      return '<button type="button" role="tab" data-ntab="' + t[0] + '" aria-selected="' + (nv.tab === t[0]) + '">' + t[1] + '</button>';
+    }).join('') + '</div>';
+    if (nv.tab === 'pad' || nv.tab === 'vision') {
+      var boards = nv.tab === 'vision';
+      var list = NOTES.filter(function (n) { return (n.kind === 'board') === boards; }).sort(function (a, b) { return (b.pinned - a.pinned) || (b.updated < a.updated ? -1 : 1); });
+      if (!list.length) h += '<p class="muted" style="margin:0">' + (boards ? 'Nothing yet. A vision board is a page of pictures and words for what you want. Tap <b>New vision board</b>, then find images on Google and paste them in.' : 'Nothing yet. Tap <b>New note</b> to sketch an idea, pin a photo or jot something down.') + '</p>';
       else h += '<div class="ngrid">' + list.map(function (n) {
         var prev = n.thumb ? '<img src="' + n.thumb + '" alt="">' : '<span class="nb">' + esc((n.body || '').slice(0, 140)) + '</span>';
-        return '<button type="button" class="ncard" data-nopen="' + n.id + '" style="background:' + n.bg + '">' + (n.pinned ? '<span class="npin" aria-label="pinned">📌</span>' : '') +
+        var dark = n.kind === 'board' && isDark(n.board);
+        return '<button type="button" class="ncard' + (dark ? ' dark' : '') + '" data-nopen="' + n.id + '" style="background:' + (n.kind === 'board' ? n.board : n.bg) + '">' + (n.pinned ? '<span class="npin" aria-label="pinned">📌</span>' : '') +
           '<b>' + (esc(n.title) || 'Untitled') + '</b>' + prev + '<span class="cap">' + (n.pinned ? 'pinned · ' : '') + (notePages(n).length > 1 ? notePages(n).length + ' pages · ' : '') + niceDate(n.updated) + '</span></button>';
       }).join('') + '</div>';
-      h += '<div class="nfoot"><button type="button" class="btn coral" id="nNew">+ New note</button></div>';
+      h += '<div class="nfoot"><button type="button" class="btn coral" id="nNew">' + (boards ? '+ New vision board' : '+ New note') + '</button></div>';
+    } else if (nv.tab === 'cal') {
+      h += calendarHtml();
     } else {
       var ks = Object.keys(state.journal || {}).filter(function (k) { var j = state.journal[k]; return j.well || j.away || j.more || j.mood; }).sort().reverse();
       if (!ks.length) h += '<p class="muted" style="margin:0">Your nightly journal shows up here. The 10 pm ping opens it, or start one now.</p>';
@@ -1642,18 +1653,209 @@
       h += '<div class="nfoot"><button type="button" class="btn" id="nTonight" style="background:#1B2F5A;color:#fff">Write tonight’s journal</button></div>';
     }
     o.innerHTML = h + '</div>';
+    if (nv.keepScroll) { o.scrollTop = keep; nv.keepScroll = false; }
     o.querySelector('#nClose').onclick = closeNotes;
     o.querySelectorAll('[data-ntab]').forEach(function (b) { b.onclick = function () { nv.tab = b.dataset.ntab; drawNotes(); }; });
-    o.querySelectorAll('[data-nopen]').forEach(function (b) { b.onclick = function () { nv.id = b.dataset.nopen; nv.hist = []; nv.sel = null; nv.page = 0; nv.zoom = 1; nv.edit = null; drawNotes(); }; });
+    o.querySelectorAll('[data-nopen]').forEach(function (b) { b.onclick = function () { nv.id = b.dataset.nopen; nv.hist = []; nv.sel = null; nv.page = 0; nv.zoom = 1; nv.edit = null; var n0 = noteById(nv.id); if (n0 && n0.kind === 'board') { nv.tool = 'move'; nv.color = '#FFFFFF'; } drawNotes(); }; });
     var nn = o.querySelector('#nNew'); if (nn) nn.onclick = function () {
+      var board = nv.tab === 'vision';
       var n = { id: 'n' + Date.now().toString(36), title: '', body: '', pages: [{ items: [] }], pinned: false, bg: NBG[NOTES.length % NBG.length], created: new Date().toISOString(), updated: new Date().toISOString() };
-      NOTES.push(n); nv.id = n.id; nv.hist = []; nv.tool = 'pen'; nv.page = 0; nv.zoom = 1; nv.edit = null; drawNotes();
+      if (board) { n.kind = 'board'; n.board = BOARDBG[0][1]; }
+      NOTES.push(n); nv.id = n.id; nv.hist = []; nv.tool = board ? 'move' : 'pen'; if (board) nv.color = '#FFFFFF'; nv.page = 0; nv.zoom = 1; nv.edit = null; drawNotes();
       setTimeout(function () { var t = document.getElementById('nTitle'); if (t) try { t.focus(); } catch (e) {} }, 60);
     };
     var jt = function (k) { closeNotes(); ui.tab = 'trail'; render(); openSheet('tonight' + (k && k !== dkey(new Date()) ? ':' + k : '')); };
     o.querySelectorAll('[data-jopen]').forEach(function (b) { b.onclick = function () { jt(b.dataset.jopen); }; });
     var tn = o.querySelector('#nTonight'); if (tn) tn.onclick = function () { jt(null); };
+    if (nv.tab === 'cal') bindCalendar(o);
   }
+  var BOARDBG = [['Dark', '#16302A'], ['Sand', '#FBF1E3'], ['White', '#FFFFFF'], ['Coral', '#FF6B57'], ['Lagoon', '#12A39A'], ['Mango', '#FFB23F']];
+  function isDark(c) { return c === '#16302A' || c === '#12A39A' || c === '#FF6B57'; }
+
+  // ---------- vision boards: find on Google, copy, paste, crop ----------
+  function googleImages(q) { window.open('https://www.google.com/search?tbm=isch&q=' + encodeURIComponent(q), '_blank', 'noopener'); }
+  function blobToDataURL(b) { return new Promise(function (res, rej) { var r = new FileReader(); r.onload = function () { res(r.result); }; r.onerror = rej; r.readAsDataURL(b); }); }
+  function pasteImage() {
+    if (!navigator.clipboard || !navigator.clipboard.read) { toast('This phone can’t paste images here. Save the image and use 🖼 instead.'); return; }
+    navigator.clipboard.read().then(function (items) {
+      for (var i = 0; i < items.length; i++) {
+        var t = items[i].types.filter(function (x) { return /^image\//.test(x); })[0];
+        if (t) return items[i].getType(t).then(blobToDataURL).then(startCrop);
+      }
+      toast('No image copied yet. In Google Images, long-press a picture → Copy image.');
+    }).catch(function () { toast('Couldn’t read the copied image. Allow clipboard access, or save the image and use 🖼.'); });
+  }
+  function startCrop(url) {
+    var im = new Image();
+    im.onload = function () { nv.crop = { url: url, w: im.naturalWidth, h: im.naturalHeight, r: { x: .06, y: .06, w: .88, h: .88 }, cap: '' }; drawNotes(); };
+    im.onerror = function () { toast('Could not open that image'); };
+    im.src = url;
+  }
+  function drawCrop() {
+    var o = document.getElementById('overlay'), c = nv.crop;
+    var h = '<div class="inner"><div class="row between"><span class="eyebrow">Crop the image</span><button type="button" class="btn ghost small" id="crCancel">Cancel</button></div>';
+    h += '<div class="crbox"><div class="crimg" id="crImg"><img src="' + c.url + '" alt="" draggable="false"><div class="crrect" id="crRect"><i data-h="tl"></i><i data-h="tr"></i><i data-h="bl"></i><i data-h="br"></i></div></div></div>';
+    h += '<p class="muted small" style="text-align:center">Drag the corners to crop, or drag the middle to move the frame.</p>';
+    h += '<input class="text" id="crCap" placeholder="Caption (optional): e.g. Nela in the field" value="' + esc(c.cap) + '">';
+    h += '<div class="row"><button type="button" class="btn line" id="crAll">Use whole image</button><button type="button" class="btn jungle" id="crUse" style="flex:1">Place on board</button></div></div>';
+    o.innerHTML = h;
+    var wrap = o.querySelector('#crImg'), rect = o.querySelector('#crRect'), img = wrap.querySelector('img');
+    var place = function () { rect.style.left = c.r.x * 100 + '%'; rect.style.top = c.r.y * 100 + '%'; rect.style.width = c.r.w * 100 + '%'; rect.style.height = c.r.h * 100 + '%'; };
+    place();
+    var drag = null;
+    rect.addEventListener('pointerdown', function (e) {
+      e.preventDefault(); try { rect.setPointerCapture(e.pointerId); } catch (x) {}
+      drag = { h: e.target.dataset.h || 'move', x: e.clientX, y: e.clientY, r: Object.assign({}, c.r) };
+    });
+    rect.addEventListener('pointermove', function (e) {
+      if (!drag) return;
+      var b = img.getBoundingClientRect(), dx = (e.clientX - drag.x) / b.width, dy = (e.clientY - drag.y) / b.height, r = Object.assign({}, drag.r), m = .06;
+      if (drag.h === 'move') { r.x = Math.max(0, Math.min(1 - r.w, r.x + dx)); r.y = Math.max(0, Math.min(1 - r.h, r.y + dy)); }
+      else {
+        if (/l/.test(drag.h)) { var nx = Math.max(0, Math.min(r.x + r.w - m, r.x + dx)); r.w += r.x - nx; r.x = nx; }
+        if (/r/.test(drag.h)) r.w = Math.max(m, Math.min(1 - r.x, r.w + dx));
+        if (/t/.test(drag.h)) { var ny = Math.max(0, Math.min(r.y + r.h - m, r.y + dy)); r.h += r.y - ny; r.y = ny; }
+        if (/b/.test(drag.h)) r.h = Math.max(m, Math.min(1 - r.y, r.h + dy));
+      }
+      c.r = r; place();
+    });
+    var end = function () { drag = null; };
+    rect.addEventListener('pointerup', end); rect.addEventListener('pointercancel', end);
+    o.querySelector('#crCap').addEventListener('input', function (e) { c.cap = e.target.value; });
+    o.querySelector('#crCancel').onclick = function () { nv.crop = null; drawNotes(); };
+    o.querySelector('#crAll').onclick = function () { c.r = { x: 0, y: 0, w: 1, h: 1 }; place(); };
+    o.querySelector('#crUse').onclick = function () {
+      var sx = c.r.x * c.w, sy = c.r.y * c.h, sw = c.r.w * c.w, sh = c.r.h * c.h, sc = Math.min(1, 1100 / Math.max(sw, sh)), cv = document.createElement('canvas');
+      cv.width = Math.max(1, Math.round(sw * sc)); cv.height = Math.max(1, Math.round(sh * sc));
+      var im = new Image();
+      im.onload = function () {
+        cv.getContext('2d').drawImage(im, sx, sy, sw, sh, 0, 0, cv.width, cv.height);
+        var data = cv.toDataURL('image/jpeg', .85), id = 'i' + Date.now().toString(36), n = noteById(nv.id), pg = notePages(n)[nv.page || 0];
+        idbPut('img-' + id, data).then(function () {
+          var w = 430, hh = Math.round(w * cv.height / cv.width); if (hh > 560) { w = Math.round(w * 560 / hh); hh = 560; }
+          var i2 = new Image(); i2.src = data; imgCache[id] = i2;
+          var k = pg.items.filter(function (x) { return x.type === 'img'; }).length;
+          nv.hist.push(JSON.stringify(pg.items));
+          pg.items.push({ type: 'img', src: id, x: 60 + (k % 2) * 440 + (k % 3) * 10, y: 60 + Math.floor(k / 2) % 3 * 380, w: w, h: hh, rot: [-3, 2, -1.5, 3][k % 4], cap: (c.cap || '').trim(), polaroid: true });
+          n.updated = new Date().toISOString(); saveNotes();
+          nv.crop = null; nv.tool = 'move'; drawNotes(); toast('Placed. Drag it where you like.');
+        }).catch(function () { toast('Could not save the image'); });
+      };
+      im.src = c.url;
+    };
+  }
+
+  // ---------- calendar ----------
+  var CALTYPE = { task: ['Task', T.coral], activity: ['Activity', T.lagoon], event: ['Event', T.mango] };
+  var CALPRESETS = [['🏸', 'Badminton', 'activity'], ['🏊', 'Swim', 'activity'], ['🏃', 'Run', 'activity'], ['🚴', 'Ride', 'activity'], ['🧘', 'Yoga', 'activity'], ['💪', 'Gym', 'activity'],
+    ['☕', 'Estate round', 'task'], ['🌱', 'Fertiliser / spray', 'task'], ['💸', 'Pay bills', 'task'], ['📞', 'Call', 'task'], ['🛠', 'Bike service', 'task'], ['🛒', 'Groceries', 'task'],
+    ['🎂', 'Birthday', 'event', 'yearly'], ['💍', 'Anniversary', 'event', 'yearly'], ['🤝', 'Meeting', 'event'], ['✈', 'Travel', 'event'], ['🎉', 'Festival', 'event'], ['🩺', 'Appointment', 'event']];
+  function calEntries() { return state.cal = state.cal || []; }
+  function occursOn(e, key) {
+    if (e.date === key) return true;
+    if (!e.repeat || e.repeat === 'none' || key < e.date) return false;
+    var a = new Date(e.date + 'T00:00:00'), b = new Date(key + 'T00:00:00');
+    if (e.repeat === 'daily') return true;
+    if (e.repeat === 'weekly') return a.getDay() === b.getDay();
+    if (e.repeat === 'monthly') return a.getDate() === b.getDate();
+    if (e.repeat === 'yearly') return a.getDate() === b.getDate() && a.getMonth() === b.getMonth();
+    return false;
+  }
+  function entriesOn(key) { return calEntries().filter(function (e) { return occursOn(e, key) && !(e.skip || []).includes(key); }).sort(function (x, y) { return (x.time || '99') < (y.time || '99') ? -1 : 1; }); }
+  function holidaysOn(key) { return ((state.holidays || {}).events || []).filter(function (h) { return h.d === key && h.t !== 'observance'; }); }
+  function calLabel(e) { return (e.emoji ? e.emoji + ' ' : '') + e.title; }
+  function time12(t) { if (!t) return ''; var p = t.split(':'), hh = +p[0]; return (hh % 12 || 12) + (p[1] !== '00' ? ':' + p[1] : '') + (hh < 12 ? ' am' : ' pm'); }
+  // entries for today become today's targets (once each, so deleting the target sticks)
+  function syncCalendarTargets() {
+    var k = dkey(new Date()), es = entriesOn(k); if (!es.length) return false;
+    state.calSynced = state.calSynced || {};
+    var done = state.calSynced[k] = state.calSynced[k] || [], added = false;
+    es.forEach(function (e) {
+      if (done.indexOf(e.id) >= 0) return;
+      done.push(e.id); addTarget(k, calLabel(e) + (e.time ? ' · ' + time12(e.time) : ''));
+      var ts = state.targets[k]; ts[ts.length - 1].calId = e.id; added = true;
+    });
+    Object.keys(state.calSynced).forEach(function (d) { if (d < k) delete state.calSynced[d]; });
+    return added;
+  }
+  function holidayRaw() {
+    var owner = location.hostname.split('.')[0], repo = location.pathname.split('/').filter(Boolean)[0];
+    return location.hostname.indexOf('github.io') > 0 && repo ? 'https://raw.githubusercontent.com/' + owner + '/' + repo + '/main/data/holidays.json' : 'data/holidays.json';
+  }
+  function loadHolidays(force) {
+    var hs = state.holidays || {};
+    if (!force && hs.tried && Date.now() - hs.tried < 12 * 3600000) return;
+    hs.tried = Date.now(); state.holidays = hs;
+    fetch(holidayRaw() + '?t=' + Date.now(), { cache: 'no-store' }).then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function (j) { if (j && j.events) { state.holidays = { tried: Date.now(), at: j.at, events: j.events }; save(); render(); if (nv && nv.tab === 'cal' && !nv.id) { nv.keepScroll = true; drawNotes(); } } })
+      .catch(function () { save(); });
+  }
+  function calendarHtml() {
+    var tk = dkey(new Date()), sel = nv.calSel || tk, m = nv.calMonth || tk.slice(0, 7);
+    var first = new Date(m + '-01T00:00:00'), lead = (first.getDay() + 6) % 7, days = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+    var h = '<div class="row between"><span class="display" style="font-size:26px">' + first.toLocaleDateString('en', { month: 'long', year: 'numeric' }) + '</span><div class="row" style="gap:6px">' +
+      (m !== tk.slice(0, 7) ? '<button type="button" class="nib sm" id="calToday">Today</button>' : '') + '<button type="button" class="nib" data-cm="-1" aria-label="Previous month">‹</button><button type="button" class="nib" data-cm="1" aria-label="Next month">›</button></div></div>';
+    h += '<div class="calgrid">' + ['M', 'T', 'W', 'T', 'F', 'S', 'S'].map(function (d) { return '<span class="cap">' + d + '</span>'; }).join('');
+    for (var i = 0; i < lead; i++) h += '<span></span>';
+    for (var d = 1; d <= days; d++) {
+      var k = m + '-' + String(d).padStart(2, '0'), es = entriesOn(k), hol = holidaysOn(k);
+      var dots = es.slice(0, 3).map(function (e) { return '<i style="background:' + CALTYPE[e.type][1] + '"></i>'; }).join('') + (hol.length ? '<i style="background:' + T.hib + '"></i>' : '');
+      h += '<button type="button" class="cd' + (k === sel ? ' sel' : '') + (k === tk ? ' today' : '') + (hol.some(function (x) { return x.t === 'public'; }) ? ' hol' : '') + '" data-cday="' + k + '" aria-label="' + k + (hol.length ? ', ' + esc(hol[0].n) : '') + (es.length ? ', ' + es.length + ' items' : '') + '">' + d + '<span>' + dots + '</span></button>';
+    }
+    h += '</div><div class="callegend">' + Object.keys(CALTYPE).map(function (t) { return '<span><i style="background:' + CALTYPE[t][1] + '"></i>' + CALTYPE[t][0].toLowerCase() + '</span>'; }).join('') + '<span><i style="background:' + T.hib + '"></i>holiday</span></div>';
+    // the selected day
+    var sd = new Date(sel + 'T00:00:00'), es2 = entriesOn(sel), hol2 = holidaysOn(sel);
+    h += '<div class="calday"><div class="row between"><span class="display" style="font-size:24px">' + sd.toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + '</span><span class="cap">' + es2.length + ' item' + (es2.length === 1 ? '' : 's') + '</span></div>';
+    hol2.forEach(function (x) { h += '<div class="notice" style="background:#FFD9E5;color:#8A1F45">🎌 ' + esc(x.n) + ' · ' + (x.t === 'public' ? 'public holiday' : 'restricted holiday') + '</div>'; });
+    if (es2.length) h += '<div class="list">' + es2.map(function (e) {
+      return '<div class="r"><span class="dot" style="background:' + CALTYPE[e.type][1] + '"></span><span class="t">' + esc(calLabel(e)) + '<small>' + CALTYPE[e.type][0].toLowerCase() + (e.time ? ' · ' + time12(e.time) : '') + (e.repeat && e.repeat !== 'none' ? ' · every ' + { daily: 'day', weekly: 'week', monthly: 'month', yearly: 'year' }[e.repeat] : '') + '</small></span><button type="button" class="fx" data-cdel="' + e.id + '" aria-label="Remove">×</button></div>';
+    }).join('') + '</div>';
+    else h += '<p class="muted small">Nothing planned. Add something below.' + (sel === tk ? '' : ' It will show up in that day’s targets.') + '</p>';
+    h += '<div class="row" style="gap:8px"><label class="lab" for="calTime" style="white-space:nowrap">Time (optional)</label><input type="time" id="calTime" class="text" style="flex:1" value="' + (nv.calTime || '') + '"></div>';
+    var mine = (state.calPresets || []).map(function (p) { return [p.emoji || '⭐', p.title, p.type, p.repeat || 'none', true]; });
+    h += '<span class="lab">Quick add</span><div class="optrow calq">' + CALPRESETS.concat(mine).map(function (p, i) {
+      return '<button type="button" class="opt sm" data-cq="' + i + '" style="background:' + { task: '#FFD9D3', activity: '#CDEFEA', event: '#FFE6B8' }[p[2]] + '">' + p[0] + ' ' + esc(p[1]) + '</button>';
+    }).join('') + '</div>';
+    h += '<details class="calown"' + (nv.calOwn ? ' open' : '') + '><summary class="lab">+ Your own</summary><div class="stack" style="gap:8px;margin-top:8px">' +
+      '<input class="text" id="calTitle" placeholder="What? e.g. Cariappa’s birthday, Fixture review">' +
+      '<div class="row" style="gap:8px"><select id="calType" class="text">' + Object.keys(CALTYPE).map(function (t) { return '<option value="' + t + '">' + CALTYPE[t][0] + '</option>'; }).join('') + '</select>' +
+      '<select id="calRep" class="text"><option value="none">Once</option><option value="daily">Every day</option><option value="weekly">Every week</option><option value="monthly">Every month</option><option value="yearly">Every year</option></select></div>' +
+      '<label class="row lab" style="gap:8px"><input type="checkbox" id="calSave"> Also save as a quick-add button</label>' +
+      '<button type="button" class="btn jungle" id="calAdd">Add to ' + sd.toLocaleDateString('en', { day: 'numeric', month: 'short' }) + '</button></div></details>';
+    var hs = state.holidays || {};
+    h += '<p class="muted small">' + (hs.events ? 'Public holidays for India load automatically (updated ' + niceDate(hs.at) + ').' : 'Public holidays aren’t loaded yet: they appear after the “Holidays” task has run once on GitHub.') + ' Tasks, activities and events for a date appear in that day’s targets on Today.</p>';
+    return h + '</div>';
+  }
+  function bindCalendar(o) {
+    var tk = dkey(new Date()), sel = nv.calSel || tk, redraw = function () { nv.keepScroll = true; drawNotes(); };
+    o.querySelectorAll('[data-cday]').forEach(function (b) { b.onclick = function () { nv.calSel = b.dataset.cday; redraw(); }; });
+    o.querySelectorAll('[data-cm]').forEach(function (b) { b.onclick = function () { var d = new Date((nv.calMonth || tk.slice(0, 7)) + '-01T00:00:00'); d.setMonth(d.getMonth() + +b.dataset.cm); nv.calMonth = dkey(d).slice(0, 7); redraw(); }; });
+    var ct = o.querySelector('#calToday'); if (ct) ct.onclick = function () { nv.calMonth = tk.slice(0, 7); nv.calSel = tk; redraw(); };
+    var tm = o.querySelector('#calTime'); tm.addEventListener('change', function () { nv.calTime = tm.value; });
+    var add = function (emoji, title, type, repeat) {
+      calEntries().push({ id: 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), date: sel, title: title, emoji: emoji, type: type, time: tm.value || '', repeat: repeat || 'none' });
+      if (sel === tk) syncCalendarTargets();
+      save(); syncGoal(); render(); redraw();
+      toast('Added to ' + new Date(sel + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) + (sel === tk ? ' · also in today’s targets' : ''));
+    };
+    var mine = (state.calPresets || []).map(function (p) { return [p.emoji || '⭐', p.title, p.type, p.repeat || 'none']; }), all = CALPRESETS.concat(mine);
+    o.querySelectorAll('[data-cq]').forEach(function (b) { b.onclick = function () { var p = all[+b.dataset.cq]; add(p[0], p[1], p[2], p[3]); }; });
+    o.querySelectorAll('[data-cdel]').forEach(function (b) { b.onclick = function () {
+      var e = calEntries().filter(function (x) { return x.id === b.dataset.cdel; })[0]; if (!e) return;
+      if (e.repeat && e.repeat !== 'none' && e.date !== sel) {
+        if (confirm('Remove only this day? (Cancel removes every repeat)')) { e.skip = (e.skip || []).concat([sel]); save(); redraw(); return; }
+      } else if (!confirm('Remove “' + e.title + '”?')) return;
+      state.cal = calEntries().filter(function (x) { return x !== e; }); save(); redraw();
+    }; });
+    var own = o.querySelector('.calown'); own.addEventListener('toggle', function () { nv.calOwn = own.open; });
+    o.querySelector('#calAdd').onclick = function () {
+      var t = o.querySelector('#calTitle').value.trim(); if (!t) { o.querySelector('#calTitle').focus(); return; }
+      var ty = o.querySelector('#calType').value, rp = o.querySelector('#calRep').value;
+      if (o.querySelector('#calSave').checked) { state.calPresets = (state.calPresets || []).concat([{ title: t, type: ty, repeat: rp }]); }
+      nv.calOwn = false; add('', t, ty, rp);
+    };
+  }
+
   function drawNoteEditor() {
     var o = document.getElementById('overlay'), n = noteById(nv.id);
     if (!n) { nv.id = null; return drawNotes(); }
@@ -1670,7 +1872,12 @@
     h += '<div class="npager"><div class="row" style="gap:4px"><button type="button" class="nib" id="nPrev" aria-label="Previous page"' + (nv.page ? '' : ' disabled') + '>‹</button><span class="cap npno">Page ' + (nv.page + 1) + ' / ' + pages.length + '</span><button type="button" class="nib" id="nNext" aria-label="Next page"' + (nv.page < pages.length - 1 ? '' : ' disabled') + '>›</button>' +
       '<button type="button" class="nib sm" id="nAddPg">+ Page</button>' + (pages.length > 1 ? '<button type="button" class="nib sm" id="nDelPg" aria-label="Delete this page">🗑</button>' : '') + '</div>' +
       '<div class="row" style="gap:4px"><button type="button" class="nib" id="nZo" aria-label="Zoom out">−</button><button type="button" class="nib sm" id="nZr" aria-label="Reset zoom">' + Math.round(nv.zoom * 100) + '%</button><button type="button" class="nib" id="nZi" aria-label="Zoom in">+</button></div></div>';
-    h += '<div class="nwrap"><canvas id="nCv" aria-label="Sketch area, page ' + (nv.page + 1) + '"></canvas></div>';
+    var board = n.kind === 'board';
+    if (board && !editing) {
+      h += '<div class="row vbtools"><input class="text" id="vbQ" placeholder="Search Google Images…" value="' + esc(nv.vbq || '') + '" enterkeyhint="search"><button type="button" class="nib" id="vbFind" aria-label="Find images on Google">🔍</button><button type="button" class="nib on" id="vbPaste">📋 Paste</button><button type="button" class="nib" id="vbGal" aria-label="Add from gallery">🖼</button></div>' +
+        '<div class="row" style="gap:6px;flex-wrap:wrap"><span class="cap">Background</span>' + BOARDBG.map(function (b) { return '<button type="button" class="nsw sm' + (n.board === b[1] ? ' on' : '') + '" data-bbg="' + b[1] + '" style="background:' + b[1] + '" aria-label="' + b[0] + ' background"></button>'; }).join('') + '</div>';
+    }
+    h += '<div class="nwrap' + (board ? ' board' : '') + '"' + (board ? ' style="background:' + n.board + '"' : '') + '><canvas id="nCv" aria-label="' + (board ? 'Vision board' : 'Sketch area') + ', page ' + (nv.page + 1) + '"></canvas></div>';
     if (editing) h += '<div class="npanel" id="nPanel"></div>';
     else {
       h += '<div class="ntools" role="toolbar" aria-label="Drawing tools">' + ['move', 'pen', 'line', 'rect', 'circle', 'arrow', 'text', 'check', 'img', 'erase'].map(function (k) {
@@ -1680,8 +1887,18 @@
     h += '<div class="row between"><div class="row" style="gap:9px">' + NCOL.map(function (c) { return '<button type="button" class="nsw' + (nv.color === c ? ' on' : '') + '" data-ncol="' + c + '" style="background:' + c + '" aria-label="Colour"></button>'; }).join('') + '</div>' +
       '<div class="row" style="gap:6px"><button type="button" class="nib sm' + (nv.thick ? ' on' : '') + '" id="nThick" aria-label="Line thickness">' + (nv.thick ? 'thick' : 'thin') + '</button><button type="button" class="nib" id="nUndo" aria-label="Undo"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M9 7L4 12l5 5M4 12h11a5 5 0 0 1 0 10h-2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div></div>';
     if (!editing) h += '<p class="muted small" style="text-align:center">' + ({ move: 'Drag things to move them; drag empty space to scroll. Tap text or a checklist to edit it.', text: 'Tap where the text should go, or tap existing text to edit it.', check: 'Tap where the checklist should go. Tap any box to tick it.', erase: 'Tap a line, shape, text, checklist or photo to remove it.', img: 'Choose a photo; then drag it into place.' }[nv.tool] || 'Draw with one finger. Pinch with two fingers to zoom.') + ' Saved as you go.</p>';
-    h += '<input type="file" id="nImg" accept="image/*" hidden></div>';
+    h += '<input type="file" id="nImg" accept="image/*" hidden><input type="file" id="vbFile" accept="image/*" hidden></div>';
     o.innerHTML = h;
+    var vf = o.querySelector('#vbFind');
+    if (vf) {
+      var vq = o.querySelector('#vbQ'), find = function () { var t = vq.value.trim() || n.title || 'vision board'; nv.vbq = vq.value; googleImages(t); setTimeout(function () { toast('Long-press an image → Copy image, then come back and tap Paste'); }, 400); };
+      vf.onclick = find; vq.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); find(); } });
+      vq.addEventListener('input', function () { nv.vbq = vq.value; });
+      o.querySelector('#vbPaste').onclick = pasteImage;
+      o.querySelector('#vbGal').onclick = function () { o.querySelector('#vbFile').click(); };
+      o.querySelector('#vbFile').onchange = function (e) { var f = e.target.files[0]; if (f) blobToDataURL(f).then(startCrop); };
+      o.querySelectorAll('[data-bbg]').forEach(function (b) { b.onclick = function () { n.board = b.dataset.bbg; n.updated = new Date().toISOString(); saveNotes(); if (isDark(n.board) && nv.color === '#16302A') nv.color = '#FFFFFF'; if (!isDark(n.board) && nv.color === '#FFFFFF') nv.color = '#16302A'; drawNoteEditor(); }; });
+    }
     o.scrollTop = keepScroll;
     var touch = function () { n.updated = new Date().toISOString(); saveNotes(); };
     var snap = function () { nv.hist.push(JSON.stringify(pg.items)); if (nv.hist.length > 40) nv.hist.shift(); };
@@ -1890,7 +2107,7 @@
       var tw = Math.max(it.s * 4, Math.max.apply(null, it.rows.map(function (r) { return ctx.measureText(r.t || '').width; }))); ctx.restore();
       return { x: it.x, y: it.y, w: g.b + it.s * .45 + tw, h: (it.rows.length - 1) * g.rh + g.b };
     }
-    return { x: it.x, y: it.y, w: it.w, h: it.h };
+    return { x: it.x, y: it.y, w: it.w, h: it.h + (it.polaroid && it.cap ? 60 : 0) };
   }
   function drawItem(x, it, redraw) {
     x.save(); x.strokeStyle = it.c; x.fillStyle = it.c; x.lineWidth = it.w; x.lineCap = 'round'; x.lineJoin = 'round';
@@ -1933,8 +2150,10 @@
       if (im.complete && im.naturalWidth) {
         x.translate(it.x + it.w / 2, it.y + it.h / 2); x.rotate((it.rot || 0) * Math.PI / 180);
         x.shadowColor = 'rgba(0,0,0,.18)'; x.shadowBlur = 16; x.shadowOffsetY = 6;
-        x.fillStyle = '#fff'; x.fillRect(-it.w / 2 - 8, -it.h / 2 - 8, it.w + 16, it.h + 16);
+        var pad = it.polaroid ? 14 : 8, bot = it.polaroid ? (it.cap ? 64 : 22) : 8;
+        x.fillStyle = '#fff'; x.fillRect(-it.w / 2 - pad, -it.h / 2 - pad, it.w + pad * 2, it.h + pad + bot);
         x.shadowColor = 'transparent'; x.drawImage(im, -it.w / 2, -it.h / 2, it.w, it.h);
+        if (it.cap) { x.fillStyle = '#16302A'; x.font = '500 30px "Space Grotesk", sans-serif'; x.textBaseline = 'middle'; x.fillText(it.cap.length > 28 ? it.cap.slice(0, 27) + '…' : it.cap, -it.w / 2, it.h / 2 + 34, it.w); }
       } else { x.fillStyle = '#EFE3D1'; x.fillRect(it.x, it.y, it.w, it.h); }
     }
     x.restore();
@@ -2499,9 +2718,10 @@
   })();
   // rows and cards that open a sheet or jump to another tab
   document.addEventListener('click', function (e) {
-    var t = e.target.closest && e.target.closest('[data-sheet],[data-tab-go],[data-viz]');
+    var t = e.target.closest && e.target.closest('[data-sheet],[data-tab-go],[data-viz],[data-ocal]');
     if (!t) return;
     if (t.dataset.viz) { openViz(false); return; }
+    if (t.dataset.ocal) { openNotes('cal', t.dataset.ocal); return; }
     if (t.dataset.sheet) { openSheet(t.dataset.sheet); return; }
     var g = t.dataset.tabGo.split(':');
     closeSheet(); ui.tab = g[0]; if (g[1]) fitUi.view = g[1];
@@ -2511,6 +2731,7 @@
   // ---------- shell ----------
   function render() {
     migrate(state);
+    if (syncCalendarTargets()) { save(); syncGoal(); }
     var view = document.getElementById('view');
     if (ui.tab === 'trail') { view.innerHTML = renderToday(); bindTrail(view, todayNum()); }
     else if (ui.tab === 'log') { view.innerHTML = renderLog(); bindLog(view); }
@@ -2540,6 +2761,7 @@
 
   render();
   syncGoal();
+  loadHolidays(false);
   if (/[?&]win=1/.test(location.search)) { hitSingle(); openGoal(); }
   else if (/[?&]goal=1/.test(location.search)) openMorning();
   else if (/[?&]tonight=1/.test(location.search)) { openSheet('tonight'); history.replaceState(history.state, '', location.pathname); }
