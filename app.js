@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '29';
+  var APP_VERSION = '29.1';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -2456,20 +2456,34 @@
       'Reply only with JSON: {"title": "short evocative title", "lines": [{"text": "one or two sentences", "pause": seconds}]}. Pauses 2–15 seconds, longer after breathing cues and after vivid moments.';
   }
   function geminiCall(body) {
-    var models = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.0-flash'];
-    var go = function (i) {
+    // if one model is busy ("high demand") or missing, quietly try the next one; after a full round, wait and try once more
+    var models = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-flash-lite-latest', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'];
+    var busyStatus = function (st) { return st === 404 || st === 429 || st === 500 || st === 502 || st === 503 || st === 504; };
+    var lastErr = null;
+    var go = function (i, round) {
+      if (i >= models.length) {
+        if (round < 1 && lastErr && lastErr.busy) return new Promise(function (res) { setTimeout(res, 2500); }).then(function () { return go(0, round + 1); });
+        throw lastErr || new Error('AI is not available right now');
+      }
       // newer keys (starting "AQ.") only work when sent in this header, not in the web address
       return fetch('https://generativelanguage.googleapis.com/v1beta/models/' + models[i] + ':generateContent', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': state.aiKey }, body: JSON.stringify(body) })
         .then(function (r) {
-          if (r.status === 404 && i + 1 < models.length) return go(i + 1);
-          if (!r.ok) return r.text().then(function (t) {
-            var m = ''; try { m = JSON.parse(t).error.message; } catch (e) {}
-            throw new Error(r.status === 400 || r.status === 401 || r.status === 403 ? 'the AI key was not accepted' + (m ? ' (' + m.slice(0, 90) + ')' : '') : r.status === 429 ? 'the free limit is used up for now' : 'AI error ' + r.status + (m ? ': ' + m.slice(0, 90) : ''));
+          if (r.ok) return r.json().then(function (j) {
+            var c = (j.candidates || [])[0];
+            if (!c || !c.content || !c.content.parts) { lastErr = new Error('the AI gave an empty reply, try again'); lastErr.busy = true; return go(i + 1, round); }
+            return j;
           });
-          return r.json();
-        });
+          return r.text().then(function (t) {
+            var m = ''; try { m = JSON.parse(t).error.message; } catch (e) {}
+            if (r.status === 400 || r.status === 401 || r.status === 403) throw new Error('the AI key was not accepted' + (m ? ' (' + m.slice(0, 90) + ')' : ''));
+            lastErr = new Error(r.status === 429 ? 'the free limit is used up for now, try again in a minute' : r.status === 404 ? 'no AI model available for this key' : 'Google’s AI is very busy right now, try again in a minute');
+            lastErr.busy = r.status !== 404;
+            if (busyStatus(r.status)) return go(i + 1, round);
+            throw new Error('AI error ' + r.status + (m ? ': ' + m.slice(0, 90) : ''));
+          });
+        }, function () { lastErr = new Error('no internet connection'); throw lastErr; });
     };
-    return go(0).then(function (j) { return ((j.candidates || [])[0] || {}).content.parts.map(function (p) { return p.text || ''; }).join(''); });
+    return go(0, 0).then(function (j) { return j.candidates[0].content.parts.map(function (p) { return p.text || ''; }).join(''); });
   }
   function aiScript(v) {
     return geminiCall({ contents: [{ parts: [{ text: vizPrompt(v) }] }], generationConfig: { responseMimeType: 'application/json', temperature: 1 } }).then(function (txt) {
