@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '26';
+  var APP_VERSION = '27';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -785,7 +785,9 @@
   var MEALS = [['breakfast', 'Breakfast'], ['lunch', 'Lunch'], ['snack', 'Snacks'], ['dinner', 'Dinner']];
   var fitUi = { view: 'food', day: null };
   function r1(x) { return Math.round(x * 10) / 10; }
-  function prof() { return state.profile || {}; }
+  // a birth year typed into "Age" (e.g. 1995) is turned into an age
+  function fixAge(a) { a = +a || null; if (a && a >= 1900 && a <= new Date().getFullYear()) a = new Date().getFullYear() - a; return a && a > 5 && a < 110 ? a : null; }
+  function prof() { var p = state.profile || {}; if (p.age && (p.age > 110 || p.age < 5)) { p.age = fixAge(p.age); state.profile = p; } return p; }
   function foodDay(key) { state.food = state.food || {}; return state.food[key] || []; }
   function sumItems(items) {
     return items.reduce(function (a, it) { a.kcal += it.kcal; a.p += it.p; a.c += it.c; a.f += it.f; return a; }, { kcal: 0, p: 0, c: 0, f: 0 });
@@ -793,7 +795,7 @@
   function latestWeight() { var w = (state.weights || []).slice().sort(function (a, b) { return a.d < b.d ? -1 : 1; }); return w.length ? w[w.length - 1].kg : prof().weight; }
   function bodyCalc() {
     var p = prof(), w = latestWeight();
-    if (!p.height || !w || !p.age || !p.sex) return null;
+    if (!p.height || !w || !p.age || !p.sex || p.age > 110 || p.height < 100 || w < 25) return null;
     var hm = p.height / 100, bmi = w / (hm * hm);
     var bmr = 10 * w + 6.25 * p.height - 5 * p.age + (p.sex === 'm' ? 5 : -161);
     var tdee = bmr * (p.activity || 1.375);
@@ -929,7 +931,7 @@
     var p = prof();
     var h = '<div class="formgrid">' +
       '<label>Sex<select id="bSex"><option value="">–</option><option value="m"' + (p.sex === 'm' ? ' selected' : '') + '>Male</option><option value="f"' + (p.sex === 'f' ? ' selected' : '') + '>Female</option></select></label>' +
-      '<label>Age<input id="bAge" type="number" inputmode="numeric" value="' + (p.age || '') + '" placeholder="years"></label>' +
+      '<label>Age (or birth year)<input id="bAge" type="number" inputmode="numeric" value="' + (p.age || '') + '" placeholder="e.g. 31"></label>' +
       '<label>Height<input id="bHeight" type="number" inputmode="decimal" value="' + (p.height || '') + '" placeholder="cm"></label>' +
       '<label>Weight<input id="bWeight" type="number" inputmode="decimal" step="0.1" value="' + (latestWeight() || '') + '" placeholder="kg"></label>' +
       '<label class="wide">How active are you (before training)?<select id="bAct">' + [[1.2, 'Mostly sitting'], [1.375, 'Lightly active'], [1.55, 'Active most days'], [1.725, 'Very active']].map(function (a) {
@@ -1073,7 +1075,7 @@
     var when = function (x) { if (!x) return ''; var y = new Date(); y.setDate(y.getDate() - 1); return x.d === tk ? 'today' : x.d === dkey(y) ? 'yesterday' : niceDate(x.d + 'T12:00:00'); };
     if (!st && !rh && !sl && !hv) {
       var sv = state.strava || {};
-      return '<div class="card stack" style="gap:8px"><h2>From your Garmin</h2>' + (sv.pass && sv.syncedAt ? '<div class="notice" style="background:#FFF1D6;color:#7A4B00">' + healthStatus(sv) + '</div>' : '') + burnHtml() + '<p class="muted small">' + (sv.pass ? 'No health numbers yet. In intervals.icu: Settings → Garmin → switch on the wellness (health) download. Steps, resting heart rate, sleep and HRV then arrive here every couple of hours.' : 'Connect Garmin sync first (Fit → Plan → Garmin) to see steps, resting heart rate, sleep and HRV here.') + '</p></div>';
+      return '<div class="card stack" style="gap:8px"><h2>From your Garmin</h2>' + (sv.pass && sv.syncedAt ? '<div class="notice" style="background:#FFF1D6;color:#7A4B00">' + healthStatus(sv) + '</div>' : '') + burnHtml() + (sv.pass && sv.syncedAt ? '' : '<p class="muted small">' + (sv.pass ? 'Waiting for the first sync from GitHub.' : 'Connect Garmin sync first (Fit → Plan → Garmin) to see steps, resting heart rate, sleep and HRV here.') + '</p>') + '</div>';
     }
     var tileH = function (lab, v, sub, f, col) { return '<div class="gtile"><span class="cap">' + lab + '</span><b class="display">' + v + '</b><small>' + sub + '</small>' + spark(f, col) + '</div>'; };
     return '<div class="gtiles">' +
@@ -1086,7 +1088,7 @@
   }
   // Total burn = resting (BMR, so far today) + walking from steps + workouts (minus the resting part already counted)
   function burnEstimate(key) {
-    var bc = bodyCalc(); if (!bc) return null;
+    var bc = bodyCalc(); if (!bc || !(bc.bmr > 500)) return null;
     var p = prof(), kg = bc.w, now = new Date(), isToday = key === dkey(now);
     var frac = isToday ? (now.getHours() * 60 + now.getMinutes()) / 1440 : 1, resting = bc.bmr * frac;
     var w = (state.wellness || []).filter(function (x) { return x.d === key; })[0], steps = w && w.steps != null ? w.steps : null;
@@ -1207,7 +1209,7 @@
     var bs = view.querySelector('#bSave');
     if (bs) bs.onclick = function () {
       var v = function (id) { return view.querySelector(id).value; };
-      state.profile = { sex: v('#bSex'), age: +v('#bAge') || null, height: +v('#bHeight') || null, weight: +v('#bWeight') || null, activity: +v('#bAct') };
+      state.profile = { sex: v('#bSex'), age: fixAge(v('#bAge')), height: +v('#bHeight') || null, weight: +v('#bWeight') || null, activity: +v('#bAct') };
       if (state.profile.weight && !(state.weights || []).length) state.weights = [{ d: dkey(new Date()), kg: state.profile.weight }];
       planStart(); save(); closeSheet(); render(); toast('Saved');
     };

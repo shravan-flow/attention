@@ -132,7 +132,8 @@ input.text:disabled,textarea.text:disabled{opacity:.5}
 .formgrid label.wide{grid-column:1/-1}
 .formgrid input,.formgrid select{min-height:50px;padding:10px 12px;border-radius:14px;border:2px solid transparent;background:#fff;font:inherit;font-size:16px;color:var(--ink)}
 .formgrid input:focus,.formgrid select:focus{outline:none;border-color:var(--lagoon)}
-.notice{display:flex;align-items:center;gap:10px;padding:12px 14px;background:#fff;border-radius:16px;font-size:13px;color:var(--bone2)}
+.notice{display:block;padding:12px 14px;background:#fff;border-radius:16px;font-size:13px;line-height:1.45;color:var(--bone2)}
+.notice>svg{vertical-align:-3px;margin-right:8px}
 .notice.ok{color:var(--jungle);background:rgba(18,163,154,.12)}
 .code{width:100%;min-height:90px;font-family:var(--mono);font-size:11px;word-break:break-all;padding:10px;background:var(--sand);border:0;border-radius:14px;color:var(--bone2)}
 ol.steps{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;color:var(--bone2);font-size:14px}
