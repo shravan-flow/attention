@@ -1,5 +1,5 @@
 /* Attention service worker: offline shell, push reminders, tap-to-check-in. */
-var CACHE = 'attention-v15';
+var CACHE = 'attention-v17';
 var SHELL = ['./', 'index.html', 'style.css', 'app.js', 'manifest.webmanifest', 'moves.json', 'foods.json', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/badge-96.png', 'fonts/space-grotesk.woff2', 'fonts/space-mono-400.woff2', 'fonts/space-mono-700.woff2'];
 
 self.addEventListener('install', function (e) {
@@ -12,6 +12,16 @@ self.addEventListener('activate', function (e) {
 });
 // Network first (so updates arrive), cache as fallback when offline.
 self.addEventListener('fetch', function (e) {
+  // a picture shared to the app from another app (Share image → Attention)
+  if (e.request.method === 'POST' && /\/share-target\/?$/.test(new URL(e.request.url).pathname)) {
+    e.respondWith(e.request.formData().then(function (f) {
+      var file = f.get('image');
+      return caches.open('attention-data').then(function (c) {
+        return file && file.size ? c.put('shared-image', new Response(file, { headers: { 'Content-Type': file.type || 'image/jpeg' } })) : null;
+      });
+    }).catch(function () {}).then(function () { return Response.redirect(new URL('./?shared=1', self.registration.scope).href, 303); }));
+    return;
+  }
   if (e.request.method !== 'GET' || new URL(e.request.url).origin !== location.origin) return;
   e.respondWith(fetch(e.request, { cache: 'no-cache' }).then(function (res) {
     var copy = res.clone();

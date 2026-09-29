@@ -38,16 +38,36 @@ const sportOf = t => /Badminton|Racquet/i.test(t) ? 'badminton' : /Swim/i.test(t
 const out = (Array.isArray(list) ? list : []).filter(a => a && a.start_date_local).map(a => ({
   id: 'sync:' + a.id, d: String(a.start_date_local).slice(0, 10), sport: sportOf(a.type || ''), type: a.type || '',
   min: Math.round((a.moving_time || a.elapsed_time || 0) / 60), dist: a.distance ? Math.round(a.distance / 10) / 100 : 0,
-  kcal: a.calories ? Math.round(a.calories) : 0, hr: a.average_heartrate ? Math.round(a.average_heartrate) : null, title: a.name || ''
+  kcal: a.calories ? Math.round(a.calories) : 0, hr: a.average_heartrate ? Math.round(a.average_heartrate) : null,
+  maxHr: a.max_heartrate ? Math.round(a.max_heartrate) : null, title: a.name || ''
 }));
+// Daily health numbers from your watch (steps, resting heart rate, sleep, HRV, weight).
+// These only arrive if "wellness" download is switched on in intervals.icu's Garmin connection.
+let wellness = [];
+try {
+  const w0 = day(new Date(Date.now() - 45 * 86400000));
+  const wr = await fetch(`${API}/api/v1/athlete/0/wellness?oldest=${w0}&newest=${newest}`, {
+    headers: { Authorization: 'Basic ' + Buffer.from('API_KEY:' + KEY).toString('base64'), Accept: 'application/json' }
+  });
+  if (wr.ok) {
+    const wl = await wr.json();
+    const num = v => (typeof v === 'number' && isFinite(v) ? v : null);
+    wellness = (Array.isArray(wl) ? wl : []).map(w => ({
+      d: String(w.id || w.date || '').slice(0, 10), steps: num(w.steps), rhr: num(w.restingHR), hrv: num(w.hrv),
+      sleep: num(w.sleepSecs), sleepScore: num(w.sleepScore), weight: num(w.weight), kcalIn: num(w.kcalConsumed)
+    })).filter(w => w.d && (w.steps != null || w.rhr != null || w.hrv != null || w.sleep != null || w.weight != null));
+    console.log(`Found ${wellness.length} days of health data (steps, resting HR, sleep, HRV).`);
+    if (!wellness.length) console.log('>>> No health data yet. In intervals.icu: Settings → Garmin → switch on wellness download.');
+  } else console.log(`Could not read health data (${wr.status}); activities still saved.`);
+} catch (e) { console.log('Could not read health data: ' + e.message); }
 if (!existsSync(DIR)) mkdirSync(DIR);
-const fp = crypto.createHash('sha256').update(JSON.stringify(out)).digest('hex').slice(0, 16);
+const fp = crypto.createHash('sha256').update(JSON.stringify([out, wellness])).digest('hex').slice(0, 16);
 const old = existsSync(META_FILE) ? JSON.parse(readFileSync(META_FILE)).fp : '';
 console.log(`Found ${out.length} activities between ${oldest} and ${newest}.`);
 if (!out.length) console.log('>>> intervals.icu has no activities yet. Check that Garmin is connected there (Settings → Connections) and that your workouts show in its calendar.');
 const sameKey = existsSync(DATA_FILE) && decrypts(JSON.parse(readFileSync(DATA_FILE)));
 if (old === fp && sameKey) { console.log('No changes since last sync.'); process.exit(0); }
 if (!sameKey && existsSync(DATA_FILE)) console.log('Passphrase changed: re-locking the data with the new one.');
-writeFileSync(DATA_FILE, JSON.stringify(encrypt({ at: new Date().toISOString(), activities: out })));
+writeFileSync(DATA_FILE, JSON.stringify(encrypt({ at: new Date().toISOString(), activities: out, wellness })));
 writeFileSync(META_FILE, JSON.stringify({ fp, at: new Date().toISOString(), count: out.length }));
 console.log('Saved encrypted activities.');

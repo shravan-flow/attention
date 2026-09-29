@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '22';
+  var APP_VERSION = '24';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -127,9 +127,9 @@
     for (var i = 0; i < ks.length; i++) { var a = state.targets[ks[i]]; for (var j = 0; j < a.length; j++) if (a[j].id === id) return { t: a[j], key: ks[i], list: a }; }
     return null;
   }
-  function addTarget(key, text) {
+  function addTarget(key, text, pri) {
     state.targets = state.targets || {};
-    (state.targets[key] = state.targets[key] || []).push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), text: text, setAt: new Date().toISOString(), updates: [], achievedAt: null, planned: key > dkey(new Date()) });
+    (state.targets[key] = state.targets[key] || []).push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), text: text, pri: pri || 'm', setAt: new Date().toISOString(), updates: [], achievedAt: null, planned: key > dkey(new Date()) });
   }
   function isAchievedText(t) { return /^\s*(achieved|done|hit)[.!\s]*$/i.test(t || ''); }
   function targetUpdate(t, text, achieved) {
@@ -272,25 +272,42 @@
   function renderToday() {
     var today = todayNum(), st = streak(), d = state.days[today], key = dkey(new Date());
     var h = '<div class="stack">' + topbar(new Date().toLocaleDateString('en', { weekday: 'long', day: 'numeric', month: 'short' }));
-    h += '<button type="button" class="hero tall" data-sheet="progress" aria-label="Your 30-day progress" style="background:' + T.jungle + ';color:#fff">' + sun(T.mango, 150, -40, -50) + wave(T.lagoon, .45, 56, 26) +
+    // top card: greeting, three live numbers, and today's practices (done ones disappear)
+    var mvN = LIB ? movesOn(key).length : 0, cN = checkinsOn(today).length, bc = bodyCalc(), eaten = sumItems(foodDay(key).filter(function (i) { return !i.planned; }));
+    var ex = Math.round(exerciseKcal(key)), wz = wellnessRecent('steps', 1);
+    var tile = function (attr, v, l) { return '<button type="button" class="htile" ' + attr + '><b class="display">' + v + '</b><small>' + l + '</small></button>'; };
+    h += '<div class="hero htop" role="button" tabindex="0" data-sheet="progress" aria-label="Your 30-day progress" style="background:' + T.jungle + ';color:#fff">' + sun(T.mango, 120, -40, -50) + wave(T.lagoon, .4, 40, 20) +
       '<span class="cap">Day ' + today + ' of 30' + (st ? ' · ' + st + '-day streak' : '') + '</span>' +
-      '<span class="hrow"><span class="dring">' + dayRing(112, 6) + '<b class="display">' + today + '</b></span><span class="display greet">' + greet() + '<br><i>' + esc(myName()) + '</i></span></span></button>';
+      '<span class="hrow"><span class="dring">' + dayRing(78, 5) + '<b class="display">' + today + '</b></span><span class="display greet">' + greet() + '<br><i>' + esc(myName()) + '</i></span></span>' +
+      '<div class="htiles">' + tile('data-sheet="move"', mvN, 'moves today') +
+      (wz ? tile('data-sheet="garminday"', fmtN(wz.v), 'steps' + (wz.d === key ? '' : ' · yesterday')) : tile('data-tab-go="log"', cN + '<span>/' + PINGS + '</span>', 'check-ins')) +
+      tile('data-tab-go="fit:food"', bc ? fmtN(Math.max(0, bc.kcal + ex - eaten.kcal)) : fmtN(eaten.kcal), bc ? 'kcal left' : 'kcal eaten') + '</div>';
+    var vd = (state.vizDone || {})[key], vs = vizSettings(), pills = '';
+    if (!vd) pills += '<button type="button" class="hpill" data-viz="1"><span class="pp">' + PLAY + '</span>Visualize <i>' + vs.mins + ' min</i></button>';
+    questsFor(today).forEach(function (q) {
+      if (d[q.f]) return;
+      pills += q.mins ? '<button type="button" class="hpill" data-begin="' + q.f + '" data-mins="' + q.mins + '"><span class="pp">' + PLAY + '</span>' + q.n + ' <i>' + q.mins + ' min</i></button>'
+        : '<button type="button" class="hpill" data-qt="' + q.f + '" aria-label="Mark done: ' + q.n + '"><span class="pp o"></span>' + q.n + '</button>';
+    });
+    h += '<div class="hpills">' + (pills || '<span class="hdone">✓ Today’s practices are done</span>') + '</div></div>';
+    h += timerBlock();
     h += goalCard();
     var up = [], dd0 = new Date();
     for (var hi = 0; hi < 8; hi++) { var dk = dkey(dd0); holidaysOn(dk).filter(function (x) { return x.t === 'public'; }).forEach(function (x) { up.push({ d: dk, n: x.n }); }); dd0.setDate(dd0.getDate() + 1); }
     if (up.length) h += '<div class="list">' + up.slice(0, 2).map(function (x) { return '<button type="button" class="r" data-ocal="' + x.d + '"><span class="dot" style="background:' + T.hib + '"></span><span class="t">' + esc(x.n) + '<small>' + (x.d === key ? 'today · public holiday' : new Date(x.d + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + ' · public holiday') + '</small></span>' + CHEV + '</button>'; }).join('') + '</div>';
-    h += timerBlock();
-    var hasNote = !!(d.note || '').trim();
-    var vd = (state.vizDone || {})[key], vs = vizSettings(), jn = state.journal[key] || {};
-    h += '<div class="list"><button type="button" class="r" data-viz="1"><span class="gob sm" aria-hidden="true">' + PLAY + '</span><span class="t' + (vd ? ' done' : '') + '">Visualize<small>' + vs.mins + ' min · ' + esc(vizTopicName(vs)) + '</small></span><span class="v">' + (vd ? '✓' : '+5') + '</span></button>' +
-      questsFor(today).map(function (q) { return questRow(q, d, today, false); }).join('') +
-      row({ t: 'Journal', sub: jn.well ? esc(jn.well) : hasNote ? esc(d.note) : 'tonight: your day, and tomorrow’s targets', v: hasNote || jn.well ? '✓' : '+5', sheet: 'tonight' }) + '</div>';
-    var mvN = LIB ? movesOn(key).length : 0, cN = checkinsOn(today).length, bc = bodyCalc(), eaten = sumItems(foodDay(key).filter(function (i) { return !i.planned; }));
-    h += '<div class="chips">' +
-      '<button type="button" class="chip" data-sheet="move" style="background:#FFE6B8"><b class="display">' + mvN + '</b><small>moves today</small></button>' +
-      '<button type="button" class="chip" data-tab-go="log" style="background:#CDEFEA"><b class="display">' + cN + '<span>/' + PINGS + '</span></b><small>check-ins</small></button>' +
-      '<button type="button" class="chip" data-tab-go="fit:food" style="background:#FFD9D3"><b class="display">' + (bc ? fmtN(Math.max(0, bc.kcal - eaten.kcal)) : fmtN(eaten.kcal)) + '</b><small>' + (bc ? 'kcal left' : 'kcal eaten') + '</small></button></div>';
+    var hasNote = !!(d.note || '').trim(), jn = state.journal[key] || {};
+    h += '<div class="list">' + row({ t: 'Journal', sub: jn.well ? esc(jn.well) : hasNote ? esc(d.note) : 'tonight: your day, and tomorrow’s targets', v: hasNote || jn.well ? '✓' : '+5', sheet: 'tonight' }) + '</div>';
     return h + '</div>';
+  }
+
+  var PRI = { h: ['#E5484D', 'High'], m: ['#F5B82E', 'Medium'], l: ['#2FA36B', 'Low'] };
+  function priOf(t) { return PRI[t.pri] ? t.pri : 'm'; }
+  // open targets first (high → low priority), finished ones at the bottom
+  function sortTargets(ts) {
+    var rank = { h: 0, m: 1, l: 2 };
+    return ts.map(function (t, i) { return { t: t, i: i }; }).sort(function (a, b) {
+      return (!!a.t.achievedAt - !!b.t.achievedAt) || (a.t.achievedAt ? 0 : rank[priOf(a.t)] - rank[priOf(b.t)]) || (a.t.achievedAt && b.t.achievedAt ? (a.t.achievedAt < b.t.achievedAt ? -1 : 1) : a.i - b.i);
+    }).map(function (x) { return x.t; });
   }
 
   var TICK = '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -298,18 +315,26 @@
     var lu = t.updates[t.updates.length - 1];
     return t.achievedAt ? 'hit at ' + timeOf(t.achievedAt) : t.calId && !lu ? '📅 from your calendar' : lu ? 'Latest: ' + esc(lu.text) + ' · ' + timeOf(lu.t) : t.planned ? 'planned the night before' : 'no update yet';
   }
-  function tickBtn(t, cls) { return '<button type="button" class="tck ' + (cls || '') + (t.achievedAt ? ' on' : '') + '" data-thit="' + t.id + '" aria-pressed="' + !!t.achievedAt + '" aria-label="' + (t.achievedAt ? 'Mark as not hit: ' : 'Mark as hit: ') + esc(t.text) + '">' + (t.achievedAt ? TICK : '') + '</button>'; }
+  function tickBtn(t, cls) { return '<button type="button" class="tck ' + (cls || '') + (t.achievedAt ? ' on' : '') + '"' + (t.achievedAt ? '' : ' style="border-color:' + PRI[priOf(t)][0] + '"') + ' data-thit="' + t.id + '" aria-pressed="' + !!t.achievedAt + '" aria-label="' + (t.achievedAt ? 'Mark as not hit: ' : 'Mark as hit: ') + esc(t.text) + '">' + (t.achievedAt ? TICK : '') + '</button>'; }
   function goalCard() {
     var ts = todayTargets(), hit = ts.filter(function (t) { return t.achievedAt; }).length;
     if (!ts.length) return '<button type="button" class="hero goalc" data-sheet="targets" style="background:' + T.coral + ';color:#fff">' + sun('rgba(255,255,255,.18)', 90, -26, -30) +
       '<span class="cap">Today’s targets · +5 XP each</span><span class="display gt">What do you want to get done today?</span><span class="go">Set today’s targets →</span></button>';
-    var h = '<div class="hero goalc" role="button" tabindex="0" data-sheet="targets" aria-label="Today’s targets" style="background:' + (hit === ts.length ? T.lagoon : T.coral) + ';color:#fff">' + sun('rgba(255,255,255,.18)', 90, -26, -30) +
-      '<span class="row between"><span class="cap">Today’s targets</span><span class="pill">' + hit + ' of ' + ts.length + ' hit</span></span><div class="tgl">';
-    ts.slice(0, 4).forEach(function (t) { h += '<div class="tg">' + tickBtn(t, 'w') + '<span class="tt' + (t.achievedAt ? ' done' : '') + '">' + esc(t.text) + '<small>' + tsub(t) + '</small></span></div>'; });
-    if (ts.length > 4) h += '<span class="small">+ ' + (ts.length - 4) + ' more</span>';
-    return h + '</div><span class="go">Update or add →</span></div>';
+    var h = '<div class="hero goalc tcard" role="button" tabindex="0" data-sheet="targets" aria-label="Today’s targets">' + sun('#FFE6B8', 80, -24, -30) +
+      '<span class="row between"><span class="cap" style="color:' + T.coral + ';opacity:1">Today’s targets</span><span class="pill">' + hit + ' of ' + ts.length + ' hit</span></span><div class="tgl">';
+    sortTargets(ts).slice(0, 6).forEach(function (t) {
+      var p = priOf(t);
+      h += '<div class="tg">' + tickBtn(t) + '<span class="tt' + (t.achievedAt ? ' done' : '') + '">' + esc(t.text) + '<small>' + tsub(t) + '</small></span>' + (t.achievedAt ? '' : '<span class="plab" style="color:' + PRI[p][0] + '">' + (p === 'm' ? 'MED' : PRI[p][1].toUpperCase()) + '</span>') + '</div>';
+    });
+    if (ts.length > 6) h += '<span class="small">+ ' + (ts.length - 6) + ' more</span>';
+    return h + '</div><span class="go" style="color:' + T.coral + '">Update or add →</span></div>';
+  }
+  function priPicker(attr, cur) {
+    return '<span class="pris">' + ['h', 'm', 'l'].map(function (k) { return '<button type="button" class="pri' + (cur === k ? ' on' : '') + '" ' + attr + k + '" style="--pc:' + PRI[k][0] + '" aria-label="' + PRI[k][1] + ' priority" aria-pressed="' + (cur === k) + '"></button>'; }).join('') + '</span>';
   }
   function bindTargets(root) {
+    root.querySelectorAll('[data-tpri]').forEach(function (b) { b.addEventListener('click', function (e) { e.stopPropagation(); var p = b.dataset.tpri.split('|'), f = findTarget(p[0]); if (f) { f.t.pri = p[1]; save(); syncGoal(); render(); } }); });
+    root.querySelectorAll('[data-npri]').forEach(function (b) { b.addEventListener('click', function () { ui.newPri = b.dataset.npri; var inp = root.querySelector('#tNew'), v = inp ? inp.value : ''; drawSheet(); var n = document.getElementById('tNew'); if (n) { n.value = v; try { n.focus(); } catch (e) {} } }); });
     root.querySelectorAll('[data-thit]').forEach(function (b) {
       b.addEventListener('click', function (e) {
         e.stopPropagation();
@@ -321,7 +346,7 @@
     });
     var add = root.querySelector('#tAdd'), inp = root.querySelector('#tNew');
     if (add) {
-      var go = function () { var v = inp.value.trim(); if (!v) { inp.focus(); return; } var k = inp.dataset.key; mutate(function () { addTarget(k, v); }); var n = document.getElementById('tNew'); if (n) try { n.focus(); } catch (e) {} };
+      var go = function () { var v = inp.value.trim(); if (!v) { inp.focus(); return; } var k = inp.dataset.key; mutate(function () { addTarget(k, v, ui.newPri || 'm'); }); var n = document.getElementById('tNew'); if (n) try { n.focus(); } catch (e) {} };
       add.onclick = go;
       inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); go(); } });
     }
@@ -347,13 +372,13 @@
   }
   function targetsSheet() {
     var tk = dkey(new Date()), ts = todayTargets(), hit = hitCount(tk), tom = targetsFor(tomorrowKey());
-    var h = ts.length ? '<div class="list">' + ts.map(function (t) {
+    var h = ts.length ? '<div class="list">' + sortTargets(ts).map(function (t) {
       var st = t.achievedAt ? ['hit', '#CDEFEA'] : t.updates.length ? ['going', '#FFE6B8'] : ['to do', '#F1E6D6'];
-      return '<div class="r">' + tickBtn(t) + '<button type="button" class="rt" data-sheet="target:' + t.id + '"><span class="t">' + esc(t.text) + '<small>' + tsub(t) + '</small></span><span class="pill" style="background:' + st[1] + '">' + st[0] + '</span>' + CHEV + '</button></div>';
+      return '<div class="r' + (t.achievedAt ? ' faded' : '') + '">' + tickBtn(t) + '<button type="button" class="rt" data-sheet="target:' + t.id + '"><span class="t">' + esc(t.text) + '<small>' + tsub(t) + '</small></span></button>' + (t.achievedAt ? '<span class="pill" style="background:' + st[1] + '">' + st[0] + '</span>' : priPicker('data-tpri="' + t.id + '|', priOf(t))) + '</div>';
     }).join('') + '</div>' : '<p class="muted" style="margin:0">No targets yet. What matters most today? Add one, two or three.</p>';
-    h += '<div class="row"><input id="tNew" data-key="' + tk + '" class="text" placeholder="Add a target for today" style="flex:1" enterkeyhint="done"><button type="button" class="btn coral" id="tAdd">Add</button></div>';
+    h += '<div class="row addrow"><input id="tNew" data-key="' + tk + '" class="text" placeholder="Add a target for today" style="flex:1" enterkeyhint="done">' + priPicker('data-npri="', ui.newPri || 'm') + '<button type="button" class="btn coral" id="tAdd">Add</button></div>';
     h += '<div class="list">' + row({ t: 'Tomorrow’s targets', sub: 'they become tomorrow’s automatically', v: tom.length ? tom.length + ' planned' : 'plan', dot: T.mango, sheet: 'tomorrow' }) + '</div>';
-    h += '<p class="muted small">Every ping asks about the targets that aren’t hit yet. +5 XP for each target you set and +20 for each one you hit (up to 5 a day).</p>';
+    h += '<p class="muted small">Priority: <b style="color:#E5484D">red high</b> · <b style="color:#C98A12">yellow medium</b> · <b style="color:#2FA36B">green low</b>. Tap a dot to change it. Done targets drop to the bottom. Every ping asks about the targets that aren’t hit yet; +5 XP for each target set, +20 for each hit (up to 5 a day).</p>';
     return { title: 'Targets', cap: hit + ' of ' + ts.length + ' hit', html: h, bind: bindTargets };
   }
   function targetSheet(id) {
@@ -361,6 +386,7 @@
     var t = f.t, other = f.key !== dkey(new Date());
     var h = '<div class="hero goalc" style="background:' + (t.achievedAt ? T.lagoon : T.coral) + ';color:#fff">' + sun('rgba(255,255,255,.18)', 90, -26, -30) +
       '<span class="cap">' + (other ? new Date(f.key + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + ' · ' : '') + 'set ' + timeOf(t.setAt) + '</span><span class="display gt">' + esc(t.text) + '</span></div>';
+    h += '<div class="row between"><span class="lab">Priority</span><div class="row" style="gap:6px">' + ['h', 'm', 'l'].map(function (k) { return '<button type="button" class="opt sm" data-tpri="' + t.id + '|' + k + '" aria-pressed="' + (priOf(t) === k) + '" style="' + (priOf(t) === k ? 'background:' + PRI[k][0] + ';color:#fff' : '') + '"><span class="dot" style="display:inline-block;background:' + PRI[k][0] + ';margin-right:6px"></span>' + PRI[k][1] + '</button>'; }).join('') + '</div></div>';
     if (t.updates.length) h += '<div class="list">' + t.updates.map(function (u) { return '<div class="r upd2"><span class="cap">' + timeOf(u.t) + '</span><span class="t">' + esc(u.text) + '</span></div>'; }).join('') + '</div>';
     if (!t.achievedAt) {
       h += '<textarea class="text" id="tuText" data-tid="' + t.id + '" placeholder="Where are you with it? (or type “done”)"></textarea>' +
@@ -371,8 +397,8 @@
   }
   function planList(k) {
     var ts = targetsFor(k);
-    return (ts.length ? '<div class="list">' + ts.map(function (t) { return '<div class="r"><span class="dot" style="background:' + T.mango + '"></span><span class="t">' + esc(t.text) + '</span><button type="button" class="fx" data-tdel="' + t.id + '" aria-label="Delete ' + esc(t.text) + '">×</button></div>'; }).join('') + '</div>' : '') +
-      '<div class="row"><input id="tNew" data-key="' + k + '" class="text" placeholder="Add a target for tomorrow" style="flex:1" enterkeyhint="done"><button type="button" class="btn coral" id="tAdd">Add</button></div>';
+    return (ts.length ? '<div class="list">' + ts.map(function (t) { return '<div class="r"><span class="dot" style="background:' + PRI[priOf(t)][0] + '"></span><span class="t">' + esc(t.text) + '</span><button type="button" class="fx" data-tdel="' + t.id + '" aria-label="Delete ' + esc(t.text) + '">×</button></div>'; }).join('') + '</div>' : '') +
+      '<div class="row addrow"><input id="tNew" data-key="' + k + '" class="text" placeholder="Add a target for tomorrow" style="flex:1" enterkeyhint="done">' + priPicker('data-npri="', ui.newPri || 'm') + '<button type="button" class="btn coral" id="tAdd">Add</button></div>';
   }
   function tomorrowSheet() {
     var k = tomorrowKey(), d = new Date(k + 'T00:00:00');
@@ -472,8 +498,9 @@
       j.addEventListener('input', function () { state.days[sel].note = j.value; save(); });
       j.addEventListener('change', function () { if (!had && j.value.trim()) toast('+5 XP'); render(); });
     }
+    view.querySelectorAll('[data-qt]').forEach(function (b) { b.addEventListener('click', function (e) { e.stopPropagation(); var f = b.dataset.qt; mutate(function () { state.days[sel][f] = true; }); }); });
     view.querySelectorAll('[data-begin]').forEach(function (b) {
-      b.addEventListener('click', function () { closeSheet(); ui.tab = 'trail'; startTimer(sel, b.dataset.begin, +b.dataset.mins); window.scrollTo(0, 0); });
+      b.addEventListener('click', function (e) { e.stopPropagation(); closeSheet(); ui.tab = 'trail'; startTimer(sel, b.dataset.begin, +b.dataset.mins); window.scrollTo(0, 0); });
     });
     var stop = view.querySelector('#stopT');
     if (stop) stop.addEventListener('click', function () { clearInterval(ui.timer.iv); ui.timer = null; render(); });
@@ -895,6 +922,7 @@
     h += '<div class="list">' + row({ t: 'Daily targets', v: fmtN(bc.kcal) + ' kcal', sheet: 'kcal' }) + row({ t: 'Healthy range', v: Math.round(bc.lo) + '–' + Math.round(bc.hi) + ' kg', sheet: 'kcal' }) +
       row({ t: 'About you', v: (p.age || '–') + ' · ' + (p.height || '–') + ' cm', sheet: 'about' }) + row({ t: 'Weight log', v: ws.length + (ws.length === 1 ? ' entry' : ' entries'), sheet: 'weight' }) + '</div>';
     h += '<button type="button" class="btn line" data-sheet="weight">Log today’s weight</button>';
+    h += '<h3 class="sh">From your Garmin <span class="cap">' + garminStatus() + '</span></h3>' + healthHtml().replace('<div class="card stack" style="gap:8px"><h2>From your Garmin</h2>', '<div class="card stack" style="gap:8px">');
     return h;
   }
   function aboutSheet() {
@@ -1017,6 +1045,46 @@
       toast('Game logged · ~' + fmtN(kcal) + ' kcal');
     };
   }
+  // ---- daily health numbers from the watch (via intervals.icu) ----
+  function wellnessRecent(field, back) {
+    var ws = (state.wellness || []).slice().sort(function (a, b) { return a.d < b.d ? 1 : -1; }), lim = new Date(); lim.setDate(lim.getDate() - (back || 0));
+    for (var i = 0; i < ws.length; i++) { if (ws[i].d < dkey(lim)) break; if (ws[i][field] != null) return { v: ws[i][field], d: ws[i].d }; }
+    return null;
+  }
+  function last7(field) {
+    var out = [], d = new Date(); d.setDate(d.getDate() - 6);
+    var byD = {}; (state.wellness || []).forEach(function (w) { byD[w.d] = w; });
+    for (var i = 0; i < 7; i++) { var k = dkey(d), w = byD[k]; out.push({ d: k, v: w && w[field] != null ? w[field] : null }); d.setDate(d.getDate() + 1); }
+    return out;
+  }
+  function spark(field, col) {
+    var pts = last7(field), vals = pts.map(function (p) { return p.v; }).filter(function (v) { return v != null; });
+    if (!vals.length) return '';
+    var mx = Math.max.apply(null, vals), mn = Math.min.apply(null, vals), bars = field === 'steps' || field === 'sleep';
+    return '<svg class="spark" viewBox="0 0 70 24" aria-hidden="true">' + pts.map(function (p, i) {
+      if (p.v == null) return '';
+      if (bars) { var hh = Math.max(2, p.v / (mx || 1) * 22); return '<rect x="' + (i * 10 + 1) + '" y="' + (24 - hh) + '" width="7" height="' + hh + '" rx="2" fill="' + col + '" opacity="' + (i === 6 ? 1 : .45) + '"/>'; }
+      var y = 20 - (mx === mn ? 8 : (p.v - mn) / (mx - mn) * 16); return '<circle cx="' + (i * 10 + 5) + '" cy="' + y + '" r="' + (i === 6 ? 3.2 : 2.2) + '" fill="' + col + '" opacity="' + (i === 6 ? 1 : .55) + '"/>';
+    }).join('') + '</svg>';
+  }
+  function hm(secs) { var m = Math.round(secs / 60); return Math.floor(m / 60) + 'h ' + String(m % 60).padStart(2, '0'); }
+  function healthHtml() {
+    var tk = dkey(new Date()), st = wellnessRecent('steps', 1), rh = wellnessRecent('rhr', 3), sl = wellnessRecent('sleep', 1), hv = wellnessRecent('hrv', 3), ex = Math.round(exerciseKcal(tk));
+    var when = function (x) { return !x ? '' : x.d === tk ? 'today' : 'yesterday'; };
+    if (!st && !rh && !sl && !hv) {
+      var sv = state.strava || {};
+      return '<div class="card stack" style="gap:8px"><h2>From your Garmin</h2><p class="muted small">' + (sv.pass ? 'No health numbers yet. In intervals.icu: Settings → Garmin → switch on the wellness (health) download. Steps, resting heart rate, sleep and HRV then arrive here every couple of hours.' : 'Connect Garmin sync first (Fit → Plan → Garmin) to see steps, resting heart rate, sleep and HRV here.') + '</p></div>';
+    }
+    var tileH = function (lab, v, sub, f, col) { return '<div class="gtile"><span class="cap">' + lab + '</span><b class="display">' + v + '</b><small>' + sub + '</small>' + spark(f, col) + '</div>'; };
+    return '<div class="gtiles">' +
+      tileH('Steps', st ? fmtN(st.v) : '–', when(st) || 'no data', 'steps', T.lagoon) +
+      tileH('Resting HR', rh ? Math.round(rh.v) + '<span> bpm</span>' : '–', rh ? (rh.d === tk ? 'this morning' : niceDate(rh.d + 'T12:00:00')) : 'no data', 'rhr', T.coral) +
+      tileH('Sleep', sl ? hm(sl.v) : '–', sl ? 'last night' : 'no data', 'sleep', '#6B5BD6') +
+      tileH('HRV', hv ? Math.round(hv.v) + '<span> ms</span>' : '–', hv ? 'overnight' : 'no data', 'hrv', T.mango) + '</div>' +
+      '<div class="list">' + row({ t: 'Workout calories today', sub: 'from Garmin workouts and badminton you logged', v: ex ? '~' + fmtN(ex) + ' kcal' : '0' }) + '</div>' +
+      '<p class="muted small">Numbers come from your watch via Garmin Connect and intervals.icu, a few hours behind. Whole-day calories and live heart rate aren’t shared by intervals.icu; workout calories are.</p>';
+  }
+  function garminDaySheet() { return { title: 'Your Garmin', cap: garminStatus(), html: healthHtml(), bind: function () {} }; }
   function garminStatus() { var sv = state.strava || {}; return !sv.pass ? 'set up' : sv.error ? 'needs a look' : sv.syncedAt ? ago(sv.syncedAt) : 'waiting'; }
   function garminDot() { var sv = state.strava || {}; return !sv.pass ? '#C8D3CC' : sv.error ? T.coral : T.lagoon; }
 
@@ -1239,7 +1307,7 @@
       .then(function (data) {
         var mine = (state.activities || []).filter(function (a) { return !isSynced(a); });
         state.activities = mine.concat(data.activities);
-        sv.syncedAt = data.at; sv.count = data.activities.length; sv.error = null; save(); syncing = false;
+        sv.syncedAt = data.at; sv.count = data.activities.length; sv.error = null; if (data.wellness) state.wellness = data.wellness; save(); syncing = false;
         if (manual) toast('Synced ' + data.activities.length + ' Garmin activities');
         render();
       }).catch(function (e) { syncing = false; sv.error = e.message; save(); if (manual) toast('Sync failed: ' + e.message); render(); });
@@ -1675,15 +1743,70 @@
   // ---------- vision boards: find on Google, copy, paste, crop ----------
   function googleImages(q) { window.open('https://www.google.com/search?tbm=isch&q=' + encodeURIComponent(q), '_blank', 'noopener'); }
   function blobToDataURL(b) { return new Promise(function (res, rej) { var r = new FileReader(); r.onload = function () { res(r.result); }; r.onerror = rej; r.readAsDataURL(b); }); }
+  // Paste: try the clipboard directly; if Chrome blocks it, show a box you can paste into by hand
   function pasteImage() {
-    if (!navigator.clipboard || !navigator.clipboard.read) { toast('This phone can’t paste images here. Save the image and use 🖼 instead.'); return; }
+    var fallback = function (why) { nv.pasteBox = why || 'blocked'; drawNoteEditor(); };
+    if (!navigator.clipboard || !navigator.clipboard.read) return fallback('unsupported');
+    var settled = false, timer = setTimeout(function () { if (!settled) { settled = true; fallback('blocked'); } }, 4000);
     navigator.clipboard.read().then(function (items) {
+      if (settled) return; settled = true; clearTimeout(timer);
       for (var i = 0; i < items.length; i++) {
         var t = items[i].types.filter(function (x) { return /^image\//.test(x); })[0];
-        if (t) return items[i].getType(t).then(blobToDataURL).then(startCrop);
+        if (t) { nv.pasteBox = null; return items[i].getType(t).then(blobToDataURL).then(startCrop); }
       }
-      toast('No image copied yet. In Google Images, long-press a picture → Copy image.');
-    }).catch(function () { toast('Couldn’t read the copied image. Allow clipboard access, or save the image and use 🖼.'); });
+      toast('No picture copied yet. In Google Images, long-press a picture → Copy image.');
+    }).catch(function () { if (settled) return; settled = true; clearTimeout(timer); fallback('blocked'); });
+  }
+  function pasteBoxHtml() {
+    var why = nv.pasteBox;
+    return '<div class="pastewrap"><div class="row between"><span class="lab">Paste the picture here</span><button type="button" class="fx" id="pbClose" aria-label="Close">×</button></div>' +
+      '<div class="pastebox" id="pasteBox" contenteditable="true" role="textbox" aria-label="Paste box: long-press here, then Paste" inputmode="none"></div>' +
+      '<p class="muted small">' + (why === 'blocked' ? 'Chrome blocked the Paste button. Pasting by hand in this box always works.<br>To make the button work: Chrome → ⋮ → Settings → Site settings → <b>Clipboard</b> → allow <b>shravan-flow.github.io</b>. ' : '') +
+      'Easiest of all: in Google Images, long-press a picture → <b>Share image</b> → <b>Attention</b>.</p></div>';
+  }
+  function bindPasteBox(o) {
+    var pb = o.querySelector('#pasteBox'); if (!pb) return;
+    var take = function (blob) { if (!blob) return false; nv.pasteBox = null; blobToDataURL(blob).then(startCrop); return true; };
+    pb.addEventListener('focus', function () { if (/Long-press/.test(pb.textContent)) pb.innerHTML = ''; });
+    pb.addEventListener('paste', function (e) {
+      var items = (e.clipboardData && e.clipboardData.items) || [];
+      for (var i = 0; i < items.length; i++) if (items[i].kind === 'file' && /^image\//.test(items[i].type)) { e.preventDefault(); take(items[i].getAsFile()); return; }
+    });
+    // keyboards (like Gboard) insert the picture as an image: pick it up from there
+    pb.addEventListener('input', function () {
+      var im = pb.querySelector('img');
+      if (im && /^(data:|blob:)/.test(im.src)) { fetch(im.src).then(function (r) { return r.blob(); }).then(take).catch(function () { toast('Couldn’t read that picture'); }); }
+      else if (im) toast('That picture can’t be copied. Save it and use 🖼, or use Share image → Attention.');
+      else if (pb.textContent.trim()) { toast('That pasted text, not a picture. Long-press the picture in Google → Copy image.'); pb.innerHTML = ''; }
+    });
+    o.querySelector('#pbClose').onclick = function () { nv.pasteBox = null; drawNoteEditor(); };
+    setTimeout(function () { try { pb.focus(); } catch (e) {} }, 80);
+  }
+  // pictures shared to the app from other apps (Chrome → Share image → Attention)
+  function receiveShared() {
+    if (!('caches' in window)) return;
+    caches.open('attention-data').then(function (c) {
+      return c.match('shared-image').then(function (r) {
+        if (!r) { toast('Nothing was shared. Try Share image again.'); return; }
+        return r.blob().then(function (b) {
+          c.delete('shared-image');
+          return loadNotes().then(function () {
+            openNotes('vision');
+            setTimeout(function () {
+              if (!nv) return;
+              var n = noteById(state.lastBoard);
+              if (!n || n.kind !== 'board') {
+                n = NOTES.filter(function (x) { return x.kind === 'board'; }).sort(function (a, b2) { return a.updated < b2.updated ? 1 : -1; })[0];
+                if (!n) { n = { id: 'n' + Date.now().toString(36), kind: 'board', board: BOARDBG[0][1], title: 'Vision board', body: '', pages: [{ items: [] }], pinned: false, bg: NBG[0], created: new Date().toISOString(), updated: new Date().toISOString() }; NOTES.push(n); saveNotes(); }
+              }
+              nv.id = n.id; nv.page = 0; nv.zoom = 1; nv.hist = []; nv.tool = 'move'; nv.color = '#FFFFFF';
+              blobToDataURL(b).then(startCrop);
+              toast('Adding to “' + (n.title || 'Vision board') + '”');
+            }, 250);
+          });
+        });
+      });
+    }).catch(function () {});
   }
   function startCrop(url) {
     var im = new Image();
@@ -1875,6 +1998,7 @@
     var board = n.kind === 'board';
     if (board && !editing) {
       h += '<div class="row vbtools"><input class="text" id="vbQ" placeholder="Search Google Images…" value="' + esc(nv.vbq || '') + '" enterkeyhint="search"><button type="button" class="nib" id="vbFind" aria-label="Find images on Google">🔍</button><button type="button" class="nib on" id="vbPaste">📋 Paste</button><button type="button" class="nib" id="vbGal" aria-label="Add from gallery">🖼</button></div>' +
+        (nv.pasteBox ? pasteBoxHtml() : '') +
         '<div class="row" style="gap:6px;flex-wrap:wrap"><span class="cap">Background</span>' + BOARDBG.map(function (b) { return '<button type="button" class="nsw sm' + (n.board === b[1] ? ' on' : '') + '" data-bbg="' + b[1] + '" style="background:' + b[1] + '" aria-label="' + b[0] + ' background"></button>'; }).join('') + '</div>';
     }
     h += '<div class="nwrap' + (board ? ' board' : '') + '"' + (board ? ' style="background:' + n.board + '"' : '') + '><canvas id="nCv" aria-label="' + (board ? 'Vision board' : 'Sketch area') + ', page ' + (nv.page + 1) + '"></canvas></div>';
@@ -1886,7 +2010,7 @@
     }
     h += '<div class="row between"><div class="row" style="gap:9px">' + NCOL.map(function (c) { return '<button type="button" class="nsw' + (nv.color === c ? ' on' : '') + '" data-ncol="' + c + '" style="background:' + c + '" aria-label="Colour"></button>'; }).join('') + '</div>' +
       '<div class="row" style="gap:6px"><button type="button" class="nib sm' + (nv.thick ? ' on' : '') + '" id="nThick" aria-label="Line thickness">' + (nv.thick ? 'thick' : 'thin') + '</button><button type="button" class="nib" id="nUndo" aria-label="Undo"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M9 7L4 12l5 5M4 12h11a5 5 0 0 1 0 10h-2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div></div>';
-    if (!editing) h += '<p class="muted small" style="text-align:center">' + ({ move: 'Drag things to move them; drag empty space to scroll. Tap text or a checklist to edit it.', text: 'Tap where the text should go, or tap existing text to edit it.', check: 'Tap where the checklist should go. Tap any box to tick it.', erase: 'Tap a line, shape, text, checklist or photo to remove it.', img: 'Choose a photo; then drag it into place.' }[nv.tool] || 'Draw with one finger. Pinch with two fingers to zoom.') + ' Saved as you go.</p>';
+    if (!editing) h += '<p class="muted small" style="text-align:center">' + ({ move: 'Drag things to move them. Tap a picture, then drag its mango corner (or pinch it) to resize. Tap text or a checklist to edit it.', text: 'Tap where the text should go, or tap existing text to edit it.', check: 'Tap where the checklist should go. Tap any box to tick it.', erase: 'Tap a line, shape, text, checklist or photo to remove it.', img: 'Choose a photo; then drag it into place.' }[nv.tool] || 'Draw with one finger. Pinch with two fingers to zoom.') + ' Saved as you go.</p>';
     h += '<input type="file" id="nImg" accept="image/*" hidden><input type="file" id="vbFile" accept="image/*" hidden></div>';
     o.innerHTML = h;
     var vf = o.querySelector('#vbFind');
@@ -1895,6 +2019,8 @@
       vf.onclick = find; vq.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); find(); } });
       vq.addEventListener('input', function () { nv.vbq = vq.value; });
       o.querySelector('#vbPaste').onclick = pasteImage;
+      bindPasteBox(o);
+      state.lastBoard = n.id;
       o.querySelector('#vbGal').onclick = function () { o.querySelector('#vbFile').click(); };
       o.querySelector('#vbFile').onchange = function (e) { var f = e.target.files[0]; if (f) blobToDataURL(f).then(startCrop); };
       o.querySelectorAll('[data-bbg]').forEach(function (b) { b.onclick = function () { n.board = b.dataset.bbg; n.updated = new Date().toISOString(); saveNotes(); if (isDark(n.board) && nv.color === '#16302A') nv.color = '#FFFFFF'; if (!isDark(n.board) && nv.color === '#FFFFFF') nv.color = '#16302A'; drawNoteEditor(); }; });
@@ -1960,7 +2086,10 @@
       pg.items.forEach(function (it) { drawItem(ctx, it, paint); });
       if (extra) drawItem(ctx, extra, null);
       var si = nv.edit != null ? nv.edit : nv.sel;
-      if (si != null && pg.items[si]) { var b = bbox(ctx, pg.items[si]); ctx.save(); ctx.setLineDash([12, 10]); ctx.strokeStyle = '#12A39A'; ctx.lineWidth = 3; ctx.strokeRect(b.x - 12, b.y - 12, Math.max(b.w, 60) + 24, b.h + 24); ctx.restore(); }
+      if (si != null && pg.items[si]) {
+        var b = bbox(ctx, pg.items[si]); ctx.save(); ctx.setLineDash([12, 10]); ctx.strokeStyle = '#12A39A'; ctx.lineWidth = 3; ctx.strokeRect(b.x - 12, b.y - 12, Math.max(b.w, 60) + 24, b.h + 24); ctx.restore();
+        if (pg.items[si].type === 'img' && nv.tool === 'move') { var hp = handlePos(pg.items[si]); ctx.save(); ctx.fillStyle = '#FFB23F'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(hp.x, hp.y, 26, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); ctx.strokeStyle = '#16302A'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(hp.x - 9, hp.y - 9); ctx.lineTo(hp.x + 9, hp.y + 9); ctx.moveTo(hp.x + 9, hp.y - 1); ctx.lineTo(hp.x + 9, hp.y + 9); ctx.lineTo(hp.x - 1, hp.y + 9); ctx.moveTo(hp.x - 9, hp.y + 1); ctx.lineTo(hp.x - 9, hp.y - 9); ctx.lineTo(hp.x + 1, hp.y - 9); ctx.stroke(); ctx.restore(); }
+      }
     }
     nv.paint = paint;
     size(nv.zoom, true);
@@ -1977,7 +2106,7 @@
     q('#nZo').onclick = function () { setZoom(nv.zoom > 3 ? 3 : nv.zoom > 2 ? 2 : nv.zoom > 1.5 ? 1.5 : 1); size(nv.zoom, true); };
     q('#nZr').onclick = function () { setZoom(1); size(1, true); };
     var P = function (e) { var r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) / r.width * NW, y: (e.clientY - r.top) / r.height * NH }; };
-    var cur = null, drag = null, pan = null, pinch = null, ptrs = {}, blocked = false, W = function () { return nv.thick ? 12 : 5; };
+    var cur = null, drag = null, pan = null, pinch = null, rsz = null, ptrs = {}, blocked = false, W = function () { return nv.thick ? 12 : 5; };
     var hit = function (p) { for (var i = pg.items.length - 1; i >= 0; i--) { var b = bbox(ctx, pg.items[i]); if (p.x >= b.x - 18 && p.x <= b.x + Math.max(b.w, 40) + 18 && p.y >= b.y - 18 && p.y <= b.y + b.h + 18) return i; } return -1; };
     var boxHit = function (p) {
       for (var i = pg.items.length - 1; i >= 0; i--) { var it = pg.items[i]; if (it.type !== 'check') continue; var k = checkRowAt(it, p); if (k >= 0) return { i: i, k: k }; }
@@ -1992,6 +2121,9 @@
         cur = null; drag = null; pan = null; blocked = true; paint();
         var a = ptrs[ids[0]], b = ptrs[ids[1]];
         pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, z: nv.zoom, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+        rsz = null;
+        var si2 = nv.sel;   // two fingers on a selected picture resize the picture instead of zooming
+        if (nv.tool === 'move' && si2 != null && pg.items[si2] && pg.items[si2].type === 'img') { var im0 = pg.items[si2]; snap(); pinch.img = { it: im0, w0: im0.w, h0: im0.h, cx: im0.x + im0.w / 2, cy: im0.y + im0.h / 2 }; }
         return;
       }
       if (ids.length > 2 || blocked) return;
@@ -2011,6 +2143,8 @@
       } else if (t === 'erase') {
         var i = hit(p); if (i >= 0) { snap(); var gone = pg.items.splice(i, 1)[0]; touch(); paint(); if (gone.type === 'img' && noteImgs(n).indexOf(gone.src) < 0) idbDel('img-' + gone.src).catch(function () {}); }
       } else if (t === 'move') {
+        var sItem = nv.sel != null ? pg.items[nv.sel] : null, hp0 = sItem && sItem.type === 'img' ? handlePos(sItem) : null;
+        if (hp0 && Math.hypot(p.x - hp0.x, p.y - hp0.y) < 55) { snap(); rsz = { it: sItem, x: p.x, y: p.y, w0: sItem.w, h0: sItem.h }; return; }
         var j = hit(p); nv.sel = j >= 0 ? j : null;
         if (j >= 0) { snap(); drag = { i: j, x: p.x, y: p.y, moved: 0 }; }
         else pan = { x: e.clientX, y: e.clientY, sl: wrap.scrollLeft, st: wrap.scrollTop };
@@ -2023,11 +2157,13 @@
       if (pinch) {
         var ids = Object.keys(ptrs).filter(function (k) { return k !== 'tap'; }); if (ids.length < 2) return;
         var a = ptrs[ids[0]], b = ptrs[ids[1]], d = Math.hypot(a.x - b.x, a.y - b.y), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+        if (pinch.img) { var pi = pinch.img, f = d / pinch.d, nw = Math.max(80, Math.min(1800, pi.w0 * f)); pi.it.w = Math.round(nw); pi.it.h = Math.round(nw * pi.h0 / pi.w0); pi.it.x = pi.cx - pi.it.w / 2; pi.it.y = pi.cy - pi.it.h / 2; paint(); return; }
         setZoom(pinch.z * d / pinch.d, mx, my);
         wrap.scrollLeft -= mx - pinch.mx; wrap.scrollTop -= my - pinch.my; pinch.mx = mx; pinch.my = my;
         return;
       }
       if (pan) { wrap.scrollLeft = pan.sl - (e.clientX - pan.x); wrap.scrollTop = pan.st - (e.clientY - pan.y); return; }
+      if (rsz) { var q2 = P(e), ar = rsz.w0 / rsz.h0, nw2 = Math.max(80, Math.min(1800, rsz.w0 + ((q2.x - rsz.x) + (q2.y - rsz.y) * ar) / 2)); rsz.it.w = Math.round(nw2); rsz.it.h = Math.round(nw2 / ar); paint(); return; }
       if (!cur && !drag) return;
       var p = P(e);
       if (cur && cur.type === 'pen') { var l = cur.pts[cur.pts.length - 1]; if (Math.abs(l[0] - p.x) + Math.abs(l[1] - p.y) > 3) cur.pts.push([Math.round(p.x), Math.round(p.y)]); paint(cur); }
@@ -2037,7 +2173,8 @@
     var up = function (e) {
       delete ptrs[e.pointerId]; delete ptrs.tap;
       var left = Object.keys(ptrs).length;
-      if (pinch && left < 2) { pinch = null; size(nv.zoom, true); }
+      if (pinch && left < 2) { var wasImg = pinch.img; pinch = null; if (wasImg) touch(); else size(nv.zoom, true); }
+      if (rsz) { rsz = null; touch(); paint(); }
       if (blocked) { if (!left) blocked = false; return; }
       if (cur) {
         var ok = cur.type === 'pen' || Math.abs(cur.x2 - cur.x1) + Math.abs(cur.y2 - cur.y1) > 8;
@@ -2087,6 +2224,7 @@
       nv.edit = null; touch(); drawNoteEditor();
     };
   }
+  function handlePos(it) { var pad = it.polaroid ? 14 : 8, bot = it.polaroid ? (it.cap ? 64 : 22) : 8; return { x: it.x + it.w + pad, y: it.y + it.h + bot }; }
   function checkGeo(it) { return { b: it.s * .82, rh: it.s * 1.6 }; }
   function checkRowAt(it, p) {
     var g = checkGeo(it);
@@ -2665,6 +2803,7 @@
       case 'week': return weekSheet();
       case 'roadmap': return roadmapSheet();
       case 'garmin': return garminSheet();
+      case 'garminday': return garminDaySheet();
       case 'dist': return distSheet();
       case 'mvstat': return mvstatSheet();
       case 'goals': return goalsSheet();
@@ -2733,7 +2872,7 @@
     migrate(state);
     if (syncCalendarTargets()) { save(); syncGoal(); }
     var view = document.getElementById('view');
-    if (ui.tab === 'trail') { view.innerHTML = renderToday(); bindTrail(view, todayNum()); }
+    if (ui.tab === 'trail') { view.innerHTML = renderToday(); bindTrail(view, todayNum()); bindTargets(view); }
     else if (ui.tab === 'log') { view.innerHTML = renderLog(); bindLog(view); }
     else if (ui.tab === 'fit') { view.innerHTML = renderFit(); bindFit(view); if (fitUi.view === 'plan') stravaSync(false); }
     else { view.innerHTML = renderSettings(); bindSettings(view); stravaSync(false); }
@@ -2764,6 +2903,7 @@
   loadHolidays(false);
   if (/[?&]win=1/.test(location.search)) { hitSingle(); openGoal(); }
   else if (/[?&]goal=1/.test(location.search)) openMorning();
+  else if (/[?&]shared=1/.test(location.search)) { history.replaceState(history.state, '', location.pathname); receiveShared(); }
   else if (/[?&]tonight=1/.test(location.search)) { openSheet('tonight'); history.replaceState(history.state, '', location.pathname); }
   else if (/[?&]checkin=1/.test(location.search)) openCheckin();
 })();

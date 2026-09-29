@@ -448,3 +448,45 @@ input[type=range]{width:100%;accent-color:var(--jungle)}
 .calday input.text,.calday select.text{background:#fff;min-height:44px;padding:8px 12px;font-size:15px}
 .calday select.text{flex:1;border:2px solid transparent;border-radius:14px;font-family:inherit;color:var(--ink)}
 .calown summary{cursor:pointer;padding:4px 0}
+.pastewrap{background:#fff;border-radius:18px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;border:2px dashed var(--mango)}
+.pastebox{min-height:84px;border-radius:14px;background:var(--sand);padding:14px;font-size:15px;color:var(--sub);outline:none;display:flex;align-items:center;justify-content:center;text-align:center;overflow:hidden}
+.pastebox:focus{box-shadow:0 0 0 2px var(--lagoon)}
+.pastebox img{max-width:100%;max-height:120px}
+.pastebox:empty::before{content:"Long-press here → Paste";color:var(--sub)}
+/* v24: top card with stats + practices, white targets card with priorities, Garmin health */
+.htop{gap:12px;padding:18px 18px 30px}
+.htop .dring>b{font-size:34px}
+.htop .greet{font-size:26px}
+.htiles{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.htile{border:0;background:rgba(255,255,255,.13);color:#fff;border-radius:14px;padding:8px 10px;display:flex;flex-direction:column;gap:1px;text-align:left;font:inherit;cursor:pointer;min-width:0}
+.htile b{font-size:21px;line-height:1.05;letter-spacing:-.03em;white-space:nowrap}
+.htile b span{font-size:12px;opacity:.75;letter-spacing:0}
+.htile small{font-size:10.5px;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hpills{display:flex;gap:6px;flex-wrap:wrap}
+.hpill{display:inline-flex;align-items:center;gap:8px;border:0;background:#fff;color:var(--jungle);border-radius:999px;padding:5px 13px 5px 5px;font:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap}
+.hpill i{font-style:normal;font-weight:500;opacity:.6}
+.hpill .pp{width:26px;height:26px;border-radius:50%;background:var(--coral);color:#fff;display:flex;align-items:center;justify-content:center}
+.hpill .pp svg{width:11px;height:11px}
+.hpill .pp.o{background:none;border:2.5px solid #C8D3CC;box-sizing:border-box}
+.hdone{font-size:13px;font-weight:600;color:#CDEFEA}
+.tcard{background:#fff;color:var(--ink);gap:4px;padding:16px 18px}
+.tcard .pill{background:var(--sand2)}
+.tcard .tg{border-top:1px solid var(--line)}
+.tcard .tg:first-child{border-top:0}
+.tcard .tt small{opacity:1;color:var(--sub)}
+.tcard .tt.done{color:var(--sub)}
+.tcard .tck{border-width:2.5px}
+.plab{font-size:10px;font-weight:700;letter-spacing:.06em;margin-top:4px;flex-shrink:0}
+.pris{display:flex;gap:5px;flex-shrink:0}
+.pri{width:18px;height:18px;border-radius:50%;border:0;padding:0;background:var(--pc);opacity:.3;cursor:pointer;position:relative}
+.pri::before{content:'';position:absolute;inset:-8px}
+.pri.on{opacity:1;box-shadow:0 0 0 2px #fff,0 0 0 4px var(--pc)}
+.addrow{gap:8px}
+.addrow .pri{width:20px;height:20px}
+.r.faded{opacity:.6}
+.gtiles{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.gtile{background:#fff;border-radius:20px;padding:12px 14px;display:flex;flex-direction:column;gap:2px}
+.gtile b{font-size:26px;line-height:1.05}
+.gtile b span{font-size:13px;color:var(--sub);letter-spacing:0}
+.gtile small{font-size:12px;color:var(--sub)}
+.spark{width:100%;height:24px;margin-top:6px}
