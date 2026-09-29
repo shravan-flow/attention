@@ -79,7 +79,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const local = () => new Date(Date.now() + cfg.utcOffsetMinutes * 60000); // "local" clock via UTC getters
 const hhmm = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 
-const NIGHT = { kind: 'night', url: './?tonight=1', title: 'Before bed', body: 'How was your day? Two minutes of journal, then plan tomorrow’s targets.' };
+const NIGHT = { kind: 'night', url: './?tonight=1', title: 'Before bed', body: 'How was your day? Two minutes of journal, plan tomorrow’s targets, and note today’s resting calories if the app asks.' };
 const MORNING = { kind: 'goal', url: './?goal=1', title: 'Good morning', body: 'Picture your day going well, then set today’s targets. Tap to begin.' };
 if (MODE === 'test') {
   await sendOne('Test ping');

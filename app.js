@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '27';
+  var APP_VERSION = '28';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -414,6 +414,11 @@
     h += '<div class="optrow" role="group" aria-label="Mood">' + MOODS.map(function (m, i) { return '<button type="button" class="opt mood" data-mood="' + (i + 1) + '" aria-pressed="' + (j.mood === i + 1) + '">' + m + '</button>'; }).join('') + '</div>';
     h += '<label class="lab" for="jWell">What went well?</label><textarea class="text" id="jWell" data-jkey="' + key + '" placeholder="one or two things">' + esc(j.well || '') + '</textarea>';
     h += '<label class="lab" for="jAway">What pulled you away? <span class="muted">+5 XP</span></label><textarea class="text" id="jAway" placeholder="a thought, a ping, a craving…">' + esc(j.away || note || '') + '</textarea>';
+    if (key === tk && (restNeeded() || (state.restLog || {})[tk])) {
+      var rc0 = restCal();
+      h += '<div class="restask"><label class="lab" for="jRest">Garmin resting calories today <span class="muted">' + (rc0 ? (rc0.stable ? '· calibrated' : '· day ' + Math.min(rc0.n + ((state.restLog || {})[tk] ? 0 : 1), 99) + (rc0.n < 5 ? ' of 5' : ', settling')) : '· day 1 of 5') + '</span></label>' +
+        '<input class="text" id="jRest" type="number" inputmode="numeric" placeholder="Garmin Connect → Calories → Resting" value="' + ((state.restLog || {})[tk] || '') + '"><small class="muted">Helps the app learn your real calorie burn.</small></div>';
+    }
     h += '<label class="lab" for="jMore">Anything else on your mind?</label><textarea class="text" id="jMore" placeholder="optional">' + esc(j.more || '') + '</textarea>';
     if (key === tk) h += '<div class="row between"><span class="lab">Tomorrow’s targets</span><span class="cap">become tomorrow’s</span></div>' + planList(tomorrowKey());
     h += '<button type="button" class="btn jungle" id="jDone">' + (key === tk ? 'Save · good night' : 'Save') + '</button>';
@@ -429,6 +434,8 @@
       save();
     };
     ['#jWell', '#jAway', '#jMore'].forEach(function (id) { r.querySelector(id).addEventListener('input', put); });
+    var jr = r.querySelector('#jRest');
+    if (jr) jr.addEventListener('change', function () { var v = +jr.value; state.restLog = state.restLog || {}; if (v > 600 && v < 5000) { state.restLog[key] = Math.round(v); save(); var rc = restCal(); toast(rc.stable ? 'Calibrated! Resting burn ≈ ' + fmtN(rc.avg) + ' kcal' : 'Saved · ' + rc.n + ' day' + (rc.n === 1 ? '' : 's') + ' so far'); } else if (jr.value) toast('That looks off: resting calories are usually 1,200–2,500'); });
     r.querySelectorAll('[data-mood]').forEach(function (b) { b.onclick = function () { put(); state.journal[key].mood = +b.dataset.mood; save(); drawSheet(); }; });
     r.querySelector('#jDone').onclick = function () { put(); closeSheet(); mutate(function () {}); toast(key === dkey(new Date()) ? 'Saved. Good night.' : 'Saved'); };
   }
@@ -793,11 +800,23 @@
     return items.reduce(function (a, it) { a.kcal += it.kcal; a.p += it.p; a.c += it.c; a.f += it.f; return a; }, { kcal: 0, p: 0, c: 0, f: 0 });
   }
   function latestWeight() { var w = (state.weights || []).slice().sort(function (a, b) { return a.d < b.d ? -1 : 1; }); return w.length ? w[w.length - 1].kg : prof().weight; }
+  // ---- resting calories calibrated from Garmin Connect (you type them in each night) ----
+  function restEntries() { var r = state.restLog || {}; return Object.keys(r).sort().map(function (k) { return { d: k, v: r[k] }; }).filter(function (e) { return e.v > 600 && e.v < 5000; }); }
+  function restCal() {
+    var es = restEntries().slice(-14); if (!es.length) return null;
+    var avg = es.reduce(function (a, e) { return a + e.v; }, 0) / es.length, last5 = es.slice(-5);
+    var m5 = last5.reduce(function (a, e) { return a + e.v; }, 0) / last5.length;
+    var sd = Math.sqrt(last5.reduce(function (a, e) { return a + (e.v - m5) * (e.v - m5); }, 0) / last5.length);
+    var stable = es.length >= 5 && sd / m5 <= .04;
+    return { avg: Math.round(avg), n: es.length, stable: stable, spread: Math.round(sd) };
+  }
+  function restNeeded() { var rc = restCal(); return !rc || !rc.stable; }
   function bodyCalc() {
     var p = prof(), w = latestWeight();
     if (!p.height || !w || !p.age || !p.sex || p.age > 110 || p.height < 100 || w < 25) return null;
     var hm = p.height / 100, bmi = w / (hm * hm);
-    var bmr = 10 * w + 6.25 * p.height - 5 * p.age + (p.sex === 'm' ? 5 : -161);
+    var bmrF = 10 * w + 6.25 * p.height - 5 * p.age + (p.sex === 'm' ? 5 : -161), rc = restCal();
+    var bmr = rc ? rc.avg : bmrF;   // your own Garmin resting calories replace the formula once you've entered some
     var tdee = bmr * (p.activity || 1.375);
     var lo = 18.5 * hm * hm, hi = 24.9 * hm * hm, ideal = 23 * hm * hm;
     var losing = bmi > 23;
@@ -1100,10 +1119,27 @@
     var tk = dkey(new Date()), y = new Date(); y.setDate(y.getDate() - 1);
     var a = burnEstimate(tk), b = burnEstimate(dkey(y));
     if (!a) return '<div class="list">' + row({ t: 'Calories burned', sub: 'add your height, weight and age in Body to see this', sheet: 'about' }) + '</div>';
+    var rc = restCal();
     var line = function (e) { return 'resting ' + fmtN(e.resting) + ' + steps ' + (e.steps == null ? '(no data)' : fmtN(e.walk)) + ' + workouts ' + fmtN(e.work); };
     return '<div class="burn"><div class="row between"><span class="cap">Calories burned · estimate</span><span class="cap">so far today</span></div>' +
       '<b class="display">' + fmtN(a.total) + '<span> kcal</span></b><small>' + line(a) + '</small>' +
-      '<div class="row between burny"><span>Yesterday, whole day</span><b>' + fmtN(b.total) + ' kcal</b></div><small>' + line(b) + '</small></div>';
+      '<div class="row between burny"><span>Yesterday, whole day</span><b>' + fmtN(b.total) + ' kcal</b></div><small>' + line(b) + '</small>' +
+      '<button type="button" class="r calib" data-sheet="restcal"><span class="dot" style="background:' + (rc && rc.stable ? T.lagoon : T.mango) + '"></span><span class="t">Resting burn: ' + (rc ? fmtN(rc.avg) + ' kcal/day' : 'formula estimate') + '<small>' + (!rc ? 'calibrate it with Garmin’s numbers' : rc.stable ? '✓ calibrated from ' + rc.n + ' days of Garmin data' : 'calibrating · ' + rc.n + (rc.n < 5 ? ' of 5 days' : ' days, settling') ) + '</small></span>' + CHEV + '</button></div>';
+  }
+  function restcalSheet() {
+    var rc = restCal(), es = restEntries(), tk = dkey(new Date()), y = new Date(); y.setDate(y.getDate() - 1); var yk = dkey(y), bf = null;
+    var p = prof(), w = latestWeight(); if (p.height && w && p.age && p.sex) bf = Math.round(10 * w + 6.25 * p.height - 5 * p.age + (p.sex === 'm' ? 5 : -161));
+    var h = '<div class="burn"><span class="cap">Your resting burn</span><b class="display">' + (rc ? fmtN(rc.avg) : bf ? fmtN(bf) : '–') + '<span> kcal/day</span></b><small>' +
+      (!rc ? 'From the formula (age, height, weight). Enter Garmin’s numbers below to replace it.' : rc.stable ? '✓ Calibrated: average of ' + rc.n + ' days, the last 5 within ±' + fmtN(rc.spread) + ' kcal. The app has stopped asking.' : 'Average of ' + rc.n + ' day' + (rc.n === 1 ? '' : 's') + (rc.n < 5 ? '. ' + (5 - rc.n) + ' more to go' : '; still settling (last 5 vary by ±' + fmtN(rc.spread) + ' kcal)') + '. The Tonight screen will keep asking.') + '</small></div>';
+    h += '<div class="card stack" style="gap:8px"><h2>Where to find it</h2><ol class="steps"><li>Open the <b>Garmin Connect</b> app.</li><li>On <b>My Day</b>, tap the <b>Calories</b> card (it may be called Calories Burned or Energy).</li><li>Copy the <b>Resting</b> number for the day. The whole-day total is best at night, just before bed.</li></ol></div>';
+    var inp = function (k, lab) { var v = (state.restLog || {})[k]; return '<label class="row lab" style="gap:10px"><span style="flex:1">' + lab + '</span><input class="text rin" type="number" inputmode="numeric" data-rk="' + k + '" value="' + (v || '') + '" placeholder="e.g. 1780" style="max-width:130px"></label>'; };
+    h += inp(tk, 'Today (' + new Date().toLocaleDateString('en', { weekday: 'short', day: 'numeric' }) + ')') + inp(yk, 'Yesterday (' + y.toLocaleDateString('en', { weekday: 'short', day: 'numeric' }) + ')');
+    if (es.length) h += '<h3 class="sh">Entered <span class="cap">' + es.length + ' days</span></h3><div class="list">' + es.slice().reverse().map(function (e) { return '<div class="r"><span class="t">' + niceDate(e.d + 'T12:00:00') + '</span><span class="v strong">' + fmtN(e.v) + ' kcal</span><button type="button" class="fx" data-rdel="' + e.d + '" aria-label="Delete">×</button></div>'; }).join('') + '</div>';
+    if (bf) h += '<p class="muted small">For comparison, the formula says ' + fmtN(bf) + ' kcal/day. Your calibrated number is also used for your daily food target.</p>';
+    return { title: 'Resting calories', cap: rc && rc.stable ? 'calibrated' : 'calibrating', html: h, bind: function (r) {
+      r.querySelectorAll('[data-rk]').forEach(function (el) { el.addEventListener('change', function () { var v = +el.value; state.restLog = state.restLog || {}; if (v > 600 && v < 5000) state.restLog[el.dataset.rk] = Math.round(v); else if (!el.value) delete state.restLog[el.dataset.rk]; else { toast('That looks off: resting calories are usually 1,200–2,500'); return; } save(); render(); toast('Saved'); }); });
+      r.querySelectorAll('[data-rdel]').forEach(function (b) { b.onclick = function () { delete state.restLog[b.dataset.rdel]; save(); render(); }; });
+    } };
   }
   function garminDaySheet() { return { title: 'Your Garmin', cap: garminStatus(), html: healthHtml(), bind: function () {} }; }
   function garminStatus() { var sv = state.strava || {}; return !sv.pass ? 'set up' : sv.error ? 'needs a look' : sv.syncedAt ? ago(sv.syncedAt) : 'waiting'; }
@@ -2849,6 +2885,7 @@
       case 'roadmap': return roadmapSheet();
       case 'garmin': return garminSheet();
       case 'garminday': return garminDaySheet();
+      case 'restcal': return restcalSheet();
       case 'dist': return distSheet();
       case 'mvstat': return mvstatSheet();
       case 'goals': return goalsSheet();
