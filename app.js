@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '32';
+  var APP_VERSION = '33';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -3092,6 +3092,7 @@
       case 'shoplearn': return shopLearnSheet();
       case 'shopset': return shopSetSheet();
       case 'shopstock': return shopStockSheet();
+      case 'shopprices': return shopPricesSheet();
       case 'week': return weekSheet();
       case 'roadmap': return roadmapSheet();
       case 'garmin': return garminSheet();
@@ -4429,11 +4430,12 @@
       var d = s2.days[k], st = d.status === 'closed' ? ['closed', '#CDEFEA'] : d.status === 'reading' ? ['reading…', '#FFE6B8'] : d.grid ? ['to check', '#FFE0D9'] : ['photos only', '#F1E6D6'];
       return '<button type="button" class="r" data-shday="' + k + '"><span class="t">' + new Date(k + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + '<small>' + (d.status === 'closed' ? 'sales ' + inr(d.sales) + ' · net ' + inr(d.net) : d.grid ? 'sales ' + inr(daySales(d)) + ' so far' : d.photos.length + ' photo' + (d.photos.length === 1 ? '' : 's')) + '</small></span><span class="tkpill" style="background:' + st[1] + '">' + st[0] + '</span>' + CHEV + '</button>';
     }).join('') + '</div>';
-    h += '<div class="list">' + row({ t: '📊 Month file', sub: 'share ' + md.toLocaleDateString('en', { month: 'long' }) + ' as Excel or PDF', sheet: 'shopmonth:' + m }) + row({ t: '🧠 Learning your handwriting', sub: Object.keys(s2.gloss).length + ' words learnt · ' + s2.fixes + ' corrections', sheet: 'shoplearn' }) + row({ t: 'Shop settings', sub: 'name, usual profit %', sheet: 'shopset' }) + '</div>';
+    h += '<div class="list">' + row({ t: '📋 KSBCL price list', sub: PL && PL.asOf ? fmtN(PL.items.length) + ' items · as on ' + new Date(PL.asOf + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short', year: 'numeric' }) : 'add the PDF or Excel list: exact names, MRP, cost', sheet: 'shopprices' }) + row({ t: '📊 Month file', sub: 'share ' + md.toLocaleDateString('en', { month: 'long' }) + ' as Excel or PDF', sheet: 'shopmonth:' + m }) + row({ t: '🧠 Learning your handwriting', sub: Object.keys(s2.gloss).length + ' words learnt · ' + s2.fixes + ' corrections', sheet: 'shoplearn' }) + row({ t: 'Shop settings', sub: 'name, usual profit %', sheet: 'shopset' }) + '</div>';
     if (!hasAI()) h += '<div class="notice">Reading photos needs your free Gemini key (Settings → Visualization). Without it you can still type the sheet in.</div>';
     return h + '</div>';
   }
   function bindShop(view) {
+    if (!PL) loadPL().then(function () { if (ui.tab === 'shop' && !ui.sheet) render(); });
     view.querySelectorAll('[data-shm]').forEach(function (b) { b.onclick = function () { var d = new Date((shopUi.month || dkey(new Date()).slice(0, 7)) + '-01T00:00:00'); d.setMonth(d.getMonth() + +b.dataset.shm); shopUi.month = dkey(d).slice(0, 7); render(); }; });
     var fi = view.querySelector('#shFile');
     view.querySelector('#shAdd').onclick = function () { fi.click(); };
@@ -4718,8 +4720,246 @@
     if (n) toast(n + ' bottles from the KSBCL bill added to Received');
   }
 
+  // ---------- KSBCL price list (PDF or Excel): exact names, MRP and cost, quick typing, profit per item ----------
+  var PL = null, plLoading = null, plJob = null;
+  function loadPL() { if (PL) return Promise.resolve(PL); if (plLoading) return plLoading; plLoading = idbGet('pricelist').then(function (x) { PL = x || { items: [], asOf: null }; return PL; }).catch(function () { PL = { items: [], asOf: null }; return PL; }); return plLoading; }
+  function savePL() { return idbPut('pricelist', PL); }
+  function plKey(name, ml) { return itemKey(shortBillName(name), ml); }
+  // text lines from a PDF (rows rebuilt from the text positions)
+  function pdfLines(buf, onPage) {
+    return (window.pdfjsLib ? Promise.resolve() : loadScript('pdf.min.js')).then(function () {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.min.js';
+      return window.pdfjsLib.getDocument({ data: buf }).promise;
+    }).then(function (doc) {
+      var lines = [], p = 1;
+      var next = function () {
+        if (p > doc.numPages) return Promise.resolve(lines);
+        return doc.getPage(p).then(function (pg) { return pg.getTextContent(); }).then(function (tc) {
+          var rows = {};
+          tc.items.forEach(function (it) { if (!it.str.trim()) return; var y = Math.round(it.transform[5] / 3) * 3; (rows[y] = rows[y] || []).push({ x: it.transform[4], s: it.str.trim() }); });
+          Object.keys(rows).map(Number).sort(function (a, b) { return b - a; }).forEach(function (y) { lines.push(rows[y].sort(function (a, b) { return a.x - b.x; }).map(function (c) { return c.s; }).join(' | ')); });
+          if (onPage) onPage(p, doc.numPages); p++; return next();
+        });
+      };
+      return next();
+    });
+  }
+  function xlsxLines(buf) {
+    return loadXlsx().then(function (X) {
+      var wb2 = X.read(buf, { type: 'array' }), out = [];
+      wb2.SheetNames.forEach(function (n) { X.utils.sheet_to_json(wb2.Sheets[n], { header: 1, raw: false, defval: '' }).forEach(function (r) { var t = r.map(function (c) { return String(c).trim(); }).filter(Boolean); if (t.length) out.push(t.join(' | ')); }); });
+      return out;
+    });
+  }
+  // the AI turns batches of lines into items (works the same for any column layout)
+  function importPriceList(file) {
+    if (!hasAI()) { toast('Reading the price list needs your Gemini key (Settings → Visualization)'); return; }
+    var isPdf = /pdf$/i.test(file.type) || /\.pdf$/i.test(file.name);
+    plJob = { stage: 'Opening the file…', done: 0, total: 0 }; drawSheet();
+    var asOf = (/(\d{1,2})[.\-\/](\d{1,2})[.\-\/](\d{4})/.exec(file.name) || null);
+    file.arrayBuffer().then(function (buf) { return isPdf ? pdfLines(buf, function (p, n) { plJob.stage = 'Reading page ' + p + ' of ' + n; drawSheet(); }) : xlsxLines(buf); }).then(function (lines) {
+      lines = lines.filter(function (l) { return /\d/.test(l) && l.length > 6; });
+      if (!lines.length) throw new Error('no text found in the file (is it a scanned picture?)');
+      var size = 110, chunks = []; for (var i = 0; i < lines.length; i += size) chunks.push(lines.slice(i, i + size));
+      plJob.total = chunks.length; plJob.done = 0; plJob.stage = 'Understanding the list'; drawSheet();
+      var items = [], k = 0;
+      var ask = function (ch, tries) {
+        var P = 'These lines are rows of the Karnataka State Beverages Corporation (KSBCL) "supplier wise item wise price list". Columns are separated by " | ". For every product row return one item. Skip headings, page numbers and totals.\n' +
+          'For each item: "name" = the brand/product name without the pack code in brackets; "ml" = bottle size in ml; "per" = bottles per case (e.g. 12 from "750MLx12Btls"); "mrp" = the maximum retail price for ONE bottle; "cost" = the price the shop pays per CASE (issue price / landing cost / KSBCL price) if shown, else null; "supplier" if shown.\n' +
+          'If a row has several prices, the one for a single bottle that is the highest is usually the MRP.\n' +
+          'Reply JSON: {"items":[{"name":"text","ml":750,"per":12,"mrp":number|null,"cost":number|null,"supplier":"text"}]}\n\nLINES:\n' + ch.join('\n');
+        return geminiCall({ contents: [{ parts: [{ text: P }] }], generationConfig: { responseMimeType: 'application/json', temperature: 0 } })
+          .then(function (t) { return JSON.parse(t.replace(/^\s*```(json)?/, '').replace(/```\s*$/, '')); })
+          .catch(function (e) { if (tries < 2) return new Promise(function (r) { setTimeout(r, 2000); }).then(function () { return ask(ch, tries + 1); }); throw e; });
+      };
+      var next = function () {
+        if (k >= chunks.length) return items;
+        return ask(chunks[k], 0).then(function (r) { (r.items || []).forEach(function (x) { if (x && x.name) items.push(x); }); k++; plJob.done = k; drawSheet(); return next(); });
+      };
+      return next();
+    }).then(function (items) {
+      return loadPL().then(function () {
+        var old = {}; (PL.items || []).forEach(function (x) { old[x.key] = x; });
+        var seen = {}, out = [], changed = 0;
+        items.forEach(function (x) {
+          var ml = String(x.ml || '').replace(/[^0-9]/g, ''), name = shortBillName(String(x.name).replace(/\s+/g, ' ').trim()), key = itemKey(name, ml);
+          if (!name || seen[key]) return; seen[key] = 1;
+          var per = num(x.per) || null, mrp = num(x.mrp) || null, costCase = num(x.cost) || null;
+          var it = { key: key, name: name, ml: ml, per: per, mrp: mrp, costCase: costCase, cost: costCase && per ? Math.round(costCase / per * 100) / 100 : null, sup: x.supplier || '' };
+          var o = old[key]; if (o && o.mrp && mrp && o.mrp !== mrp) { it.was = o.mrp; changed++; }
+          out.push(it);
+        });
+        if (!out.length) throw new Error('no items found');
+        PL = { items: out, asOf: asOf ? asOf[3] + '-' + String(asOf[2]).padStart(2, '0') + '-' + String(asOf[1]).padStart(2, '0') : dkey(new Date()), file: file.name, at: new Date().toISOString(), changed: changed, sups: Object.keys(out.reduce(function (a, x) { if (x.sup) a[x.sup] = 1; return a; }, {})).length };
+        return savePL().then(function () { plJob = null; drawSheet(); toast(out.length + ' items in the price list' + (changed ? ' · ' + changed + ' MRPs changed' : '')); });
+      });
+    }).catch(function (e) { plJob = { stage: 'Couldn’t read it: ' + (e.message || e), err: true }; drawSheet(); });
+  }
+  function shopPricesSheet() {
+    var h = '';
+    if (!PL) { loadPL().then(function () { if (ui.sheet && ui.sheet.kind === 'shopprices') drawSheet(); }); return { title: 'Price list', cap: '', html: '<p class="muted">Loading…</p>', bind: function () {} }; }
+    if (PL.asOf) h += '<div class="shtiles plt">' + [[fmtN(PL.items.length), 'items'], [PL.sups || '—', 'suppliers'], [PL.changed || 0, 'MRPs changed']].map(function (x) { return '<div><b class="display">' + x[0] + '</b><small>' + x[1] + '</small></div>'; }).join('') + '</div>';
+    if (plJob) h += '<div class="' + (plJob.err ? 'notice' : 'shreading') + '">' + (plJob.err ? '' : '<span class="wpulse"></span>') + '<b>' + esc(plJob.stage) + '</b>' + (plJob.total ? '<span class="muted small">' + plJob.done + ' of ' + plJob.total + ' parts</span>' : '') + '</div>';
+    h += '<button type="button" class="btn jungle" id="plUp"' + (plJob && !plJob.err ? ' disabled' : '') + '>⤒ ' + (PL.asOf ? 'Update with the new list (PDF or Excel)' : 'Add the KSBCL price list (PDF or Excel)') + '</button><input type="file" id="plFile" accept=".pdf,.xlsx,.xls,.csv,application/pdf" hidden>';
+    if (PL.items.length) {
+      h += '<input class="text" id="plQ" placeholder="Search: “orig” or “OC”" value="' + esc(shopUi.pq || '') + '">';
+      var res = shopUi.pq ? plSearch(shopUi.pq, 40) : PL.items.slice(0, 30).map(function (x) { return { it: x }; });
+      h += '<div class="list">' + res.map(function (r) { var x = r.it; return '<div class="r"><span class="t">' + esc(x.name) + '<small>' + (x.ml ? x.ml + ' ml' : '') + (x.sup ? ' · ' + esc(x.sup) : '') + (x.cost ? ' · cost ₹' + x.cost : '') + '</small></span>' + (x.was ? '<span class="tkpill" style="background:#FFE6B8">was ' + x.was + '</span>' : '') + '<span class="v strong">' + (x.mrp ? '₹' + fmtCell(x.mrp) : '—') + '</span></div>'; }).join('') + '</div>';
+      h += '<p class="muted small">List as on ' + new Date(PL.asOf + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short', year: 'numeric' }) + (PL.file ? ' · ' + esc(PL.file) : '') + '.</p>';
+    } else if (!plJob) h += '<p class="muted small">Download the latest “supplier wise item wise price list” from KSBCL (PDF or Excel) and pick it here. The app reads every item’s name, size, MRP and cost. Do it again whenever a new list comes out.</p>';
+    return { title: 'Price list', cap: PL.asOf ? 'as on ' + new Date(PL.asOf + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) : '', html: h, bind: function (r) {
+      var f = r.querySelector('#plFile'); r.querySelector('#plUp').onclick = function () { f.click(); };
+      f.onchange = function () { if (f.files[0]) importPriceList(f.files[0]); };
+      var q = r.querySelector('#plQ'); if (q) q.addEventListener('input', function () { shopUi.pq = q.value; var pos = q.selectionStart; drawSheet(); var j = document.getElementById('plQ'); if (j) { j.focus(); j.setSelectionRange(pos, pos); } });
+    } };
+  }
+  // --- fuzzy matching: "orig ch", "OC", "oc 180", "Mcd 90" ---
+  function words(t) { return normName(t).split(' ').filter(Boolean); }
+  function nameScore(q, name) {
+    var qw = words(q).filter(function (w) { return !/^\d+$/.test(w); }), nw = words(name); if (!qw.length || !nw.length) return 0;
+    var initials = nw.map(function (w) { return w[0]; }).join(''), sc = 0;
+    qw.forEach(function (w) {
+      var best = 0;
+      nw.forEach(function (n) { if (n === w) best = Math.max(best, 1); else if (n.indexOf(w) === 0) best = Math.max(best, .85 + Math.min(.1, w.length / 50)); else if (w.length >= 3 && n.indexOf(w) > 0) best = Math.max(best, .5); });
+      if (w.length >= 2 && initials.indexOf(w) === 0) best = Math.max(best, .9);
+      else if (w.length >= 2 && initials.indexOf(w) > 0) best = Math.max(best, .6);
+      sc += best;
+    });
+    return sc / qw.length - Math.max(0, nw.length - qw.length) * .01;
+  }
+  function plSearch(q, max, size, listOnly) {
+    var sz = size || (/(\d{2,4})/.exec(q) || [])[1], out = [];
+    var mine = listOnly ? {} : shopItems(); bills();
+    Object.keys(mine).forEach(function (k) { var x = mine[k], s = nameScore(q, x.item); if (s > .45) out.push({ it: { key: k, name: x.item, ml: x.size, mrp: (plFind(x.item, x.size) || {}).mrp }, s: s + .15 + (sz && x.size === sz ? .3 : sz ? -.2 : 0), mine: true }); });
+    ((PL && PL.items) || []).forEach(function (x) { var s = nameScore(q, x.name); if (s > .45) out.push({ it: x, s: s + (sz && x.ml === sz ? .3 : sz ? -.2 : 0) }); });
+    out.sort(function (a, b) { return b.s - a.s; });
+    var seen = {}; return out.filter(function (r) { var k = normName(r.it.name) + '|' + r.it.ml; if (seen[k]) return false; seen[k] = 1; return true; }).slice(0, max || 8);
+  }
+  function plFind(name, size) {
+    if (!PL || !PL.items.length) return null; var key = itemKey(shortBillName(name), size);
+    var ex = PL.items.filter(function (x) { return x.key === key; })[0]; if (ex) return ex;
+    var s2 = shop(), full = (s2.alias || {})[name]; if (full) { ex = PL.items.filter(function (x) { return x.key === itemKey(shortBillName(full), size); })[0]; if (ex) return ex; }
+    var best = null, bs = 0; PL.items.forEach(function (x) { if (size && x.ml !== String(size).replace(/[^0-9]/g, '')) return; var s3 = nameScore(name, x.name); if (s3 > bs) { bs = s3; best = x; } });
+    return bs >= .85 ? best : null;
+  }
+  // cost per bottle: latest KSBCL bill first, then the price list
+  function costFor(item, size) {
+    var key = itemKey(item, size), best = null; bills();
+    Object.keys(shop().bills).forEach(function (id) { var b = shop().bills[id]; if (b.status !== 'added' && b.status !== 'pending') return; (b.items || []).forEach(function (it) { if (it.key === key && it.per && it.rate && (!best || b.date > best.d)) best = { c: it.rate / it.per, d: b.date, src: 'bill' }; }); });
+    if (best) return best;
+    var p = plFind(item, size); return p && p.cost ? { c: p.cost, src: 'list' } : null;
+  }
+  function profitRows(d) {
+    var g = d.grid, rows = [];
+    dataRows(g).forEach(function (r) {
+      var nm = String(g[r][SC.item] || '').trim(); if (!nm) return;
+      var sold = num(cellVal(g, r, SC.sales)), rate = num(cellVal(g, r, SC.rate)), c = costFor(nm, g[r][SC.size]);
+      rows.push({ r: r, name: nm, size: g[r][SC.size], sold: sold, rate: rate, cost: c ? c.c : null, src: c ? c.src : '', pct: c && rate ? (rate - c.c) / rate * 100 : null });
+    });
+    var sales = 0, prof = 0; rows.forEach(function (x) { if (x.pct != null && x.sold) { sales += x.sold * x.rate; prof += x.sold * (x.rate - x.cost); } });
+    return { rows: rows, avg: sales ? prof / sales * 100 : null, covered: sales };
+  }
+  function profitHtml(d) {
+    var pr = profitRows(d), h = '<h1 class="display" style="font-size:30px;margin:0">Profit per item</h1>';
+    h += '<div class="shmtab"><table><thead><tr><th>Item</th><th>Sold</th><th>Rate</th><th>Cost</th><th>Profit</th></tr></thead><tbody>' + pr.rows.map(function (x) {
+      return '<tr><td style="text-align:left">' + esc(x.name) + (x.size ? ' ' + esc(x.size) : '') + '</td><td>' + (x.sold || '') + '</td><td>' + (x.rate || '') + '</td><td>' + (x.cost != null ? fmtCell(Math.round(x.cost * 100) / 100) : '<span class="muted">—</span>') + '</td><td class="' + (x.pct == null ? '' : x.pct < 0 ? 'neg' : 'plus') + '">' + (x.pct == null ? '' : (x.pct < 0 ? '−' : '') + Math.abs(x.pct).toFixed(1) + '%') + '</td></tr>';
+    }).join('') + '</tbody><tfoot><tr><td>Average (by sales)</td><td></td><td></td><td></td><td>' + (pr.avg == null ? '—' : pr.avg.toFixed(1) + '%') + '</td></tr></tfoot></table></div>';
+    var miss = pr.rows.filter(function (x) { return x.cost == null && x.sold; }).length;
+    h += '<p class="muted small">Profit % = (your rate − cost) ÷ your rate. Cost per bottle comes from your latest KSBCL bill (rate per case ÷ bottles per case), or the price list. Red = selling below cost.' + (miss ? ' ' + miss + ' item' + (miss > 1 ? 's have' : ' has') + ' no cost yet: add a bill or the price list.' : '') + '</p>';
+    h += '<div class="row" style="gap:10px"><button type="button" class="btn line" id="pfBack">‹ Sheet</button><button type="button" class="btn coral" style="flex:1" id="pfNext">Close the day →</button></div>';
+    return h;
+  }
+  // --- exact names for the handwritten ones ---
+  function nameChecks(d) {
+    var g = d.grid, out = [], s2 = shop();
+    dataRows(g).forEach(function (r) {
+      var hw = String(g[r][SC.item] || '').trim(); if (!hw) return;
+      var size = String(g[r][SC.size] || '').replace(/[^0-9]/g, ''), full = (s2.alias || {})[hw];
+      var c = plSearch((full || hw) + (size ? ' ' + size : ''), 5, size, true), ai = sp && sp.aiMatch && sp.aiMatch[hw + '|' + size];
+      if (ai) { c = c.filter(function (x) { return normName(x.it.name) !== normName(ai.name) || x.it.ml !== ai.ml; }); c.unshift({ it: ai, s: 1.2, ai: true }); }
+      if (!c.length) { out.push({ r: r, hw: hw, size: size, cands: [], conf: 'none' }); return; }
+      var top = c[0], gap = c[1] ? top.s - c[1].s : 1, exact = normName(top.it.name) === normName(hw);
+      out.push({ r: r, hw: hw, size: size, cands: c, conf: exact ? 'same' : c[0].ai ? 'likely' : top.s >= 1.15 && gap >= .12 ? 'sure' : top.s >= .9 ? 'likely' : 'pick' });
+    });
+    return out;
+  }
+  function namesHtml(d) {
+    var nc = nameChecks(d), h = '<h1 class="display" style="font-size:30px;margin:0;line-height:1.05">Check the names<br><span class="lite" style="font-size:20px">handwriting → exact names</span></h1>';
+    if (!PL || !PL.items.length) h += '<div class="notice">Add the KSBCL price list (Shop → Price list) so names can be matched to the exact ones.</div>';
+    var show = nc.filter(function (x) { return x.conf !== 'same'; });
+    if (!show.length) h += '<div class="notice ok">✓ Every name already matches.</div>';
+    h += '<div class="stack" style="gap:8px">' + show.map(function (x, i) {
+      var col = { sure: '#CDEFEA', likely: '#FFE6B8', pick: '#FFD9D3', none: '#F1E6D6' }[x.conf], lab = { sure: 'sure', likely: 'likely', pick: 'pick one', none: 'no match' }[x.conf];
+      return '<div class="ncrow"><span class="hw">' + esc(x.hw) + (x.size ? ' ' + x.size : '') + '</span><select data-nc="' + x.r + '"><option value="">keep “' + esc(x.hw) + '”</option>' + x.cands.map(function (c, k) { return '<option value="' + k + '"' + (k === 0 && x.conf !== 'pick' && x.conf !== 'none' ? ' selected' : '') + '>' + esc(c.it.name) + (c.it.ml ? ' ' + c.it.ml : '') + (c.it.mrp ? ' · ₹' + c.it.mrp : '') + '</option>'; }).join('') + '</select><span class="tkpill" style="background:' + col + '">' + lab + '</span></div>';
+    }).join('') + '</div>';
+    var hard = show.filter(function (x) { return x.conf === 'pick' || x.conf === 'none'; }).length;
+    if (hard && hasAI() && PL && PL.items.length) h += '<button type="button" class="btn line small" id="ncAI"' + (sp.aiBusy ? ' disabled' : '') + '>' + (sp.aiBusy ? 'Matching…' : '✨ Ask AI to match the ' + hard + ' unclear name' + (hard > 1 ? 's' : '')) + '</button>';
+    if (show.length) h += '<div class="row" style="gap:10px"><button type="button" class="btn line" style="flex:1" id="ncKeep">Keep short names</button><button type="button" class="btn jungle" style="flex:1" id="ncUse">Use exact names</button></div>';
+    h += '<p class="muted small">Matched against your price list and the names you’ve used before. Your choice is remembered for next time.</p><button type="button" class="btn ghost" id="ncBack">‹ Sheet</button>';
+    sp.nc = nc;
+    return h;
+  }
+  function bindNames(o, d) {
+    var s2 = shop(), q = function (x) { return o.querySelector(x); };
+    q('#ncBack').onclick = function () { sp.step = 'sheet'; drawShopDay(); };
+    var ai = q('#ncAI'); if (ai) ai.onclick = function () {
+      var hard = sp.nc.filter(function (x) { return x.conf === 'pick' || x.conf === 'none'; });
+      var sizes = {}; hard.forEach(function (x) { sizes[x.size] = 1; });
+      var cands = PL.items.filter(function (x) { return !Object.keys(sizes).some(function (z) { return z; }) || sizes[x.ml]; }).slice(0, 900).map(function (x) { return x.name + ' | ' + x.ml; });
+      var P = 'A liquor shop in Karnataka writes short or misspelt brand names on its daily sales sheet. Match each handwritten name (with its bottle size in ml) to the one product in the official KSBCL price list below that it most likely means. Use common Indian shop abbreviations (OC = Original Choice, OT = Old Tavern, MC/Mcd = McDowell’s, KF = Kingfisher, IB/Imp = Imperial Blue, RS = Royal Stag, BP = Bagpiper, OM = Old Monk). If nothing fits, use null.\n\nHandwritten: ' + hard.map(function (x) { return '"' + x.hw + '" ' + x.size; }).join('; ') + '\n\nPrice list (name | ml):\n' + cands.join('\n') + '\n\nReply JSON: {"matches":[{"hw":"handwritten text","size":"180","name":"exact price-list name or null","ml":"180"}]}';
+      sp.aiBusy = true; drawShopDay();
+      geminiCall({ contents: [{ parts: [{ text: P }] }], generationConfig: { responseMimeType: 'application/json', temperature: 0 } }).then(function (t) { return JSON.parse(t.replace(/^\s*```(json)?/, '').replace(/```\s*$/, '')); }).then(function (r) {
+        sp.aiMatch = sp.aiMatch || {}; var n = 0;
+        (r.matches || []).forEach(function (m) { if (!m || !m.name) return; var it = PL.items.filter(function (x) { return normName(x.name) === normName(m.name) && (!m.ml || x.ml === String(m.ml)); })[0]; if (it) { sp.aiMatch[m.hw + '|' + String(m.size || '').replace(/[^0-9]/g, '')] = it; n++; } });
+        sp.aiBusy = false; if (sp.step === 'names') drawShopDay(); toast(n ? n + ' matched by AI · check them' : 'AI couldn’t match them');
+      }).catch(function (e) { sp.aiBusy = false; if (sp && sp.step === 'names') drawShopDay(); toast('AI: ' + (e.message || 'failed')); });
+    };
+    var keep = q('#ncKeep'); if (keep) keep.onclick = function () {
+      // remember the full name behind each short name, but leave the sheet as written
+      o.querySelectorAll('[data-nc]').forEach(function (sel) { var x = sp.nc.filter(function (y) { return y.r === +sel.dataset.nc; })[0]; if (!x || sel.value === '') return; var c = x.cands[+sel.value]; s2.alias[x.hw] = c.it.name; });
+      save(); toast('Remembered'); sp.step = 'sheet'; drawShopDay();
+    };
+    var use = q('#ncUse'); if (use) use.onclick = function () {
+      spSnap(d); var n = 0;
+      o.querySelectorAll('[data-nc]').forEach(function (sel) {
+        var x = sp.nc.filter(function (y) { return y.r === +sel.dataset.nc; })[0]; if (!x || sel.value === '') return;
+        var c = x.cands[+sel.value], g = d.grid;
+        s2.gloss[x.hw.toLowerCase()] = { to: c.it.name, n: ((s2.gloss[x.hw.toLowerCase()] || {}).n || 0) + 1 };
+        g[x.r][SC.item] = c.it.name; if (c.it.ml && !g[x.r][SC.size]) g[x.r][SC.size] = c.it.ml; n++;
+      });
+      save(); toast(n + ' names updated'); sp.step = 'sheet'; drawShopDay();
+    };
+  }
+  // --- dropdown while typing in the Item column ---
+  function itemSuggest(o, d) {
+    var fx = o.querySelector('#spFx'), box = o.querySelector('#spSug'); if (!fx || !box) return;
+    var render2 = function () {
+      var v = fx.value.trim(); if (!sp.sel || sp.sel[1] !== SC.item || sp.sel[0] === 0 || v.length < 2 || /^=/.test(v)) { box.hidden = true; return; }
+      var res = plSearch(v, 7); if (!res.length) { box.hidden = true; return; }
+      box.innerHTML = res.map(function (r, i) { return '<button type="button" data-sug="' + i + '"><span><b>' + esc(r.it.name) + '</b><small>' + (r.it.ml ? r.it.ml + ' ml' : '') + (r.it.mrp ? ' · MRP ₹' + fmtCell(r.it.mrp) : '') + '</small></span><i>' + (r.mine ? 'on your sheet' : 'price list') + '</i></button>'; }).join('');
+      box.hidden = false;
+      box.querySelectorAll('[data-sug]').forEach(function (b) {
+        b.addEventListener('pointerdown', function (e) { e.preventDefault(); });
+        b.onclick = function () {
+          var it = res[+b.dataset.sug].it, g = d.grid, r = sp.sel[0]; spSnap(d);
+          var was = d.ai && d.ai[r] ? d.ai[r][SC.item] : null;
+          g[r][SC.item] = it.name; if (it.ml) g[r][SC.size] = String(it.ml);
+          if (it.mrp && !String(g[r][SC.rate] || '').trim()) g[r][SC.rate] = String(it.mrp);
+          if (was && String(was).trim() && String(was).trim() !== it.name) { s2g(was, it.name); }
+          save(); sp.sel = [r, SC.open]; sp.anchor = sp.sel; drawShopDay();
+          var f = document.getElementById('spFx'); if (f) try { f.focus(); } catch (e) {}
+        };
+      });
+    };
+    var s2g = function (was, to) { var s2 = shop(), k = String(was).trim().toLowerCase(); s2.gloss[k] = { to: to, n: ((s2.gloss[k] || {}).n || 0) + 1 }; s2.fixes++; };
+    fx.addEventListener('input', render2);
+    fx.addEventListener('focus', render2);
+    fx.addEventListener('blur', function () { setTimeout(function () { box.hidden = true; }, 150); });
+  }
+
   // --- the day screen: photos + sheet + close the day ---
   function openShopDay(k) {
+    if (!PL) loadPL().then(function () { if (sp && sp.k === k) drawShopDay(); });
     resetOverlay(); closeSheet();
     var d = shopDay(k, true); if (!d.grid && d.status !== 'reading' && !d.photos.length) { d.grid = blankGrid(); save(); }
     sp = { k: k, view: d.grid ? 'both' : 'photo', sel: null, anchor: null, range: false, ph: 0, zoom: 1, step: 'sheet', hist: [] };
@@ -4732,6 +4972,8 @@
     var dl = new Date(sp.k + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' });
     var h = '<div class="inner shd"><div class="row between"><button type="button" class="btn ghost small" id="spBack">‹ Shop</button><span class="cap">' + dl + ' · ' + d.photos.length + ' photo' + (d.photos.length === 1 ? '' : 's') + '</span><button type="button" class="btn ghost small" id="spClose">Done</button></div>';
     if (sp.step === 'close') { o.innerHTML = h + shopCloseHtml(d) + '</div>'; bindShopClose(o, d); o.scrollTop = 0; return; }
+    if (sp.step === 'names') { o.innerHTML = h + namesHtml(d) + '</div>'; bindNames(o, d); o.scrollTop = 0; return; }
+    if (sp.step === 'profit') { o.innerHTML = h + profitHtml(d) + '</div>'; o.querySelector('#pfBack').onclick = function () { sp.step = 'sheet'; drawShopDay(); }; o.querySelector('#pfNext').onclick = function () { sp.step = 'close'; drawShopDay(); }; o.scrollTop = 0; return; }
     if (d.status === 'reading') h += '<div class="shreading"><span class="wpulse"></span><b>Reading your sheet…</b><span class="muted small">' + d.photos.length + ' photo' + (d.photos.length === 1 ? '' : 's') + ' · usually 20–60 seconds</span></div>';
     h += '<div class="seg2 shseg" role="tablist">' + [['photo', 'Photo'], ['both', 'Both'], ['sheet', 'Sheet']].map(function (v) { return '<button type="button" role="tab" data-spv="' + v[0] + '" aria-selected="' + (sp.view === v[0]) + '">' + v[1] + '</button>'; }).join('') + '</div>';
     if (sp.view !== 'sheet') {
@@ -4746,6 +4988,7 @@
       var ck = shopChecks(sp.k);
       if (ck.msgs.length) h += '<div class="shissues">' + ck.msgs.slice(0, 12).map(function (m) { return '<button type="button" class="shiss"' + (m.r != null ? ' data-goto="' + m.r + ',' + m.c + '"' : '') + '>⚠ ' + m.t + '</button>'; }).join('') + (ck.msgs.length > 12 ? '<span class="muted small">+ ' + (ck.msgs.length - 12) + ' more</span>' : '') + '</div>';
       else h += '<div class="notice ok">✓ Every row adds up.</div>';
+      if (PL && PL.items.length) { var ncn = nameChecks(d).filter(function (x) { return x.conf !== 'same' && x.conf !== 'none'; }).length; if (ncn) h += '<button type="button" class="shiss ncnudge" id="spNames2">✓ ' + ncn + ' name' + (ncn > 1 ? 's' : '') + ' can be matched to the exact price-list names → Check</button>'; }
     }
     h += '<div class="row" style="gap:10px;margin-top:4px">' + (hasAI() && d.photos.length ? '<button type="button" class="btn line small" id="spRead">↻ Read again</button>' : '') + '<button type="button" class="btn coral" style="flex:1" id="spNext"' + (d.grid ? '' : ' disabled') + '>' + (d.status === 'closed' ? 'Day summary →' : 'Close the day →') + '</button></div>';
     o.innerHTML = h + '</div>';
@@ -4762,9 +5005,9 @@
   function shopGridHtml(d) {
     var g = d.grid, ck = shopChecks(sp.k), rg = selRange(), sel = sp.sel;
     var raw = sel ? (g[sel[0]] && g[sel[0]][sel[1]] != null ? g[sel[0]][sel[1]] : '') : '';
-    var h = '<div class="shfbar"><span class="shref">' + (sel ? rangeName(rg) : '—') + '</span><span class="shfx">ƒx</span><input id="spFx" class="shfin" value="' + esc(raw) + '" placeholder="' + (sel ? 'type a value, or = for a formula' : 'tap a cell') + '"' + (sel ? '' : ' disabled') + ' autocomplete="off" autocapitalize="off" enterkeyhint="next"></div>';
+    var h = '<div class="shfbar"><span class="shref">' + (sel ? rangeName(rg) : '—') + '</span><span class="shfx">ƒx</span><input id="spFx" class="shfin" value="' + esc(raw) + '" placeholder="' + (sel ? 'type a value, or = for a formula' : 'tap a cell') + '"' + (sel ? '' : ' disabled') + ' autocomplete="off" autocapitalize="off" enterkeyhint="next"></div><div class="shsug" id="spSug" hidden></div>';
     h += '<div class="shfns">' + ['SUM', 'AVERAGE', 'MIN', 'MAX', 'COUNT', 'ROUND', 'IF', 'SUMIF', '+', '−', '×', '÷', '%', '(', ')'].map(function (f) { return '<button type="button" data-fn="' + f + '">' + f + '</button>'; }).join('') + '</div>';
-    h += '<div class="shtools"><button type="button" class="nib sm' + (sp.range ? ' on' : '') + '" id="spRange">⬚ Select range</button><button type="button" class="nib sm" id="spAddRow">+ Row</button><button type="button" class="nib sm" id="spDelRow"' + (sel && sel[0] > 0 && g[sel[0]][0] !== 'TOTAL' ? '' : ' disabled') + '>− Row</button><button type="button" class="nib sm" id="spSort"' + (sel ? '' : ' disabled') + '>⇅ Sort</button><button type="button" class="nib sm" id="spFill">ƒ Fill maths</button><button type="button" class="nib sm" id="spUndo">↶ Undo</button></div>';
+    h += '<div class="shtools"><button type="button" class="nib sm' + (sp.range ? ' on' : '') + '" id="spRange">⬚ Select range</button><button type="button" class="nib sm" id="spAddRow">+ Row</button><button type="button" class="nib sm" id="spDelRow"' + (sel && sel[0] > 0 && g[sel[0]][0] !== 'TOTAL' ? '' : ' disabled') + '>− Row</button><button type="button" class="nib sm" id="spSort"' + (sel ? '' : ' disabled') + '>⇅ Sort</button><button type="button" class="nib sm" id="spFill">ƒ Fill maths</button><button type="button" class="nib sm" id="spNames">✓ Names</button><button type="button" class="nib sm" id="spUndo">↶ Undo</button></div>';
     h += '<div class="shgrid"><table class="shtab"><thead><tr><th class="corner"></th>' + SHCOLS.map(function (c, ci) { return '<th data-col="' + ci + '"' + (rg && ci >= rg.c1 && ci <= rg.c2 ? ' class="on"' : '') + '>' + colName(ci) + '</th>'; }).join('') + '</tr></thead><tbody>';
     g.forEach(function (rw, r) {
       var tot = rw[0] === 'TOTAL';
@@ -4824,7 +5067,10 @@
     if (fi) fi.onchange = function () { var fs = [].slice.call(fi.files); if (!fs.length) return; Promise.all(fs.map(blobToDataURL)).then(function (us) { shopAddPhotos(us, sp.k); }); };
     var dp = q('#spDelPh'); if (dp) dp.onclick = function () { if (!confirm('Delete this photo?')) return; var id = d.photos.splice(sp.ph, 1)[0]; idbDel('shopimg-' + id).catch(function () {}); sp.ph = 0; save(); drawShopDay(); };
     var rd = q('#spRead'); if (rd) rd.onclick = function () { if (d.grid && d.grid.length > 3 && !confirm('Read the photos again? Your edits on this sheet will be replaced.')) return; shopRead(sp.k); };
-    q('#spNext').onclick = function () { if (!d.grid) return; sp.step = 'close'; drawShopDay(); };
+    q('#spNext').onclick = function () { if (!d.grid) return; sp.step = 'profit'; drawShopDay(); };
+    var nb2 = q('#spNames2'); if (nb2) nb2.onclick = function () { sp.step = 'names'; drawShopDay(); };
+    var nb = q('#spNames'); if (nb) nb.onclick = function () { sp.step = 'names'; drawShopDay(); };
+    itemSuggest(o, d);
     if (!d.grid || sp.view === 'photo') return;
     // grid
     var g = d.grid, fx = q('#spFx');
@@ -4915,11 +5161,12 @@
 
   // --- close the day: sales → profit % → profit → expenses → net income ---
   function shopCloseHtml(d) {
-    var s2 = shop(), sales = d.salesOverride != null ? d.salesOverride : daySales(d), pct = d.pct != null ? d.pct : s2.pct, profit = pct != null && pct !== '' ? sales * num(pct) / 100 : null;
+    var pr = profitRows(d), auto = pr.avg != null ? Math.round(pr.avg * 10) / 10 : null;
+    var s2 = shop(), sales = d.salesOverride != null ? d.salesOverride : daySales(d), pct = d.pct != null ? d.pct : auto != null ? auto : s2.pct, profit = pct != null && pct !== '' ? sales * num(pct) / 100 : null;
     var exp = d.exp || [], et = exp.reduce(function (a, e) { return a + num(e.v); }, 0), net = profit != null ? profit - et : null;
     var h = '<h1 class="display" style="font-size:30px;margin:0">Close the day</h1>';
     h += '<div class="shf"><div><span class="lab">Total sales</span><small>' + (d.salesOverride != null ? 'typed by you' : 'sum of the Amount column') + (d.written && d.written.sales && Math.abs(d.written.sales - daySales(d)) > .5 ? ' · sheet says ' + inr(d.written.sales) : '') + '</small></div><label class="shmoney">₹<input id="scSales" inputmode="decimal" value="' + Math.round(sales * 100) / 100 + '"></label></div>';
-    h += '<div class="shf hi"><div><span class="lab">Profit percentage</span><small>' + (s2.pct != null ? 'your usual: ' + s2.pct + '%' : 'type your margin') + '</small></div><label class="shmoney"><input id="scPct" inputmode="decimal" value="' + (pct == null ? '' : pct) + '" placeholder="20">%</label></div>';
+    h += '<div class="shf hi"><div><span class="lab">Profit percentage</span><small>' + (d.pct == null && auto != null ? 'worked out from each item · tap to type your own' : s2.pct != null ? 'your usual: ' + s2.pct + '%' : 'type your margin') + '</small></div><label class="shmoney"><input id="scPct" inputmode="decimal" value="' + (pct == null ? '' : pct) + '" placeholder="20">%</label></div>';
     h += '<div class="shf"><div><span class="lab">Profit</span><small>' + (profit != null ? fmtCell(sales) + ' × ' + pct + '%' : 'appears when you type the %') + '</small></div><b class="shv" id="scProfit">' + (profit != null ? inr(profit) : '—') + '</b></div>';
     h += '<div class="card stack shexp" style="gap:6px"><div class="row between"><span class="lab">Expenses today</span><b id="scExpT">' + inr(et) + '</b></div>' + exp.map(function (e, i) {
       return '<div class="row shexr" style="gap:8px"><input class="tkin" data-ei="' + i + '" data-ek="t" value="' + esc(e.t) + '" placeholder="what"><label class="shmoney sm">₹<input data-ei="' + i + '" data-ek="v" inputmode="decimal" value="' + (e.v || '') + '"></label><button type="button" class="tkx" data-edel="' + i + '" aria-label="Remove">✕</button></div>';

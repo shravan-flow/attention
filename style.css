@@ -850,3 +850,19 @@ code{font-family:var(--mono);font-size:12px;background:var(--sand2);padding:1px 
 .bmatch{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--lagoon);font-weight:600}
 .bmatch select{flex:1;min-width:0;border:0;background:var(--sand);border-radius:10px;padding:7px 8px;font:inherit;font-size:12.5px;color:var(--ink)}
 .shmtab td.plus{background:#DCF5E8;font-weight:700;color:var(--jungle)}
+
+/* v33: price list, name check, quick typing, profit per item */
+.shsug{background:#fff;border-radius:16px;box-shadow:0 12px 30px rgba(15,77,64,.22);overflow:hidden;position:sticky;top:30px;z-index:4}
+.shsug[hidden]{display:none}
+.shsug button{display:flex;align-items:center;gap:10px;width:100%;border:0;border-top:1px solid var(--line2);background:#fff;padding:10px 12px;font:inherit;text-align:left;cursor:pointer}
+.shsug button:first-child{border-top:0}
+.shsug span{flex:1;display:flex;flex-direction:column;gap:1px;min-width:0}
+.shsug b{font-size:14px}.shsug small{font-size:11.5px;color:var(--dim)}
+.shsug i{font-style:normal;font-size:11px;font-weight:700;color:var(--lagoon);white-space:nowrap}
+.ncrow{display:flex;align-items:center;gap:8px;background:#fff;border-radius:16px;padding:9px 10px}
+.ncrow .hw{width:76px;flex-shrink:0;font-size:13px}
+.ncrow select{flex:1;min-width:0;border:0;background:var(--sand);border-radius:10px;padding:8px;font:inherit;font-size:13px}
+.ncnudge{background:#DCF5E8!important;color:var(--jungle)!important;font-weight:600}
+.shmtab td.neg{background:#FFD9D3;color:#B3372B;font-weight:700}
+.plt{margin-bottom:2px}.plt div{background:#fff}.plt b{color:var(--ink)}.plt small{color:var(--dim)}
+.plt{grid-template-columns:repeat(3,1fr)}
