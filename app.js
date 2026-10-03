@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '31';
+  var APP_VERSION = '32';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -1716,7 +1716,7 @@
     if (vz) vizStop(); vz = null;
     if (nv) notesLeave(); nv = null;
     if (tk) { var tx = ideaById(tk.id); if (tx) tx.last = tk.page; save(); } tk = null;
-    vb = null; sp = null;
+    vb = null; sp = null; bp = null;
     var o = document.getElementById('overlay'); o.classList.remove('dark', 'vzo', 'nto', 'tko', 'vbo', 'spo');
   }
   function closeOverlayEl() {
@@ -3091,6 +3091,7 @@
       case 'shopmonth': return shopMonthSheet(arg || dkey(new Date()).slice(0, 7));
       case 'shoplearn': return shopLearnSheet();
       case 'shopset': return shopSetSheet();
+      case 'shopstock': return shopStockSheet();
       case 'week': return weekSheet();
       case 'roadmap': return roadmapSheet();
       case 'garmin': return garminSheet();
@@ -4253,7 +4254,8 @@
   function sharedPickSheet() {
     var h = '<p class="muted" style="margin:0">Where should this picture go?</p><div class="list">' +
       row({ t: '🌄 Vision board', sub: 'place it on a board', id: 'spVision' }) +
-      row({ t: '🧾 Shop sheet', sub: 'add it to today’s sales statement', id: 'spShop' }) +
+      row({ t: '🧾 Shop sales sheet', sub: 'add it to today’s sales statement', id: 'spShop' }) +
+      row({ t: '📦 KSBCL bill', sub: 'stock in: add the bottles to your stock', id: 'spBill' }) +
       row({ t: '⚖ My weight', sub: 'read the weight from a FitDays screenshot', id: 'spWeight' }) + '</div>';
     if (pendingShare) h = '<img src="' + pendingShare + '" alt="" style="max-height:220px;object-fit:contain;border-radius:14px;align-self:center">' + h;
     return { title: 'Shared picture', cap: '', html: h, bind: function (r) {
@@ -4261,6 +4263,7 @@
       r.querySelector('#spVision').onclick = function () { go(sharedToVision); };
       r.querySelector('#spShop').onclick = function () { go(function (d) { shopAddPhotos([d]); }); };
       r.querySelector('#spWeight').onclick = function () { go(readWeightShot); };
+      r.querySelector('#spBill').onclick = function () { go(function (d) { stockAddPhotos([d]); }); };
     } };
   }
 
@@ -4413,15 +4416,20 @@
     h += '<div class="hero" style="background:' + T.jungle + ';color:#fff;gap:10px">' + sun(T.mango, 120, -34, -44) +
       '<div class="row between"><span class="cap">' + md.toLocaleDateString('en', { month: 'long', year: 'numeric' }) + ' · ' + mt.n + ' day' + (mt.n === 1 ? '' : 's') + ' closed</span><span class="row" style="gap:4px"><button type="button" class="nib sm shm" data-shm="-1" aria-label="Previous month">‹</button><button type="button" class="nib sm shm" data-shm="1" aria-label="Next month">›</button></span></div>' +
       '<div class="shtiles">' + [[inrK(mt.sales), 'sales'], [inrK(mt.profit), 'profit'], [inrK(mt.exp), 'expenses'], [inrK(mt.net), 'net']].map(function (x) { return '<div><b class="display">' + x[0] + '</b><small>' + x[1] + '</small></div>'; }).join('') + '</div></div>';
-    h += '<div class="row" style="gap:10px"><button type="button" class="btn coral" style="flex:1" id="shAdd">📷 Today’s sheet</button><button type="button" class="btn line" style="flex:1" data-sheet="shopmonth:' + m + '">⤴ Month file</button></div>';
-    h += '<input type="file" id="shFile" accept="image/*" multiple hidden>';
-    var ks = shopMonthDays(m);
+    h += '<div class="shbtns"><button type="button" class="btn coral" id="shAdd">📷 Sales sheet</button><button type="button" class="btn jungle" id="shBill">📦 Stock in (bill)</button></div>';
+    h += '<input type="file" id="shFile" accept="image/*" multiple hidden><input type="file" id="shBillFile" accept="image/*" multiple hidden>';
+    h += stockCardHtml();
+    var ks = shopMonthDays(m), bl = Object.keys(bills()).map(function (id) { return bills()[id]; }).filter(function (b) { return (b.date || '').slice(0, 7) === m; });
+    if (bl.length) h += '<div class="list">' + bl.sort(function (a, b) { return a.date < b.date ? 1 : -1; }).map(function (b) {
+      var st = { added: ['in stock', '#E3F0FF'], pending: ['waiting', '#FFE6B8'], reading: ['reading…', '#FFE6B8'], dup: ['duplicate', '#FFD9D3'], draft: ['to check', '#FFE0D9'] }[b.status] || ['', '#fff'];
+      return '<button type="button" class="r" data-bill="' + b.id + '"><span class="t">' + new Date(b.date + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + ' · KSBCL bill<small>' + (b.items.length ? b.items.reduce(function (a, it) { return a + it.cases; }, 0) + ' cases · ' + billBottles(b) + ' bottles' + (b.invoiceValue ? ' · ' + inr(b.invoiceValue) : '') : b.photos.length + ' photos') + '</small></span><span class="tkpill" style="background:' + st[1] + '">' + st[0] + '</span>' + CHEV + '</button>';
+    }).join('') + '</div>';
     if (!ks.length) h += '<p class="muted" style="margin:0">No days yet. Take photos of today’s Statement of Sales (all pages) and tap <b>Today’s sheet</b>. The app reads the handwriting into a sheet you can check and fix.</p>';
     else h += '<div class="list">' + ks.map(function (k) {
       var d = s2.days[k], st = d.status === 'closed' ? ['closed', '#CDEFEA'] : d.status === 'reading' ? ['reading…', '#FFE6B8'] : d.grid ? ['to check', '#FFE0D9'] : ['photos only', '#F1E6D6'];
       return '<button type="button" class="r" data-shday="' + k + '"><span class="t">' + new Date(k + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + '<small>' + (d.status === 'closed' ? 'sales ' + inr(d.sales) + ' · net ' + inr(d.net) : d.grid ? 'sales ' + inr(daySales(d)) + ' so far' : d.photos.length + ' photo' + (d.photos.length === 1 ? '' : 's')) + '</small></span><span class="tkpill" style="background:' + st[1] + '">' + st[0] + '</span>' + CHEV + '</button>';
     }).join('') + '</div>';
-    h += '<div class="list">' + row({ t: '🧠 Learning your handwriting', sub: Object.keys(s2.gloss).length + ' words learnt · ' + s2.fixes + ' corrections', sheet: 'shoplearn' }) + row({ t: 'Shop settings', sub: 'name, usual profit %', sheet: 'shopset' }) + '</div>';
+    h += '<div class="list">' + row({ t: '📊 Month file', sub: 'share ' + md.toLocaleDateString('en', { month: 'long' }) + ' as Excel or PDF', sheet: 'shopmonth:' + m }) + row({ t: '🧠 Learning your handwriting', sub: Object.keys(s2.gloss).length + ' words learnt · ' + s2.fixes + ' corrections', sheet: 'shoplearn' }) + row({ t: 'Shop settings', sub: 'name, usual profit %', sheet: 'shopset' }) + '</div>';
     if (!hasAI()) h += '<div class="notice">Reading photos needs your free Gemini key (Settings → Visualization). Without it you can still type the sheet in.</div>';
     return h + '</div>';
   }
@@ -4429,6 +4437,10 @@
     view.querySelectorAll('[data-shm]').forEach(function (b) { b.onclick = function () { var d = new Date((shopUi.month || dkey(new Date()).slice(0, 7)) + '-01T00:00:00'); d.setMonth(d.getMonth() + +b.dataset.shm); shopUi.month = dkey(d).slice(0, 7); render(); }; });
     var fi = view.querySelector('#shFile');
     view.querySelector('#shAdd').onclick = function () { fi.click(); };
+    var bf = view.querySelector('#shBillFile');
+    view.querySelector('#shBill').onclick = function () { bf.click(); };
+    bf.onchange = function () { var fs = [].slice.call(bf.files); if (!fs.length) return; Promise.all(fs.map(blobToDataURL)).then(stockAddPhotos); bf.value = ''; };
+    view.querySelectorAll('[data-bill]').forEach(function (b) { b.onclick = function () { openBill(b.dataset.bill); }; });
     fi.onchange = function () { var fs = [].slice.call(fi.files); if (!fs.length) return; Promise.all(fs.map(blobToDataURL)).then(function (us) { shopAddPhotos(us); }); fi.value = ''; };
     view.querySelectorAll('[data-shday]').forEach(function (b) { b.onclick = function () { openShopDay(b.dataset.shday); }; });
   }
@@ -4448,6 +4460,8 @@
     var d = shopDay(key, true), s2 = shop();
     d.status = 'reading'; save(); if (sp && sp.k === key) drawShopDay();
     var known = {}; Object.keys(s2.days).forEach(function (k) { var g = s2.days[k].grid; if (g) dataRows(g).forEach(function (r) { if (g[r][0]) known[g[r][0]] = 1; }); });
+    bills(); Object.keys(s2.items).forEach(function (k) { known[s2.items[k].item] = 1; });
+    var al = Object.keys(s2.alias).map(function (k) { return '"' + k + '" = ' + s2.alias[k]; });
     var gl = Object.keys(s2.gloss).sort(function (a, b) { return s2.gloss[b].n - s2.gloss[a].n; }).slice(0, 80).map(function (k) { return '"' + k + '" → "' + s2.gloss[k].to + '"'; });
     var prompt = 'These photos are the pages of one day’s handwritten "Statement of Sales" from a liquor shop in Karnataka, India (Laxmi Wines). Read every filled row carefully.\n' +
       'Columns on the form: Type of Liquors (brand + size), Opening Balance, Stock Received, Total, Sales, Rate, Amount (Rs.), Closing Balance, Remarks.\n' +
@@ -4455,6 +4469,7 @@
       'A dash "-" or "—" in a number column means 0. Skip rows with no numbers at all. Keep numbers exactly as written; do not correct the maths.\n' +
       'Some pages also have a list of expenses (names with amounts, usually with a total) and written day totals like "Sale 74085", "Exp 9850" and a balance. Return those too.\n' +
       (Object.keys(known).length ? 'Brand names used in earlier days (prefer these spellings): ' + Object.keys(known).slice(0, 150).join(', ') + '.\n' : '') +
+      (al.length ? 'Short names this shop uses and the full brand they stand for (from KSBCL bills): ' + al.slice(0, 120).join('; ') + '. Write the short name the shop uses.\n' : '') +
       (gl.length ? 'Corrections the owner made on earlier days (read these the corrected way): ' + gl.join('; ') + '.\n' : '') +
       'Reply JSON: {"rows":[{"item":"brand","size":"750","open":number|null,"recv":number|null,"total":number|null,"sales":number|null,"rate":number|null,"amount":number|null,"close":number|null,"remarks":"text"}],"expenses":[{"name":"text","amount":number}],"written":{"sales":number|null,"expenses":number|null,"balance":number|null}}';
     shopPhotos(d).then(function (imgs) {
@@ -4473,6 +4488,7 @@
       d.grid = withTotalRow(g); d.ai = d.grid.map(function (rw) { return rw.slice(); });
       d.exp = (r.expenses || []).filter(function (e) { return e && (e.name || e.amount); }).map(function (e) { return { t: String(e.name || ''), v: num(e.amount) }; });
       d.written = r.written || {}; d.status = 'draft'; save();
+      applyPendingBills(key);
       if (sp && sp.k === key) { sp.view = 'both'; drawShopDay(); }
       var ck = shopChecks(key);
       toast('Read ' + (d.grid.length - 2) + ' rows' + (ck.msgs.length ? ' · ' + ck.msgs.length + ' to check' : '') + (fixed ? ' · ' + fixed + ' names auto-fixed' : ''));
@@ -4482,6 +4498,224 @@
       if (sp && sp.k === key) drawShopDay();
       toast('Reading failed: ' + (e.message || 'AI error') + '. You can type it in or tap Read again.');
     });
+  }
+
+  // ---------- Stock in: read a KSBCL bill, turn cases into bottles, add them to the day's Received column ----------
+  var bp = null;
+  function bills() { var s2 = shop(); s2.bills = s2.bills || {}; s2.map = s2.map || {}; s2.items = s2.items || {}; s2.alias = s2.alias || {}; return s2.bills; }
+  function normName(t) { return String(t || '').toLowerCase().replace(/\(.*?\)/g, ' ').replace(/[^a-z0-9ಀ-೿]+/g, ' ').trim(); }
+  function itemKey(item, size) { return normName(item).replace(/ /g, '') + '|' + String(size || '').replace(/[^0-9]/g, ''); }
+  // every item the shop sells: names from the sales sheets plus anything that arrived on a bill
+  function shopItems() {
+    var s2 = shop(), out = {}; bills();
+    Object.keys(s2.items).forEach(function (k) { out[k] = s2.items[k]; });
+    Object.keys(s2.days).sort().forEach(function (k) { var g = s2.days[k].grid; if (g) dataRows(g).forEach(function (r) { var it = String(g[r][SC.item] || '').trim(); if (!it) return; var key = itemKey(it, g[r][SC.size]); if (!out[key]) out[key] = { item: it, size: String(g[r][SC.size] || '').replace(/[^0-9]/g, '') }; }); });
+    return out;
+  }
+  // stock now = closing on the latest sheet + bills that haven't reached a sheet yet
+  function stockNow() {
+    var s2 = shop(), st = {}, items = shopItems(), last = null;
+    Object.keys(s2.days).sort().forEach(function (k) { if (s2.days[k].grid) last = k; });
+    Object.keys(items).forEach(function (key) { st[key] = { item: items[key].item, size: items[key].size, qty: 0, inToday: 0, known: false }; });
+    if (last) { var g = s2.days[last].grid; dataRows(g).forEach(function (r) { var key = itemKey(g[r][SC.item], g[r][SC.size]); if (!st[key]) return; var cv = cellVal(g, r, SC.close), o2 = cellVal(g, r, SC.open);
+        if (isNum(cv) && String(g[r][SC.close]).trim() !== '') { st[key].qty = num(cv); st[key].known = true; }
+        else if (isNum(o2)) { st[key].qty = num(o2) + num(cellVal(g, r, SC.recv)) - num(cellVal(g, r, SC.sales)); st[key].known = true; } }); }
+    var tk = dkey(new Date());
+    Object.keys(bills()).forEach(function (no) {
+      var b = s2.bills[no]; if (b.status !== 'pending' && b.status !== 'added') return;
+      (b.items || []).forEach(function (it) {
+        var key = it.key; if (!key || !st[key]) return;
+        if (b.status === 'pending' || (b.applied && b.applied > (last || ''))) st[key].qty += it.bottles;
+        if (b.date === tk) st[key].inToday += it.bottles;
+      });
+    });
+    return { list: Object.keys(st).map(function (k) { st[k].key = k; return st[k]; }), asOf: last };
+  }
+  function stockCardHtml() {
+    var sn = stockNow(), list = sn.list.filter(function (x) { return x.qty || x.inToday; });
+    if (!list.length) return '';
+    var tot = list.reduce(function (a, x) { return a + x.qty; }, 0);
+    list.sort(function (a, b) { return (b.inToday - a.inToday) || (a.qty - b.qty); });
+    return '<div class="card stack shstock" style="gap:6px"><div class="row between"><b style="font-size:15px">Stock now</b><span class="cap">' + fmtN(tot) + ' bottles · ' + list.length + ' items</span></div>' +
+      list.slice(0, 4).map(function (x) { return '<div class="shsrow"><span class="t"><b>' + esc(x.item) + '</b> ' + (x.size ? x.size + ' ml' : '') + '</span>' + (x.inToday ? '<span class="tkpill ok">+' + x.inToday + ' today</span>' : x.qty <= 6 ? '<span class="tkpill open">low</span>' : '') + '<b class="q">' + fmtN(x.qty) + '</b></div>'; }).join('') +
+      '<button type="button" class="link" data-sheet="shopstock" style="align-self:flex-start">See all stock →</button></div>';
+  }
+  function shopStockSheet() {
+    var sn = stockNow(), list = sn.list.slice().sort(function (a, b) { return a.item.localeCompare(b.item) || (+b.size - +a.size); }), q = (shopUi.sq || '').toLowerCase();
+    var h = '<input class="text" id="ssq" placeholder="Search a brand…" value="' + esc(shopUi.sq || '') + '">';
+    h += '<div class="list">' + list.filter(function (x) { return !q || x.item.toLowerCase().indexOf(q) >= 0; }).map(function (x) {
+      return '<div class="r"><span class="t">' + esc(x.item) + '<small>' + (x.size ? x.size + ' ml' : '') + (x.known ? '' : ' · from bills only') + (x.inToday ? ' · +' + x.inToday + ' today' : '') + '</small></span><span class="v strong">' + fmtN(x.qty) + '</span></div>';
+    }).join('') + '</div>';
+    h += '<p class="muted small">Closing balance on your latest sheet' + (sn.asOf ? ' (' + new Date(sn.asOf + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) + ')' : '') + ', plus bills not yet on a sheet.</p>';
+    return { title: 'Stock now', cap: list.length + ' items', html: h, bind: function (r) { var i = r.querySelector('#ssq'); i.addEventListener('input', function () { shopUi.sq = i.value; var pos = i.selectionStart; drawSheet(); var j = document.getElementById('ssq'); if (j) { j.focus(); j.setSelectionRange(pos, pos); } }); } };
+  }
+
+  // --- read a bill ---
+  function stockAddPhotos(urls) {
+    var id = 'b' + Date.now().toString(36);
+    var b = { id: id, no: '', date: dkey(new Date()), photos: [], items: [], status: 'reading', at: new Date().toISOString() };
+    bills()[id] = b;
+    Promise.all(urls.map(function (u) { return shrinkImage(u, 2000); })).then(function (us) {
+      return Promise.all(us.map(function (u, i) { var pid = 'bp' + Date.now().toString(36) + i; b.photos.push(pid); return idbPut('shopimg-' + pid, u); }));
+    }).then(function () { save(); openBill(id); if (hasAI()) billRead(id); else { b.status = 'draft'; save(); drawBill(); toast('Add your Gemini key to read bills'); } })
+      .catch(function (e) { toast('Couldn’t save the photos: ' + (e.message || e)); });
+  }
+  function billRead(id) {
+    var b = bills()[id], s2 = shop(), items = shopItems();
+    b.status = 'reading'; save(); if (bp && bp.id === id) drawBill();
+    var names = Object.keys(items).map(function (k) { return items[k].item + (items[k].size ? ' ' + items[k].size : ''); });
+    var prompt = 'These photos are the pages of one computer-printed KSBCL (Karnataka State Beverages Corporation) "Bill Of Invoice" for a liquor shop. Read it exactly.\n' +
+      'For each line item return: the full item name as printed (without the pack code in brackets), size in ml, the pack text (like "180MLx48Btls"), bottles per case (the number before "Btls" in the pack text, e.g. 48), CBs (cases), Btls (loose bottles), rate per case, amount.\n' +
+      'Also return the invoice number, the invoice date (YYYY-MM-DD), the item total (the "Total" amount), the invoice value, and the total number of cases.\n' +
+      (names.length ? 'The shop writes these item names on its own daily sales sheet (often abbreviated): ' + names.slice(0, 200).join('; ') + '.\nFor each bill item, give "match": the exact sheet name from that list that is the same brand and size, or null if none is clearly the same product.\n' : 'Set "match" to null for every item.\n') +
+      'Reply JSON: {"invoice":"SVPT…","date":"YYYY-MM-DD","items":[{"name":"text","ml":180,"pack":"180MLx48Btls","perCase":48,"cases":1,"loose":0,"rate":5869.6,"amount":5869.6,"match":"sheet name or null"}],"itemTotal":number,"invoiceValue":number,"totalCases":number}';
+    Promise.all(b.photos.map(function (p) { return idbGet('shopimg-' + p); })).then(function (imgs) { return geminiImages(prompt, imgs.filter(Boolean), .1); }).then(function (r) {
+      var no = String(r.invoice || '').trim();
+      // the same bill can't be added twice
+      var dup = no && Object.keys(bills()).filter(function (k) { return k !== id && bills()[k].no === no && bills()[k].status !== 'draft' && bills()[k].status !== 'reading'; })[0];
+      b.no = no; b.date = /^\d{4}-\d{2}-\d{2}$/.test(r.date || '') ? r.date : b.date;
+      b.itemTotal = num(r.itemTotal); b.invoiceValue = num(r.invoiceValue); b.totalCases = num(r.totalCases);
+      var byName = {}; Object.keys(items).forEach(function (k) { byName[(items[k].item + (items[k].size ? ' ' + items[k].size : '')).toLowerCase()] = k; });
+      b.items = (r.items || []).map(function (x) {
+        var ml = String(x.ml || '').replace(/[^0-9]/g, ''), per = num(x.perCase) || num((/x\s*(\d+)\s*b/i.exec(x.pack || '') || [])[1]) || 0;
+        var it = { name: String(x.name || '').trim(), ml: ml, per: per, cases: num(x.cases), loose: num(x.loose), rate: num(x.rate), amount: num(x.amount) };
+        it.bottles = it.cases * it.per + it.loose;
+        var mapped = s2.map[normName(it.name) + '|' + ml];
+        if (mapped && items[mapped]) it.key = mapped;
+        else if (x.match && byName[String(x.match).toLowerCase()]) it.key = byName[String(x.match).toLowerCase()];
+        else it.key = null; // a new item: its bill name joins the list
+        return it;
+      });
+      b.status = dup ? 'dup' : 'draft'; b.dupOf = dup || null; save();
+      if (bp && bp.id === id) drawBill();
+      if (dup) toast('This bill (' + no + ') was already added'); else toast('Read ' + b.items.length + ' items · ' + billBottles(b) + ' bottles');
+    }).catch(function (e) { b.status = 'draft'; save(); if (bp && bp.id === id) drawBill(); toast('Reading failed: ' + (e.message || 'AI error')); });
+  }
+  // "Original Choice Deluxe Whisky-Aseptic Brick Pack (40%)" → "Original Choice Deluxe Whisky"
+  function shortBillName(t) { return String(t || '').replace(/\(.*?\)/g, ' ').replace(/\s*[-–]\s*(aseptic|tetra|brick|pet|can|glass|pack)\b.*$/i, '').replace(/\s+(aseptic|tetra)\s.*$/i, '').replace(/\s+/g, ' ').trim() || t; }
+  function billBottles(b) { return (b.items || []).reduce(function (a, it) { return a + (it.bottles || 0); }, 0); }
+  function openBill(id) { resetOverlay(); closeSheet(); bp = { id: id, view: 'items', step: 1, ph: 0, zoom: 1 }; drawBill(); showOverlay('spo'); }
+  function closeBill() { bp = null; closeOverlayEl(); if (ui.tab === 'shop') render(); }
+  function drawBill() {
+    var o = document.getElementById('overlay'), b = bills()[bp.id], items = shopItems(), keep = o.scrollTop;
+    if (!b) { closeBill(); return; }
+    var h = '<div class="inner shd"><div class="row between"><button type="button" class="btn ghost small" id="bpBack">‹ Shop</button><span class="cap">KSBCL bill · ' + b.photos.length + ' photo' + (b.photos.length === 1 ? '' : 's') + '</span><button type="button" class="btn ghost small" id="bpDel">Delete</button></div>';
+    h += '<h1 class="display" style="font-size:30px;margin:0;line-height:1.05">' + (bp.step === 2 ? 'Add to stock' : 'Stock in') + '<br><span class="lite" style="font-size:20px">' + esc(b.no || 'bill') + ' · ' + new Date(b.date + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) + '</span></h1>';
+    if (b.status === 'reading') h += '<div class="shreading"><span class="wpulse"></span><b>Reading the bill…</b><span class="muted small">usually 15–40 seconds</span></div>';
+    if (b.status === 'dup') h += '<div class="notice">This bill was already added to stock on ' + new Date(bills()[b.dupOf].applied ? bills()[b.dupOf].applied + 'T00:00:00' : bills()[b.dupOf].at).toLocaleDateString('en', { day: 'numeric', month: 'short' }) + '. Delete this copy, or open the first one.</div>';
+    if (b.status === 'added') h += '<div class="notice ok">✓ Added to stock on the ' + new Date(b.applied + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) + ' sheet.</div>';
+    if (b.status === 'pending') h += '<div class="notice">Waiting for the ' + new Date(b.date + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) + ' sales sheet. The bottles are added as soon as that sheet is read.</div>';
+    if (bp.step === 1) {
+      h += '<div class="seg2 shseg" role="tablist">' + [['photo', 'Photo'], ['both', 'Both'], ['items', 'Items']].map(function (v) { return '<button type="button" role="tab" data-bpv="' + v[0] + '" aria-selected="' + (bp.view === v[0]) + '">' + v[1] + '</button>'; }).join('') + '</div>';
+      if (bp.view !== 'items') h += '<div class="shphoto' + (bp.view === 'photo' ? ' big' : '') + '"><img id="bpImg" alt="Bill photo" style="width:' + bp.zoom * 100 + '%"></div><div class="row between shphbar"><span class="row" style="gap:4px">' + (b.photos.length > 1 ? '<button type="button" class="nib" data-bph="-1">‹</button><span class="cap">' + (bp.ph + 1) + ' / ' + b.photos.length + '</span><button type="button" class="nib" data-bph="1">›</button>' : '') + '</span><span class="row" style="gap:4px"><button type="button" class="nib" id="bpZo">−</button><button type="button" class="nib" id="bpZi">+</button></span></div>';
+      if (bp.view !== 'photo') {
+        var opts = Object.keys(items).sort(function (a, c) { return items[a].item.localeCompare(items[c].item); });
+        h += '<div class="stack" style="gap:8px">' + b.items.map(function (it, i) {
+          var nw = !it.key;
+          return '<div class="bitem' + (nw ? ' new' : '') + '"><div class="row between" style="align-items:flex-start;gap:8px"><b>' + esc(it.name) + ' <span class="muted">' + it.ml + ' ml</span></b><span class="muted small" style="white-space:nowrap">' + inr(it.amount, 2) + '</span></div>' +
+            '<div class="row bmath"><input data-bi="' + i + '" data-bk="cases" inputmode="numeric" value="' + it.cases + '"><span>case' + (it.cases === 1 ? '' : 's') + ' ×</span><input data-bi="' + i + '" data-bk="per" inputmode="numeric" value="' + it.per + '"><span>+</span><input data-bi="' + i + '" data-bk="loose" inputmode="numeric" value="' + it.loose + '"><span>=</span><b class="bbt" id="bbt' + i + '">' + it.bottles + ' bottles</b></div>' +
+            '<label class="bmatch">→ <select data-bm="' + i + '"><option value="">➕ New item: ' + esc(it.name) + ' ' + it.ml + '</option>' + opts.map(function (k) { return '<option value="' + esc(k) + '"' + (k === it.key ? ' selected' : '') + '>' + esc(items[k].item) + (items[k].size ? ' ' + items[k].size : '') + '</option>'; }).join('') + '</select></label>' +
+            (nw ? '<span class="small" style="color:#B3372B">New item: it will be added to your list under this name</span>' : '') + '</div>';
+        }).join('') + '</div>';
+        var cases = b.items.reduce(function (a, it) { return a + it.cases; }, 0), amt = b.items.reduce(function (a, it) { return a + it.amount; }, 0);
+        if (b.items.length) h += '<div class="notice' + (b.itemTotal && Math.abs(amt - b.itemTotal) < 1 ? ' ok' : '') + '">' + b.items.length + ' items · <b>' + cases + ' cases · ' + billBottles(b) + ' bottles</b> · items add up to ' + inr(amt, 2) + (b.itemTotal ? (Math.abs(amt - b.itemTotal) < 1 ? ' ✓ same as the bill' : ' ⚠ the bill says ' + inr(b.itemTotal, 2)) : '') + (b.invoiceValue ? ' (' + inr(b.invoiceValue, 2) + ' with TCS)' : '') + (b.totalCases && b.totalCases !== cases ? ' · ⚠ bill says ' + b.totalCases + ' cases' : '') + '</div>';
+      }
+      h += '<div class="row" style="gap:10px">' + (hasAI() ? '<button type="button" class="btn line small" id="bpRead">↻ Read again</button>' : '') + '<button type="button" class="btn coral" style="flex:1" id="bpNext"' + (b.items.length && b.status !== 'dup' && b.status !== 'reading' ? '' : ' disabled') + '>' + (b.status === 'added' ? 'See where it went →' : 'Next →') + '</button></div>';
+    } else h += billStep2Html(b, items);
+    o.innerHTML = h + '</div>'; o.scrollTop = keep;
+    bindBill(o, b);
+  }
+  function billStep2Html(b, items) {
+    var tgt = bp.target || b.date, d = shopDay(tgt), g = d && d.grid, rowsByKey = {};
+    if (g) dataRows(g).forEach(function (r) { rowsByKey[itemKey(g[r][SC.item], g[r][SC.size])] = r; });
+    var h = '<div class="shf"><div><span class="lab">Goes into the <b>Received</b> column of</span><small>' + (g ? 'that day’s sales sheet' : 'no sheet for that day yet: it waits for it') + '</small></div><input type="date" class="tkdate" id="bpDate" value="' + tgt + '"' + (b.status === 'added' ? ' disabled' : '') + '></div>';
+    h += '<div class="shmtab"><table><thead><tr><th>Item</th><th>Size</th><th>Open</th><th>Recv</th><th>Total</th></tr></thead><tbody>' + b.items.map(function (it) {
+      var key = it.key || itemKey(it.name, it.ml), nm = it.key && items[it.key] ? items[it.key].item : it.name, r = g ? rowsByKey[key] : null;
+      var op = r != null ? num(cellVal(g, r, SC.open)) : 0, rc = r != null ? num(cellVal(g, r, SC.recv)) : 0;
+      if (b.status === 'added') rc -= it.bottles;
+      return '<tr><td style="text-align:left">' + esc(nm) + (it.key ? '' : ' <span class="tkpill open">new</span>') + '</td><td>' + it.ml + '</td><td>' + op + '</td><td class="plus">+' + it.bottles + '</td><td class="plus">' + (op + rc + it.bottles) + '</td></tr>';
+    }).join('') + '</tbody></table></div>';
+    var learnt = b.items.filter(function (it) { return it.key && items[it.key] && normName(items[it.key].item) !== normName(it.name); }).map(function (it) { return '“' + esc(items[it.key].item) + '” = ' + esc(it.name); });
+    var nw = b.items.filter(function (it) { return !it.key; });
+    if (learnt.length || nw.length) h += '<div class="card stack" style="gap:6px"><span class="cap">Learnt from this bill</span><span style="font-size:13px;line-height:1.5">' + learnt.slice(0, 8).join(' · ') + (nw.length ? (learnt.length ? '<br>' : '') + 'New on your list: ' + nw.map(function (it) { return esc(it.name) + ' ' + it.ml; }).join(', ') : '') + '. The handwriting reader now knows these names.</span></div>';
+    h += '<p class="muted small">Each bill number is saved once, so the same bill can’t be added twice.</p>';
+    h += '<div class="row" style="gap:10px"><button type="button" class="btn line" id="bpBack2">‹ Items</button>' + (b.status === 'added' ? '<button type="button" class="btn jungle" style="flex:1" id="bpOpenDay">Open that sheet</button>' : '<button type="button" class="btn coral" style="flex:1" id="bpAdd">Add ' + billBottles(b) + ' bottles to stock</button>') + '</div>';
+    return h;
+  }
+  function bindBill(o, b) {
+    var q = function (x) { return o.querySelector(x); };
+    q('#bpBack').onclick = closeBill;
+    q('#bpDel').onclick = function () {
+      if (b.status === 'added' && !confirm('This bill is already in stock. Delete it and take its bottles back out of the sheet?')) return;
+      if (b.status !== 'added' && !confirm('Delete this bill?')) return;
+      if (b.status === 'added') billUnapply(b);
+      b.photos.forEach(function (p) { idbDel('shopimg-' + p).catch(function () {}); }); delete bills()[b.id]; save(); closeBill();
+    };
+    o.querySelectorAll('[data-bpv]').forEach(function (x) { x.onclick = function () { bp.view = x.dataset.bpv; drawBill(); }; });
+    var img = q('#bpImg'); if (img && b.photos.length) idbGet('shopimg-' + b.photos[bp.ph]).then(function (u) { if (u) img.src = u; });
+    o.querySelectorAll('[data-bph]').forEach(function (x) { x.onclick = function () { bp.ph = (bp.ph + +x.dataset.bph + b.photos.length) % b.photos.length; drawBill(); }; });
+    var zi = q('#bpZi'), zo = q('#bpZo'); if (zi) zi.onclick = function () { bp.zoom = Math.min(4, bp.zoom + .5); drawBill(); }; if (zo) zo.onclick = function () { bp.zoom = Math.max(1, bp.zoom - .5); drawBill(); };
+    o.querySelectorAll('[data-bi]').forEach(function (el) {
+      el.addEventListener('input', function () {
+        var it = b.items[+el.dataset.bi]; it[el.dataset.bk] = num(el.value); it.bottles = it.cases * it.per + it.loose; save();
+        var t = document.getElementById('bbt' + el.dataset.bi); if (t) t.textContent = it.bottles + ' bottles';
+      });
+      el.addEventListener('change', function () { if (b.status === 'added') toast('Already in stock: delete and add again to change it'); setTimeout(function () { if (bp) drawBill(); }, 0); });
+    });
+    o.querySelectorAll('[data-bm]').forEach(function (sel) { sel.onchange = function () { b.items[+sel.dataset.bm].key = sel.value || null; save(); drawBill(); }; });
+    var rd = q('#bpRead'); if (rd) rd.onclick = function () { billRead(b.id); };
+    var nx = q('#bpNext'); if (nx) nx.onclick = function () { bp.step = 2; bp.target = b.status === 'added' ? b.applied : b.date; drawBill(); o.scrollTop = 0; };
+    var bk = q('#bpBack2'); if (bk) bk.onclick = function () { bp.step = 1; drawBill(); };
+    var dt = q('#bpDate'); if (dt) dt.onchange = function () { bp.target = dt.value || b.date; drawBill(); };
+    var od = q('#bpOpenDay'); if (od) od.onclick = function () { var k = b.applied; closeBill(); openShopDay(k); };
+    var ad = q('#bpAdd'); if (ad) ad.onclick = function () {
+      var s2 = shop(), tgt = bp.target || b.date;
+      // learn: bill name → sheet name, and add brand-new items to the list
+      b.items.forEach(function (it) {
+        if (!it.key) { var short = shortBillName(it.name), key = itemKey(short, it.ml); s2.items[key] = { item: short, size: it.ml, src: 'bill', full: it.name }; it.key = key; }
+        else if (!s2.items[it.key]) { var known = shopItems()[it.key]; if (known) s2.items[it.key] = { item: known.item, size: known.size, src: 'sheet' }; }
+        s2.map[normName(it.name) + '|' + it.ml] = it.key;
+        var sheetName = s2.items[it.key].item; if (normName(sheetName) !== normName(it.name)) s2.alias[sheetName] = it.name;
+      });
+      b.target = tgt;
+      var d = shopDay(tgt);
+      if (d && d.grid && d.status !== 'reading') { billApply(b, tgt); toast('Added ' + billBottles(b) + ' bottles to the ' + new Date(tgt + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) + ' sheet'); }
+      else { b.status = 'pending'; toast('Saved. The bottles go in when the ' + new Date(tgt + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) + ' sheet is read'); }
+      save(); drawBill();
+    };
+  }
+  // put the bottles into the Received column (adding rows for items not on the sheet)
+  function billApply(b, k) {
+    var d = shopDay(k, true), s2 = shop();
+    if (!d.grid) d.grid = blankGrid();
+    var g = d.grid.filter(function (r) { return r[0] !== 'TOTAL'; }), byKey = {};
+    for (var r = 1; r < g.length; r++) byKey[itemKey(g[r][SC.item], g[r][SC.size])] = r;
+    b.items.forEach(function (it) {
+      var r2 = byKey[it.key];
+      if (r2 == null) {
+        // reuse an empty row if there is one, else add a row
+        for (var e = 1; e < g.length; e++) if (g[e].every(function (v) { return v === '' || v == null; })) { r2 = e; break; }
+        if (r2 == null) { g.push(SHCOLS.map(function () { return ''; })); r2 = g.length - 1; if (d.ai) d.ai.push(SHCOLS.map(function () { return ''; })); }
+        g[r2][SC.item] = s2.items[it.key] ? s2.items[it.key].item : it.name; g[r2][SC.size] = String(it.ml); g[r2][SC.open] = g[r2][SC.open] || '0';
+        byKey[it.key] = r2;
+      }
+      var cur = g[r2][SC.recv], cl = g[r2][SC.close];
+      // a written closing that matched before the delivery gets the bottles too, so the row still adds up
+      if (isNum(cl) && String(cl).trim() !== '' && Math.abs(num(g[r2][SC.open]) + num(cur) - num(g[r2][SC.sales]) - num(cl)) < .01) g[r2][SC.close] = String(num(cl) + it.bottles);
+      if (isNum(g[r2][SC.total]) && String(g[r2][SC.total]).trim() !== '') g[r2][SC.total] = String(num(g[r2][SC.total]) + it.bottles);
+      g[r2][SC.recv] = String((isNum(cur) ? num(cur) : 0) + it.bottles);
+    });
+    d.grid = withTotalRow(g); b.status = 'added'; b.applied = k; d.bills = (d.bills || []).concat([b.id]); save();
+  }
+  function billUnapply(b) {
+    var d = shopDay(b.applied); if (!d || !d.grid) return; var g = d.grid;
+    b.items.forEach(function (it) { dataRows(g).forEach(function (r) { if (itemKey(g[r][SC.item], g[r][SC.size]) === it.key && isNum(g[r][SC.recv])) { var v = num(g[r][SC.recv]) - it.bottles; g[r][SC.recv] = v ? String(v) : ''; ['close', 'total'].forEach(function (c) { var x = g[r][SC[c]]; if (isNum(x) && String(x).trim() !== '') g[r][SC[c]] = String(num(x) - it.bottles); }); } }); });
+    d.bills = (d.bills || []).filter(function (x) { return x !== b.id; }); save();
+  }
+  // when a day's sheet is read, bills waiting for it are added
+  function applyPendingBills(k) {
+    var n = 0; Object.keys(bills()).forEach(function (id) { var b = bills()[id]; if (b.status === 'pending' && (b.target || b.date) === k) { billApply(b, k); n += billBottles(b); } });
+    if (n) toast(n + ' bottles from the KSBCL bill added to Received');
   }
 
   // --- the day screen: photos + sheet + close the day ---
