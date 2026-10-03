@@ -866,3 +866,7 @@ code{font-family:var(--mono);font-size:12px;background:var(--sand2);padding:1px 
 .shmtab td.neg{background:#FFD9D3;color:#B3372B;font-weight:700}
 .plt{margin-bottom:2px}.plt div{background:#fff}.plt b{color:var(--ink)}.plt small{color:var(--dim)}
 .plt{grid-template-columns:repeat(3,1fr)}
+
+.shstock .row.between .cap{font-size:9.5px;letter-spacing:.06em;white-space:nowrap}
+.shsrow .q{flex-shrink:0;padding-right:2px}
+.shsrow .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

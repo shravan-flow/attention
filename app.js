@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '33';
+  var APP_VERSION = '34';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -4752,31 +4752,52 @@
     });
   }
   // the AI turns batches of lines into items (works the same for any column layout)
+  // Big lists (thousands of rows) are parsed on the phone. The AI only looks at ~40 sample rows once,
+  // to learn which column is the name, the MRP and the cost; then every row is read with that layout.
+  var ML_RE = /(\d{2,4})\s*ML(?![a-wyz])/i;
+  function cellNum(c) { var t = String(c == null ? '' : c).replace(/[,₹\s]/g, ''); return /^\d+(\.\d+)?$/.test(t) ? parseFloat(t) : null; }
+  function modeOf(a) { var m = {}, best = null, bc = 0; a.forEach(function (v) { if (v == null) return; m[v] = (m[v] || 0) + 1; if (m[v] > bc) { bc = m[v]; best = v; } }); return { v: best == null ? null : +best, n: bc }; }
   function importPriceList(file) {
-    if (!hasAI()) { toast('Reading the price list needs your Gemini key (Settings → Visualization)'); return; }
     var isPdf = /pdf$/i.test(file.type) || /\.pdf$/i.test(file.name);
-    plJob = { stage: 'Opening the file…', done: 0, total: 0 }; drawSheet();
+    plJob = { stage: 'Opening the file…' }; drawSheet();
     var asOf = (/(\d{1,2})[.\-\/](\d{1,2})[.\-\/](\d{4})/.exec(file.name) || null);
-    file.arrayBuffer().then(function (buf) { return isPdf ? pdfLines(buf, function (p, n) { plJob.stage = 'Reading page ' + p + ' of ' + n; drawSheet(); }) : xlsxLines(buf); }).then(function (lines) {
-      lines = lines.filter(function (l) { return /\d/.test(l) && l.length > 6; });
-      if (!lines.length) throw new Error('no text found in the file (is it a scanned picture?)');
-      var size = 110, chunks = []; for (var i = 0; i < lines.length; i += size) chunks.push(lines.slice(i, i + size));
-      plJob.total = chunks.length; plJob.done = 0; plJob.stage = 'Understanding the list'; drawSheet();
-      var items = [], k = 0;
-      var ask = function (ch, tries) {
-        var P = 'These lines are rows of the Karnataka State Beverages Corporation (KSBCL) "supplier wise item wise price list". Columns are separated by " | ". For every product row return one item. Skip headings, page numbers and totals.\n' +
-          'For each item: "name" = the brand/product name without the pack code in brackets; "ml" = bottle size in ml; "per" = bottles per case (e.g. 12 from "750MLx12Btls"); "mrp" = the maximum retail price for ONE bottle; "cost" = the price the shop pays per CASE (issue price / landing cost / KSBCL price) if shown, else null; "supplier" if shown.\n' +
-          'If a row has several prices, the one for a single bottle that is the highest is usually the MRP.\n' +
-          'Reply JSON: {"items":[{"name":"text","ml":750,"per":12,"mrp":number|null,"cost":number|null,"supplier":"text"}]}\n\nLINES:\n' + ch.join('\n');
-        return geminiCall({ contents: [{ parts: [{ text: P }] }], generationConfig: { responseMimeType: 'application/json', temperature: 0 } })
-          .then(function (t) { return JSON.parse(t.replace(/^\s*```(json)?/, '').replace(/```\s*$/, '')); })
-          .catch(function (e) { if (tries < 2) return new Promise(function (r) { setTimeout(r, 2000); }).then(function () { return ask(ch, tries + 1); }); throw e; });
-      };
-      var next = function () {
-        if (k >= chunks.length) return items;
-        return ask(chunks[k], 0).then(function (r) { (r.items || []).forEach(function (x) { if (x && x.name) items.push(x); }); k++; plJob.done = k; drawSheet(); return next(); });
-      };
-      return next();
+    var rows = [];
+    file.arrayBuffer().then(function (buf) { return isPdf ? pdfLines(buf, function (p, n) { if (p % 5 === 0 || p === n) { plJob.stage = 'Reading page ' + p + ' of ' + n; drawSheet(); } }) : xlsxLines(buf); }).then(function (lines) {
+      // rows that hold a product: one cell with a size like "750ML" and at least one price after it
+      rows = lines.map(function (l) { return l.split(' | ').map(function (c) { return c.trim(); }).filter(function (c) { return c !== ''; }); })
+        .filter(function (cs) { var a = -1; for (var i = 0; i < cs.length; i++) if (ML_RE.test(cs[i])) { a = i; break; } if (a < 0) return false; cs.anchor = a; return cs.slice(a + 1).some(function (c) { return cellNum(c) != null; }); });
+      if (!rows.length) throw new Error('no product rows found (is it a scanned picture?)');
+      plJob.stage = 'Learning the layout from ' + Math.min(40, rows.length) + ' sample rows'; drawSheet();
+      var step = Math.max(1, Math.floor(rows.length / 40)), sample = []; for (var i = 0; i < rows.length && sample.length < 40; i += step) sample.push(rows[i]);
+      if (!hasAI()) return null;
+      var P = 'These are sample rows from the Karnataka State Beverages Corporation (KSBCL) "supplier wise item wise price list". Each row is split into numbered cells.\n' +
+        'For EVERY row, give the cell number of: "name" (the product/brand name), "mrp" (the maximum retail price for ONE bottle), "cost" (the price the retailer pays per CASE: issue price / landing cost / KSBCL price; null if there is none), "per" (bottles per case, only if it is a separate cell, else null), "supplier" (null if not in the row).\n\n' +
+        sample.map(function (cs, k) { return 'Row ' + k + ': ' + cs.map(function (c, j) { return '[' + j + '] ' + c; }).join('  '); }).join('\n') +
+        '\n\nReply JSON: {"rows":[{"row":0,"name":2,"mrp":7,"cost":5,"per":null,"supplier":1}],"costIsPer":"case" or "bottle"}';
+      return geminiCall({ contents: [{ parts: [{ text: P }] }], generationConfig: { responseMimeType: 'application/json', temperature: 0 } })
+        .then(function (t) { return JSON.parse(t.replace(/^\s*```(json)?/, '').replace(/```\s*$/, '')); })
+        .then(function (r) {
+          var rel = function (f) { return (r.rows || []).map(function (x) { var cs = sample[x.row]; return cs && x[f] != null ? x[f] - cs.anchor : null; }); };
+          var end = function (f) { return (r.rows || []).map(function (x) { var cs = sample[x.row]; return cs && x[f] != null ? x[f] - cs.length : null; }); };
+          var lay = { costIsPer: r.costIsPer === 'bottle' ? 'bottle' : 'case' };
+          ['name', 'mrp', 'cost', 'per', 'supplier'].forEach(function (f) { var a = modeOf(rel(f)), b2 = modeOf(end(f)); lay[f] = a.n >= b2.n ? { from: 'anchor', off: a.v } : { from: 'end', off: b2.v }; if ((a.n || 0) + (b2.n || 0) === 0) lay[f] = null; });
+          return lay;
+        }).catch(function () { return null; });
+    }).then(function (lay) {
+      // no AI (or it failed): the last number in the row is taken as the MRP, the one before it as the cost
+      if (!lay || !lay.mrp) lay = { name: { from: 'anchor', off: 0 }, mrp: { from: 'end', off: -1 }, cost: { from: 'end', off: -2 }, per: null, supplier: null, costIsPer: 'case', guess: true };
+      plJob.stage = 'Reading ' + fmtN(rows.length) + ' rows'; drawSheet();
+      var at = function (cs, spec) { if (!spec || spec.off == null) return null; var i = spec.from === 'anchor' ? cs.anchor + spec.off : cs.length + spec.off; return i >= 0 && i < cs.length ? cs[i] : null; };
+      var items = [], sup = '';
+      rows.forEach(function (cs) {
+        var nameCell = at(cs, lay.name) || cs[cs.anchor], sizeCell = ML_RE.test(nameCell) ? nameCell : cs[cs.anchor];
+        var ml = (ML_RE.exec(sizeCell) || [])[1], per = cellNum(at(cs, lay.per)) || +((/x\s*(\d{1,3})/i.exec(sizeCell) || [])[1] || 0) || null;
+        var mrp = cellNum(at(cs, lay.mrp)), cost = cellNum(at(cs, lay.cost)), s3 = String(at(cs, lay.supplier) || '').replace(/^\d+\s+/, ''); if (s3 && !cellNum(s3)) sup = s3;
+        var name = String(nameCell).replace(/\s*\d{2,4}\s*ML.*$/i, '').replace(/\(\d+\)/g, '').trim();
+        if (!name || !ml) return;
+        items.push({ name: name, ml: ml, per: per, mrp: mrp, cost: lay.costIsPer === 'bottle' ? (cost && per ? cost * per : cost) : cost, supplier: sup });
+      });
+      return items;
     }).then(function (items) {
       return loadPL().then(function () {
         var old = {}; (PL.items || []).forEach(function (x) { old[x.key] = x; });
@@ -4784,14 +4805,14 @@
         items.forEach(function (x) {
           var ml = String(x.ml || '').replace(/[^0-9]/g, ''), name = shortBillName(String(x.name).replace(/\s+/g, ' ').trim()), key = itemKey(name, ml);
           if (!name || seen[key]) return; seen[key] = 1;
-          var per = num(x.per) || null, mrp = num(x.mrp) || null, costCase = num(x.cost) || null;
+          var per = num(x.per) || ({ 2000: 6, 1750: 6, 1500: 6, 1000: 9, 750: 12, 700: 12, 650: 12, 500: 24, 375: 24, 330: 24, 275: 24, 200: 48, 180: 48, 90: 96, 60: 150 })[+ml] || null, mrp = num(x.mrp) || null, costCase = num(x.cost) || null;
           var it = { key: key, name: name, ml: ml, per: per, mrp: mrp, costCase: costCase, cost: costCase && per ? Math.round(costCase / per * 100) / 100 : null, sup: x.supplier || '' };
           var o = old[key]; if (o && o.mrp && mrp && o.mrp !== mrp) { it.was = o.mrp; changed++; }
           out.push(it);
         });
         if (!out.length) throw new Error('no items found');
         PL = { items: out, asOf: asOf ? asOf[3] + '-' + String(asOf[2]).padStart(2, '0') + '-' + String(asOf[1]).padStart(2, '0') : dkey(new Date()), file: file.name, at: new Date().toISOString(), changed: changed, sups: Object.keys(out.reduce(function (a, x) { if (x.sup) a[x.sup] = 1; return a; }, {})).length };
-        return savePL().then(function () { plJob = null; drawSheet(); toast(out.length + ' items in the price list' + (changed ? ' · ' + changed + ' MRPs changed' : '')); });
+        return savePL().then(function () { plJob = null; drawSheet(); toast(fmtN(out.length) + ' items in the price list' + (changed ? ' · ' + changed + ' MRPs changed' : '')); });
       });
     }).catch(function (e) { plJob = { stage: 'Couldn’t read it: ' + (e.message || e), err: true }; drawSheet(); });
   }
