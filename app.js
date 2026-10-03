@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '30';
+  var APP_VERSION = '31';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -225,7 +225,7 @@
   }
   // one list row; o = { t, sub, v, sheet, tab, dot, lead }
   function row(o) {
-    var link = o.sheet || o.tab, attrs = o.sheet ? ' data-sheet="' + o.sheet + '"' : o.tab ? ' data-tab-go="' + o.tab + '"' : '';
+    var link = o.sheet || o.tab || o.id, attrs = o.sheet ? ' data-sheet="' + o.sheet + '"' : o.tab ? ' data-tab-go="' + o.tab + '"' : o.id ? ' id="' + o.id + '"' : '';
     var tag = link ? 'button' : 'div';
     return '<' + tag + (link ? ' type="button"' : '') + ' class="r"' + attrs + '>' + (o.lead || '') + (o.dot ? '<span class="dot" style="background:' + o.dot + '"></span>' : '') +
       '<span class="t">' + o.t + (o.sub ? '<small>' + o.sub + '</small>' : '') + '</span>' + (o.v != null && o.v !== '' ? '<span class="v">' + o.v + '</span>' : '') + (link ? CHEV : '') + '</' + tag + '>';
@@ -298,7 +298,7 @@
     for (var hi = 0; hi < 8; hi++) { var dk = dkey(dd0); holidaysOn(dk).filter(function (x) { return x.t === 'public'; }).forEach(function (x) { up.push({ d: dk, n: x.n }); }); dd0.setDate(dd0.getDate() + 1); }
     if (up.length) h += '<div class="list">' + up.slice(0, 2).map(function (x) { return '<button type="button" class="r" data-ocal="' + x.d + '"><span class="dot" style="background:' + T.hib + '"></span><span class="t">' + esc(x.n) + '<small>' + (x.d === key ? 'today · public holiday' : new Date(x.d + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + ' · public holiday') + '</small></span>' + CHEV + '</button>'; }).join('') + '</div>';
     var hasNote = !!(d.note || '').trim(), jn = state.journal[key] || {};
-    h += '<div class="list">' + row({ t: 'Journal', sub: jn.well ? esc(jn.well) : hasNote ? esc(d.note) : 'tonight: your day, and tomorrow’s targets', v: hasNote || jn.well ? '✓' : '+5', sheet: 'tonight' }) + '</div>';
+    h += '<div class="list">' + row({ t: 'Journal', sub: missedYesterday() ? 'yesterday is still empty: fill it in tonight' : jn.well ? esc(jn.well) : hasNote ? esc(d.note) : 'tonight: your day, and tomorrow’s targets', v: hasNote || jn.well ? '✓' : '+5', sheet: missedYesterday() ? 'tonight:' + yesterdayKey() : 'tonight' }) + '</div>';
     return h + '</div>';
   }
 
@@ -409,10 +409,15 @@
   }
   // night journal: mood, two short prompts, and tomorrow's targets
   var MOODS = ['😞', '😐', '🙂', '😄'];
+  function hasJournal(k) { var j = (state.journal || {})[k]; return !!(j && (j.well || j.away || j.more || j.mood)); }
+  function yesterdayKey() { var d = new Date(); d.setDate(d.getDate() - 1); return dkey(d); }
+  function missedYesterday() { var yk = yesterdayKey(); return yk >= state.startDate && !hasJournal(yk); }
   function tonightSheet(key) {
     var tk = dkey(new Date()); key = key || tk;
+    var yk = yesterdayKey(), both = missedYesterday() && (key === tk || key === yk);
     var j = state.journal[key] || {}, d = new Date(key + 'T00:00:00'), n = dayNumFor(d), note = n >= 1 && n <= 30 ? state.days[n].note : '';
     var h = '<div class="hero" style="background:#1B2F5A;color:#fff">' + sun('#FFE6B8', 70, 22, 18) + '<span class="cap">' + (key === tk ? 'Before bed' : d.toLocaleDateString('en', { weekday: 'long', day: 'numeric', month: 'short' })) + '</span><span class="display h2" style="margin:0">How was<br><i>' + (key === tk ? 'your day?' : 'that day?') + '</i></span></div>';
+    if (both) h = '<div class="jmiss">You didn’t write yesterday. <b>Fill both</b> while you remember, yesterday first.</div><div class="seg2 jtabs" role="tablist"><button type="button" role="tab" data-sheet="tonight:' + yk + '" aria-selected="' + (key === yk) + '">' + new Date(yk + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + ' · missed</button><button type="button" role="tab" data-sheet="tonight" aria-selected="' + (key === tk) + '">Today</button></div>' + h;
     h += '<div class="optrow" role="group" aria-label="Mood">' + MOODS.map(function (m, i) { return '<button type="button" class="opt mood" data-mood="' + (i + 1) + '" aria-pressed="' + (j.mood === i + 1) + '">' + m + '</button>'; }).join('') + '</div>';
     h += '<label class="lab" for="jWell">What went well?</label><textarea class="text" id="jWell" data-jkey="' + key + '" placeholder="one or two things">' + esc(j.well || '') + '</textarea>';
     h += '<label class="lab" for="jAway">What pulled you away? <span class="muted">+5 XP</span></label><textarea class="text" id="jAway" placeholder="a thought, a ping, a craving…">' + esc(j.away || note || '') + '</textarea>';
@@ -423,7 +428,7 @@
     }
     h += '<label class="lab" for="jMore">Anything else on your mind?</label><textarea class="text" id="jMore" placeholder="optional">' + esc(j.more || '') + '</textarea>';
     if (key === tk) h += '<div class="row between"><span class="lab">Tomorrow’s targets</span><span class="cap">become tomorrow’s</span></div>' + planList(tomorrowKey());
-    h += '<button type="button" class="btn jungle" id="jDone">' + (key === tk ? 'Save · good night' : 'Save') + '</button>';
+    h += '<button type="button" class="btn jungle" id="jDone">' + (key === tk ? 'Save · good night' : key === yk && !hasJournal(tk) ? 'Save ' + new Date(yk + 'T00:00:00').toLocaleDateString('en', { weekday: 'long' }) + ' → today' : 'Save') + '</button>';
     return { title: key === tk ? 'Tonight' : 'Journal', cap: key === tk ? new Date().toLocaleTimeString('en', { hour: 'numeric', minute: '2-digit' }) : '', html: h, bind: function (r) { bindTargets(r); bindJournal(r); } };
   }
   function bindJournal(r) {
@@ -439,7 +444,11 @@
     var jr = r.querySelector('#jRest');
     if (jr) jr.addEventListener('change', function () { var v = +jr.value; state.restLog = state.restLog || {}; if (v > 600 && v < 5000) { state.restLog[key] = Math.round(v); save(); var rc = restCal(); toast(rc.stable ? 'Calibrated! Resting burn ≈ ' + fmtN(rc.avg) + ' kcal' : 'Saved · ' + rc.n + ' day' + (rc.n === 1 ? '' : 's') + ' so far'); } else if (jr.value) toast('That looks off: resting calories are usually 1,200–2,500'); });
     r.querySelectorAll('[data-mood]').forEach(function (b) { b.onclick = function () { put(); state.journal[key].mood = +b.dataset.mood; save(); drawSheet(); }; });
-    r.querySelector('#jDone').onclick = function () { put(); closeSheet(); mutate(function () {}); toast(key === dkey(new Date()) ? 'Saved. Good night.' : 'Saved'); };
+    r.querySelector('#jDone').onclick = function () {
+      put();
+      if (key === yesterdayKey() && !hasJournal(dkey(new Date()))) { mutate(function () {}); openSheet('tonight'); toast('Saved. Now today.'); return; }
+      closeSheet(); mutate(function () {}); toast(key === dkey(new Date()) ? 'Saved. Good night.' : 'Saved');
+    };
   }
 
   // --- Today detail sheets ---
@@ -957,7 +966,7 @@
       '<span class="row" style="align-items:baseline;gap:8px"><span class="display big">' + Number(bc.w).toFixed(1) + '</span><span>kg</span></span>' + weightChart(ws, bc, true) + '</button>';
     h += '<div class="list">' + row({ t: 'Daily targets', v: fmtN(bc.kcal) + ' kcal', sheet: 'kcal' }) + row({ t: 'Healthy range', v: Math.round(bc.lo) + '–' + Math.round(bc.hi) + ' kg', sheet: 'kcal' }) +
       row({ t: 'About you', v: (p.age || '–') + ' · ' + (p.height || '–') + ' cm', sheet: 'about' }) + row({ t: 'Weight log', v: ws.length + (ws.length === 1 ? ' entry' : ' entries'), sheet: 'weight' }) + '</div>';
-    h += '<button type="button" class="btn line" data-sheet="weight">Log today’s weight</button>';
+    h += '<button type="button" class="btn coral" data-sheet="weighin">⚖ Weigh in</button>';
     h += '<h3 class="sh">From your Garmin <span class="cap">' + garminStatus() + '</span></h3>' + healthHtml().replace('<div class="card stack" style="gap:8px"><h2>From your Garmin</h2>', '<div class="card stack" style="gap:8px">');
     return h;
   }
@@ -985,10 +994,11 @@
   }
   function weightSheet() {
     var bc = bodyCalc(), ws = sortedWeights();
-    var h = '<div class="row"><input id="wIn" class="text" type="number" inputmode="decimal" step="0.1" placeholder="today’s weight, kg" style="flex:1"><button type="button" class="btn solid" id="wAdd">Log</button></div>';
+    var h = '<button type="button" class="btn coral" data-sheet="weighin">⚖ Weigh in with your scale</button>';
+    h += '<div class="row"><input id="wIn" class="text" type="number" inputmode="decimal" step="0.1" placeholder="or type today’s weight, kg" style="flex:1"><button type="button" class="btn solid" id="wAdd">Log</button></div>';
     if (bc && ws.length) h += '<div class="chartbox">' + weightChart(ws, bc, false) + '</div>';
     if (ws.length) h += '<div class="list">' + ws.slice().reverse().slice(0, 12).map(function (x) {
-      return '<div class="r"><span class="t">' + new Date(x.d + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + '</span><span class="v strong">' + Number(x.kg).toFixed(1) + ' kg</span><button type="button" class="fx" data-wdel="' + x.d + '" aria-label="Delete this entry">×</button></div>';
+      return '<div class="r"><span class="t">' + new Date(x.d + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + '</span>' + (x.src ? '<span class="wsrc">' + { scale: 'scale', shot: 'screenshot', sync: 'synced' }[x.src] + '</span>' : '') + '<span class="v strong">' + Number(x.kg).toFixed(1) + ' kg</span><button type="button" class="fx" data-wdel="' + x.d + '" aria-label="Delete this entry">×</button></div>';
     }).join('') + '</div>';
     h += '<p class="muted small">Weigh in once a week, same day, in the morning before breakfast.</p>';
     return { title: 'Weight', cap: ws.length + ' entries', html: h, bind: bindFit };
@@ -1379,7 +1389,7 @@
       .then(function (data) {
         var mine = (state.activities || []).filter(function (a) { return !isSynced(a); });
         state.activities = mine.concat(data.activities);
-        sv.syncedAt = data.at; sv.count = data.activities.length; sv.error = null; sv.hasWellness = !!data.wellness; sv.wdays = (data.wellness || []).length; if (data.wellness) state.wellness = data.wellness; save(); syncing = false;
+        sv.syncedAt = data.at; sv.count = data.activities.length; sv.error = null; sv.hasWellness = !!data.wellness; sv.wdays = (data.wellness || []).length; if (data.wellness) { state.wellness = data.wellness; mergeSyncedWeights(); } save(); syncing = false;
         if (manual) toast('Synced ' + data.activities.length + ' Garmin activities');
         render();
       }).catch(function (e) { syncing = false; sv.error = e.message; save(); if (manual) toast('Sync failed: ' + e.message); render(); });
@@ -1706,11 +1716,11 @@
     if (vz) vizStop(); vz = null;
     if (nv) notesLeave(); nv = null;
     if (tk) { var tx = ideaById(tk.id); if (tx) tx.last = tk.page; save(); } tk = null;
-    vb = null;
-    var o = document.getElementById('overlay'); o.classList.remove('dark', 'vzo', 'nto', 'tko', 'vbo');
+    vb = null; sp = null;
+    var o = document.getElementById('overlay'); o.classList.remove('dark', 'vzo', 'nto', 'tko', 'vbo', 'spo');
   }
   function closeOverlayEl() {
-    var o = document.getElementById('overlay'); o.hidden = true; o.classList.remove('dark', 'vzo', 'nto', 'tko', 'vbo');
+    var o = document.getElementById('overlay'); o.hidden = true; o.classList.remove('dark', 'vzo', 'nto', 'tko', 'vbo', 'spo');
     updateEye();
     document.body.style.overflow = ui.sheet ? 'hidden' : '';
   }
@@ -1777,12 +1787,17 @@
     if (nv.id) return drawNoteEditor();
     var keep = o.scrollTop;
     var h = '<div class="inner"><div class="row between"><h1 class="display" style="font-size:34px">Notes</h1><button type="button" class="btn ghost small" id="nClose">Close</button></div>';
-    h += '<div class="seg2 seg4 seg5" role="tablist">' + [['pad', 'Scribble'], ['vision', 'Vision'], ['cal', 'Calendar'], ['ideas', 'Ideas'], ['journal', 'Journal']].map(function (t) {
+    h += '<div class="seg2 seg4 seg6" role="tablist">' + [['pad', 'Scribble'], ['vision', 'Vision'], ['sticky', 'Stickies'], ['cal', 'Calendar'], ['ideas', 'Ideas'], ['journal', 'Journal']].map(function (t) {
       return '<button type="button" role="tab" data-ntab="' + t[0] + '" aria-selected="' + (nv.tab === t[0]) + '">' + t[1] + '</button>';
     }).join('') + '</div>';
-    if (nv.tab === 'pad' || nv.tab === 'vision') {
+    if ((nv.tab === 'pad' || nv.tab === 'vision' || nv.tab === 'sticky') && nv.reorder) {
+      h += reorderHtml();
+    } else if (nv.tab === 'sticky') {
+      h += stickiesHtml();
+    } else if (nv.tab === 'pad' || nv.tab === 'vision') {
       var boards = nv.tab === 'vision';
-      var list = NOTES.filter(function (n) { return (n.kind === 'board') === boards; }).sort(function (a, b) { return (b.pinned - a.pinned) || (b.updated < a.updated ? -1 : 1); });
+      var list = orderedNotes(boards);
+      if (list.length > 1) h += '<div class="row between"><span class="muted small">' + list.length + (boards ? ' boards' : ' notes') + '</span><button type="button" class="btn ghost small" id="nReorder">⇅ Reorder</button></div>';
       if (!list.length) h += '<p class="muted" style="margin:0">' + (boards ? 'Nothing yet. A vision board is a page of pictures and words for what you want. Tap <b>New vision board</b>, then find images on Google and paste them in.' : 'Nothing yet. Tap <b>New note</b> to sketch an idea, pin a photo or jot something down.') + '</p>';
       else h += '<div class="ngrid">' + list.map(function (n) {
         var prev = n.thumb ? '<img src="' + n.thumb + '" alt="">' : '<span class="nb">' + esc((n.body || '').slice(0, 140)) + '</span>';
@@ -1796,11 +1811,17 @@
     } else if (nv.tab === 'ideas') {
       h += ideasTabHtml();
     } else {
-      var ks = Object.keys(state.journal || {}).filter(function (k) { var j = state.journal[k]; return j.well || j.away || j.more || j.mood; }).sort().reverse();
+      var ks = Object.keys(state.journal || {}).filter(hasJournal);
+      // every day from the start (at most 60 days back) up to yesterday that has no entry shows as a blank row
+      var dd = new Date(), lim = new Date(); lim.setDate(lim.getDate() - 60); dd.setDate(dd.getDate() - 1);
+      var startK = state.startDate > dkey(lim) ? state.startDate : dkey(lim);
+      while (dkey(dd) >= startK) { var kk = dkey(dd); if (ks.indexOf(kk) < 0) ks.push(kk); dd.setDate(dd.getDate() - 1); }
+      ks.sort().reverse();
       if (!ks.length) h += '<p class="muted" style="margin:0">Your nightly journal shows up here. The 10 pm ping opens it, or start one now.</p>';
-      else h += '<div class="list">' + ks.map(function (k) {
-        var j = state.journal[k], d = new Date(k + 'T00:00:00');
-        return '<button type="button" class="r jr" data-jopen="' + k + '"><span class="jm">' + (j.mood ? MOODS[j.mood - 1] : '·') + '</span><span class="t">' + d.toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + '<small>' + esc([j.well, j.away, j.more].filter(Boolean).join(' · ')) + '</small></span>' + CHEV + '</button>';
+      else h += '<div class="stack" style="gap:8px">' + ks.map(function (k) {
+        var j = state.journal[k] || {}, d = new Date(k + 'T00:00:00'), lab = d.toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' });
+        if (!hasJournal(k)) return '<button type="button" class="jblank" data-jopen="' + k + '"><span class="jm">·</span><span class="t">' + lab + '<small>Not written yet</small></span><span class="jfill">Fill in</span></button>';
+        return '<button type="button" class="r jr jcard" data-jopen="' + k + '"><span class="jm">' + (j.mood && MOODS[j.mood - 1] ? MOODS[j.mood - 1] : '·') + '</span><span class="t">' + lab + '<small>' + esc([j.well, j.away, j.more].filter(Boolean).join(' · ')) + '</small></span>' + CHEV + '</button>';
       }).join('') + '</div>';
       h += '<div class="nfoot"><button type="button" class="btn" id="nTonight" style="background:#1B2F5A;color:#fff">Write tonight’s journal</button></div>';
     }
@@ -1808,13 +1829,16 @@
     if (nv.keepScroll) { o.scrollTop = keep; nv.keepScroll = false; }
     o.querySelector('#nClose').onclick = closeNotes;
     if (nv.tab === 'ideas') bindIdeasTab(o);
-    o.querySelectorAll('[data-ntab]').forEach(function (b) { b.onclick = function () { nv.tab = b.dataset.ntab; drawNotes(); }; });
+    if (nv.reorder) bindReorder(o);
+    else if (nv.tab === 'sticky') bindStickies(o);
+    var ro = o.querySelector('#nReorder'); if (ro) ro.onclick = function () { nv.reorder = true; drawNotes(); };
+    o.querySelectorAll('[data-ntab]').forEach(function (b) { b.onclick = function () { nv.tab = b.dataset.ntab; nv.reorder = false; nv.stEdit = null; drawNotes(); }; });
     o.querySelectorAll('[data-nopen]').forEach(function (b) { b.onclick = function () { nv.id = b.dataset.nopen; nv.hist = []; nv.sel = null; nv.page = 0; nv.zoom = 1; nv.edit = null; var n0 = noteById(nv.id); if (n0 && n0.kind === 'board') { nv.tool = 'move'; nv.color = '#FFFFFF'; } drawNotes(); }; });
     var nn = o.querySelector('#nNew'); if (nn) nn.onclick = function () {
       var board = nv.tab === 'vision';
       var n = { id: 'n' + Date.now().toString(36), title: '', body: '', pages: [{ items: [] }], pinned: false, bg: NBG[NOTES.length % NBG.length], created: new Date().toISOString(), updated: new Date().toISOString() };
       if (board) { n.kind = 'board'; n.board = BOARDBG[0][1]; }
-      NOTES.push(n); nv.id = n.id; nv.hist = []; nv.tool = board ? 'move' : 'pen'; if (board) nv.color = '#FFFFFF'; nv.page = 0; nv.zoom = 1; nv.edit = null; drawNotes();
+      n.ord = topOrd(orderedNotes(board)); NOTES.push(n); nv.id = n.id; nv.hist = []; nv.tool = board ? 'move' : 'pen'; if (board) nv.color = '#FFFFFF'; nv.page = 0; nv.zoom = 1; nv.edit = null; drawNotes();
       setTimeout(function () { var t = document.getElementById('nTitle'); if (t) try { t.focus(); } catch (e) {} }, 60);
     };
     var jt = function (k) { closeNotes(); ui.tab = 'trail'; render(); openSheet('tonight' + (k && k !== dkey(new Date()) ? ':' + k : '')); };
@@ -1873,26 +1897,27 @@
     caches.open('attention-data').then(function (c) {
       return c.match('shared-image').then(function (r) {
         if (!r) { toast('Nothing was shared. Try Share image again.'); return; }
-        return r.blob().then(function (b) {
-          c.delete('shared-image');
-          return loadNotes().then(function () {
-            openNotes('vision');
-            setTimeout(function () {
-              if (!nv) return;
-              var n = noteById(state.lastBoard);
-              if (!n || n.kind !== 'board') {
-                n = NOTES.filter(function (x) { return x.kind === 'board'; }).sort(function (a, b2) { return a.updated < b2.updated ? 1 : -1; })[0];
-                if (!n) { n = { id: 'n' + Date.now().toString(36), kind: 'board', board: BOARDBG[0][1], title: 'Vision board', body: '', pages: [{ items: [] }], pinned: false, bg: NBG[0], created: new Date().toISOString(), updated: new Date().toISOString() }; NOTES.push(n); saveNotes(); }
-              }
-              nv.id = n.id; nv.page = 0; nv.zoom = 1; nv.hist = []; nv.tool = 'move'; nv.color = '#FFFFFF';
-              blobToDataURL(b).then(startCrop);
-              toast('Adding to “' + (n.title || 'Vision board') + '”');
-            }, 250);
-          });
-        });
+        return r.blob().then(function (b) { c.delete('shared-image'); return blobToDataURL(b); }).then(function (d) { pendingShare = d; openSheet('sharedpick'); });
       });
     }).catch(function () {});
   }
+  function sharedToVision(dataUrl) {
+    loadNotes().then(function () {
+      openNotes('vision');
+      setTimeout(function () {
+        if (!nv) return;
+        var n = noteById(state.lastBoard);
+        if (!n || n.kind !== 'board') {
+          n = NOTES.filter(function (x) { return x.kind === 'board'; }).sort(function (a, b2) { return a.updated < b2.updated ? 1 : -1; })[0];
+          if (!n) { n = { id: 'n' + Date.now().toString(36), kind: 'board', board: BOARDBG[0][1], title: 'Vision board', body: '', pages: [{ items: [] }], pinned: false, bg: NBG[0], created: new Date().toISOString(), updated: new Date().toISOString() }; NOTES.push(n); saveNotes(); }
+        }
+        nv.id = n.id; nv.page = 0; nv.zoom = 1; nv.hist = []; nv.tool = 'move'; nv.color = '#FFFFFF';
+        startCrop(dataUrl);
+        toast('Adding to “' + (n.title || 'Vision board') + '”');
+      }, 250);
+    });
+  }
+
   function startCrop(url) {
     var im = new Image();
     im.onload = function () { nv.crop = { url: url, w: im.naturalWidth, h: im.naturalHeight, r: { x: .06, y: .06, w: .88, h: .88 }, cap: '' }; drawNotes(); };
@@ -1954,10 +1979,12 @@
   }
 
   // ---------- calendar ----------
-  var CALTYPE = { task: ['Task', T.coral], activity: ['Activity', T.lagoon], event: ['Event', T.mango] };
+  var CALTYPE = { task: ['Task', T.coral], activity: ['Activity', T.lagoon], event: ['Event', T.mango], holiday: ['Holiday', T.hib] };
+  var CALBG = { task: '#FFD9D3', activity: '#CDEFEA', event: '#FFE6B8', holiday: '#FFD9E5' };
   var CALPRESETS = [['🏸', 'Badminton', 'activity'], ['🏊', 'Swim', 'activity'], ['🏃', 'Run', 'activity'], ['🚴', 'Ride', 'activity'], ['🧘', 'Yoga', 'activity'], ['💪', 'Gym', 'activity'],
     ['☕', 'Estate round', 'task'], ['🌱', 'Fertiliser / spray', 'task'], ['💸', 'Pay bills', 'task'], ['📞', 'Call', 'task'], ['🛠', 'Bike service', 'task'], ['🛒', 'Groceries', 'task'],
-    ['🎂', 'Birthday', 'event', 'yearly'], ['💍', 'Anniversary', 'event', 'yearly'], ['🤝', 'Meeting', 'event'], ['✈', 'Travel', 'event'], ['🎉', 'Festival', 'event'], ['🩺', 'Appointment', 'event']];
+    ['🎂', 'Birthday', 'event', 'yearly'], ['💍', 'Anniversary', 'event', 'yearly'], ['🤝', 'Meeting', 'event'], ['✈', 'Travel', 'event'], ['🎉', 'Festival', 'event'], ['🩺', 'Appointment', 'event'],
+    ['🏖', 'Holiday / leave', 'holiday'], ['🛑', 'Shop closed', 'holiday'], ['🪔', 'Festival off', 'holiday']];
   function calEntries() { return state.cal = state.cal || []; }
   function occursOn(e, key) {
     if (e.date === key) return true;
@@ -1979,7 +2006,7 @@
     state.calSynced = state.calSynced || {};
     var done = state.calSynced[k] = state.calSynced[k] || [], added = false;
     es.forEach(function (e) {
-      if (done.indexOf(e.id) >= 0) return;
+      if (e.type === 'holiday' || done.indexOf(e.id) >= 0) return;
       done.push(e.id); addTarget(k, calLabel(e) + (e.time ? ' · ' + time12(e.time) : ''));
       var ts = state.targets[k]; ts[ts.length - 1].calId = e.id; added = true;
     });
@@ -2008,21 +2035,27 @@
     for (var d = 1; d <= days; d++) {
       var k = m + '-' + String(d).padStart(2, '0'), es = entriesOn(k), hol = holidaysOn(k);
       var dots = es.slice(0, 3).map(function (e) { return '<i style="background:' + CALTYPE[e.type][1] + '"></i>'; }).join('') + (hol.length ? '<i style="background:' + T.hib + '"></i>' : '');
-      h += '<button type="button" class="cd' + (k === sel ? ' sel' : '') + (k === tk ? ' today' : '') + (hol.some(function (x) { return x.t === 'public'; }) ? ' hol' : '') + '" data-cday="' + k + '" aria-label="' + k + (hol.length ? ', ' + esc(hol[0].n) : '') + (es.length ? ', ' + es.length + ' items' : '') + '">' + d + '<span>' + dots + '</span></button>';
+      h += '<button type="button" class="cd' + (k === sel ? ' sel' : '') + (k === tk ? ' today' : '') + (hol.some(function (x) { return x.t === 'public'; }) || es.some(function (e) { return e.type === 'holiday'; }) ? ' hol' : '') + '" data-cday="' + k + '" aria-label="' + k + (hol.length ? ', ' + esc(hol[0].n) : '') + (es.length ? ', ' + es.length + ' items' : '') + '">' + d + '<span>' + dots + '</span></button>';
     }
-    h += '</div><div class="callegend">' + Object.keys(CALTYPE).map(function (t) { return '<span><i style="background:' + CALTYPE[t][1] + '"></i>' + CALTYPE[t][0].toLowerCase() + '</span>'; }).join('') + '<span><i style="background:' + T.hib + '"></i>holiday</span></div>';
+    h += '</div><div class="callegend">' + Object.keys(CALTYPE).map(function (t) { return '<span><i style="background:' + CALTYPE[t][1] + '"></i>' + CALTYPE[t][0].toLowerCase() + '</span>'; }).join('') + '<span><i style="background:' + T.hib + '"></i>public holiday</span></div>';
     // the selected day
     var sd = new Date(sel + 'T00:00:00'), es2 = entriesOn(sel), hol2 = holidaysOn(sel);
     h += '<div class="calday"><div class="row between"><span class="display" style="font-size:24px">' + sd.toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + '</span><span class="cap">' + es2.length + ' item' + (es2.length === 1 ? '' : 's') + '</span></div>';
     hol2.forEach(function (x) { h += '<div class="notice" style="background:#FFD9E5;color:#8A1F45">🎌 ' + esc(x.n) + ' · ' + (x.t === 'public' ? 'public holiday' : 'restricted holiday') + '</div>'; });
     if (es2.length) h += '<div class="list">' + es2.map(function (e) {
-      return '<div class="r"><span class="dot" style="background:' + CALTYPE[e.type][1] + '"></span><span class="t">' + esc(calLabel(e)) + '<small>' + CALTYPE[e.type][0].toLowerCase() + (e.time ? ' · ' + time12(e.time) : '') + (e.repeat && e.repeat !== 'none' ? ' · every ' + { daily: 'day', weekly: 'week', monthly: 'month', yearly: 'year' }[e.repeat] : '') + '</small></span><button type="button" class="fx" data-cdel="' + e.id + '" aria-label="Remove">×</button></div>';
+      var tl = e.time ? time12(e.time) + (e.end ? '–' + time12(e.end) : '') : e.allDay || e.type === 'holiday' ? 'all day' : '+ time';
+      var row = '<div class="r"><span class="dot" style="background:' + CALTYPE[e.type][1] + '"></span><span class="t">' + esc(calLabel(e)) + '<small>' + CALTYPE[e.type][0].toLowerCase() + (e.repeat && e.repeat !== 'none' ? ' · every ' + { daily: 'day', weekly: 'week', monthly: 'month', yearly: 'year' }[e.repeat] : '') + '</small></span>' +
+        '<button type="button" class="ctime' + (e.time || e.allDay || e.type === 'holiday' ? ' on' : '') + '" data-ctime="' + e.id + '" aria-label="Set the time">' + tl + '</button><button type="button" class="fx" data-cdel="' + e.id + '" aria-label="Remove">×</button></div>';
+      if (nv.calEdit === e.id) row += '<div class="ctedit"><div class="row" style="gap:8px;align-items:center"><input type="time" class="text" id="ceFrom" value="' + (e.time || '') + '"><span class="muted small">to</span><input type="time" class="text" id="ceTo" value="' + (e.end || '') + '"></div>' +
+        '<div class="row" style="gap:8px;flex-wrap:wrap"><button type="button" class="opt sm" id="ceAll" aria-pressed="' + !!e.allDay + '">All day</button><select id="ceType" class="text" style="flex:1;min-height:40px">' + Object.keys(CALTYPE).map(function (t) { return '<option value="' + t + '"' + (t === e.type ? ' selected' : '') + '>' + CALTYPE[t][0] + '</option>'; }).join('') + '</select></div>' +
+        '<div class="row" style="gap:8px"><button type="button" class="btn ghost small" id="ceCancel">Cancel</button><button type="button" class="btn jungle small" id="ceSave" style="flex:1">Save</button></div></div>';
+      return row;
     }).join('') + '</div>';
     else h += '<p class="muted small">Nothing planned. Add something below.' + (sel === tk ? '' : ' It will show up in that day’s targets.') + '</p>';
-    h += '<div class="row" style="gap:8px"><label class="lab" for="calTime" style="white-space:nowrap">Time (optional)</label><input type="time" id="calTime" class="text" style="flex:1" value="' + (nv.calTime || '') + '"></div>';
+    h += '<div class="row" style="gap:8px"><label class="lab" for="calTime" style="white-space:nowrap">Time for the next item</label><input type="time" id="calTime" class="text" style="flex:1" value="' + (nv.calTime || '') + '"></div>';
     var mine = (state.calPresets || []).map(function (p) { return [p.emoji || '⭐', p.title, p.type, p.repeat || 'none', true]; });
     h += '<span class="lab">Quick add</span><div class="optrow calq">' + CALPRESETS.concat(mine).map(function (p, i) {
-      return '<button type="button" class="opt sm" data-cq="' + i + '" style="background:' + { task: '#FFD9D3', activity: '#CDEFEA', event: '#FFE6B8' }[p[2]] + '">' + p[0] + ' ' + esc(p[1]) + '</button>';
+      return '<button type="button" class="opt sm" data-cq="' + i + '" style="background:' + (CALBG[p[2]] || '#fff') + '">' + p[0] + ' ' + esc(p[1]) + '</button>';
     }).join('') + '</div>';
     h += '<details class="calown"' + (nv.calOwn ? ' open' : '') + '><summary class="lab">+ Your own</summary><div class="stack" style="gap:8px;margin-top:8px">' +
       '<input class="text" id="calTitle" placeholder="What? e.g. Cariappa’s birthday, Fixture review">' +
@@ -2056,12 +2089,131 @@
       state.cal = calEntries().filter(function (x) { return x !== e; }); save(); redraw();
     }; });
     var own = o.querySelector('.calown'); own.addEventListener('toggle', function () { nv.calOwn = own.open; });
+    // set or change the time on any item
+    o.querySelectorAll('[data-ctime]').forEach(function (b) { b.onclick = function () { nv.calEdit = nv.calEdit === b.dataset.ctime ? null : b.dataset.ctime; redraw(); }; });
+    var ce = nv.calEdit && calEntries().filter(function (x) { return x.id === nv.calEdit; })[0];
+    if (ce && o.querySelector('#ceSave')) {
+      var allBtn = o.querySelector('#ceAll');
+      allBtn.onclick = function () { var on = allBtn.getAttribute('aria-pressed') !== 'true'; allBtn.setAttribute('aria-pressed', on); if (on) { o.querySelector('#ceFrom').value = ''; o.querySelector('#ceTo').value = ''; } };
+      o.querySelector('#ceCancel').onclick = function () { nv.calEdit = null; redraw(); };
+      o.querySelector('#ceSave').onclick = function () {
+        var f = o.querySelector('#ceFrom').value, t2 = o.querySelector('#ceTo').value, all = allBtn.getAttribute('aria-pressed') === 'true';
+        ce.time = all ? '' : f; ce.end = all || !f ? '' : t2; ce.allDay = all && !f; ce.type = o.querySelector('#ceType').value;
+        // keep today's target text in step with the new time
+        var tk2 = dkey(new Date());
+        (state.targets[tk2] || []).forEach(function (tg) { if (tg.calId === ce.id) tg.text = calLabel(ce) + (ce.time ? ' · ' + time12(ce.time) : ''); });
+        nv.calEdit = null; save(); syncGoal(); render(); redraw(); toast(ce.time ? 'Time set · ' + time12(ce.time) : 'Saved');
+      };
+    }
     o.querySelector('#calAdd').onclick = function () {
       var t = o.querySelector('#calTitle').value.trim(); if (!t) { o.querySelector('#calTitle').focus(); return; }
       var ty = o.querySelector('#calType').value, rp = o.querySelector('#calRep').value;
       if (o.querySelector('#calSave').checked) { state.calPresets = (state.calPresets || []).concat([{ title: t, type: ty, repeat: rp }]); }
       nv.calOwn = false; add('', t, ty, rp);
     };
+  }
+
+
+  // ---------- your own order for notes, boards and stickies ----------
+  function withOrd(list) {
+    // older items have no position yet: give them one in their current order (newest first)
+    var have = list.filter(function (x) { return x.ord != null; }), miss = list.filter(function (x) { return x.ord == null; });
+    if (miss.length) {
+      var lo = have.length ? Math.min.apply(null, have.map(function (x) { return x.ord; })) : 0;
+      miss.sort(function (a, b) { return (a.updated || a.at || '') < (b.updated || b.at || '') ? 1 : -1; }).forEach(function (x, i) { x.ord = lo - miss.length + i; });
+    }
+    return list.sort(function (a, b) { return ((b.pinned || b.pin) ? 1 : 0) - ((a.pinned || a.pin) ? 1 : 0) || a.ord - b.ord; });
+  }
+  function orderedNotes(boards) { return withOrd((NOTES || []).filter(function (n) { return (n.kind === 'board') === !!boards; })); }
+  function topOrd(list) { return list.length ? Math.min.apply(null, list.map(function (x) { return x.ord || 0; })) - 1 : 0; }
+  function reorderList() { return nv.tab === 'sticky' ? withOrd(stickies()) : orderedNotes(nv.tab === 'vision'); }
+  function reorderHtml() {
+    var list = reorderList();
+    var h = '<div class="row between"><span style="font-size:14px;font-weight:600">Hold ≡ and drag to reorder</span><button type="button" class="btn jungle small" id="roDone">Done</button></div><div class="rolist" id="roList">';
+    h += list.map(function (x, i) {
+      var sw = nv.tab === 'sticky' ? '<span class="rothumb" style="background:' + x.c + '"></span>' : x.thumb ? '<img class="rothumb" src="' + x.thumb + '" alt="">' : '<span class="rothumb" style="background:' + (x.kind === 'board' ? x.board : x.bg) + '"></span>';
+      var t = nv.tab === 'sticky' ? (x.t || 'Empty sticky').split('\n')[0] : x.title || 'Untitled';
+      return '<div class="rorow" data-ri="' + i + '">' + sw + '<span class="t">' + esc(t.slice(0, 60)) + '<small>' + ((x.pinned || x.pin) ? '📌 pinned · ' : '') + niceDate(x.updated || x.at) + '</small></span><span class="rohandle" aria-label="Drag to move">≡</span></div>';
+    }).join('') + '</div><p class="muted small">Pinned ones stay on top. The order is also used in the full-screen vision viewer.</p>';
+    return h;
+  }
+  function bindReorder(o) {
+    o.querySelector('#roDone').onclick = function () { nv.reorder = false; drawNotes(); };
+    var box = o.querySelector('#roList'), rows = [].slice.call(box.querySelectorAll('.rorow')), list = reorderList(), drag = null;
+    rows.forEach(function (row) {
+      var hd = row.querySelector('.rohandle');
+      hd.addEventListener('pointerdown', function (e) {
+        e.preventDefault(); try { hd.setPointerCapture(e.pointerId); } catch (x) {}
+        var rh = row.getBoundingClientRect().height + 8;
+        drag = { row: row, i: +row.dataset.ri, y0: e.clientY, rh: rh, to: +row.dataset.ri };
+        row.classList.add('lift');
+      });
+      hd.addEventListener('pointermove', function (e) {
+        if (!drag || drag.row !== row) return;
+        var dy = e.clientY - drag.y0, to = Math.max(0, Math.min(rows.length - 1, drag.i + Math.round(dy / drag.rh)));
+        row.style.transform = 'translateY(' + dy + 'px)';
+        rows.forEach(function (r2, k) {
+          if (r2 === row) return;
+          var sh = 0; if (drag.i < to && k > drag.i && k <= to) sh = -drag.rh; else if (drag.i > to && k < drag.i && k >= to) sh = drag.rh;
+          r2.style.transform = sh ? 'translateY(' + sh + 'px)' : '';
+        });
+        drag.to = to;
+      });
+      var end = function () {
+        if (!drag || drag.row !== row) return;
+        var from = drag.i, to = drag.to; drag = null;
+        rows.forEach(function (r2) { r2.style.transform = ''; r2.classList.remove('lift'); });
+        if (from === to) return;
+        var moved = list.splice(from, 1)[0]; list.splice(to, 0, moved);
+        list.forEach(function (x, k) { x.ord = k; });
+        if (nv.tab === 'sticky') save(); else saveNotes(true);
+        nv.keepScroll = true; drawNotes();
+      };
+      hd.addEventListener('pointerup', end); hd.addEventListener('pointercancel', end);
+    });
+  }
+
+  // ---------- stickies: a wall of quick sticky notes, separate from scribble and vision ----------
+  var STCOL = ['#FFE66D', '#FFB4A8', '#B8E6D9', '#C9D7FF', '#FFD6A5', '#FFFFFF'];
+  function stickies() { return (state.stickies = state.stickies || []); }
+  function stickiesHtml() {
+    var list = withOrd(stickies()), h = '';
+    if (nv.stEdit) {
+      var st = list.filter(function (x) { return x.id === nv.stEdit; })[0];
+      if (st) {
+        h += '<div class="stedit" style="background:' + st.c + '"><textarea id="stText" placeholder="Write it down…">' + esc(st.t) + '</textarea></div>';
+        h += '<div class="row between"><div class="row" style="gap:8px">' + STCOL.map(function (c) { return '<button type="button" class="nsw' + (st.c === c ? ' on' : '') + '" data-stc="' + c + '" style="background:' + c + ';border-radius:6px" aria-label="Sticky colour"></button>'; }).join('') + '</div>' +
+          '<div class="row" style="gap:6px"><button type="button" class="nib' + (st.pin ? ' on' : '') + '" id="stPin" aria-label="Pin to the top">📌</button><button type="button" class="nib" id="stDel" aria-label="Delete sticky">🗑</button></div></div>';
+        h += '<button type="button" class="btn jungle" id="stDone">Done</button>';
+        return h;
+      }
+      nv.stEdit = null;
+    }
+    if (list.length > 1) h += '<div class="row between"><span class="muted small">' + list.length + ' stickies</span><button type="button" class="btn ghost small" id="nReorder">⇅ Reorder</button></div>';
+    if (!list.length) h += '<p class="muted" style="margin:0">Quick sticky notes: a phone number, a reminder, an idea. Tap <b>New sticky</b>.</p>';
+    else h += '<div class="stgrid">' + list.map(function (x, i) {
+      return '<button type="button" class="sticky" data-stopen="' + x.id + '" style="background:' + x.c + ';--r:' + ([-2, 1.5, -1, 2.2, -1.6, 1][i % 6]) + 'deg">' + (x.pin ? '<span class="npin">📌</span>' : '') + '<span class="sttx">' + (esc(x.t) || '<i class="muted">empty</i>') + '</span><span class="cap">' + niceDate(x.at) + '</span></button>';
+    }).join('') + '</div>';
+    h += '<div class="nfoot"><button type="button" class="btn coral" id="stNew">+ New sticky</button></div>';
+    return h;
+  }
+  function bindStickies(o) {
+    var list = stickies(), st = nv.stEdit && list.filter(function (x) { return x.id === nv.stEdit; })[0];
+    var nw = o.querySelector('#stNew');
+    if (nw) nw.onclick = function () {
+      var x = { id: 's' + Date.now().toString(36), t: '', c: STCOL[list.length % 4], pin: false, at: new Date().toISOString(), ord: topOrd(withOrd(list)) };
+      list.push(x); save(); nv.stEdit = x.id; drawNotes();
+    };
+    o.querySelectorAll('[data-stopen]').forEach(function (b) { b.onclick = function () { nv.stEdit = b.dataset.stopen; drawNotes(); }; });
+    if (st) {
+      var ta = o.querySelector('#stText');
+      ta.addEventListener('input', function () { st.t = ta.value; st.at = new Date().toISOString(); save(); });
+      setTimeout(function () { try { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } catch (e) {} }, 60);
+      o.querySelectorAll('[data-stc]').forEach(function (b) { b.onclick = function () { st.c = b.dataset.stc; save(); drawNotes(); }; });
+      o.querySelector('#stPin').onclick = function () { st.pin = !st.pin; save(); drawNotes(); };
+      o.querySelector('#stDel').onclick = function () { if (st.t && !confirm('Delete this sticky?')) return; state.stickies = list.filter(function (x) { return x !== st; }); nv.stEdit = null; save(); drawNotes(); };
+      o.querySelector('#stDone').onclick = function () { if (!st.t.trim()) state.stickies = list.filter(function (x) { return x !== st; }); nv.stEdit = null; save(); drawNotes(); };
+    }
   }
 
   function drawNoteEditor() {
@@ -2087,6 +2239,7 @@
         '<div class="row" style="gap:6px;flex-wrap:wrap"><span class="cap">Background</span>' + BOARDBG.map(function (b) { return '<button type="button" class="nsw sm' + (n.board === b[1] ? ' on' : '') + '" data-bbg="' + b[1] + '" style="background:' + b[1] + '" aria-label="' + b[0] + ' background"></button>'; }).join('') + '</div>';
     }
     h += '<div class="nwrap' + (board ? ' board' : '') + '"' + (board ? ' style="background:' + n.board + '"' : '') + '><canvas id="nCv" aria-label="' + (board ? 'Vision board' : 'Sketch area') + ', page ' + (nv.page + 1) + '"></canvas></div>';
+    if (!editing) h += '<div class="nlayer" id="nLayer" hidden>' + LAYERBTNS + '</div>';
     if (editing) h += '<div class="npanel" id="nPanel"></div>';
     else {
       h += '<div class="ntools" role="toolbar" aria-label="Drawing tools">' + ['move', 'pen', 'line', 'rect', 'circle', 'arrow', 'text', 'check', 'img', 'erase'].map(function (k) {
@@ -2171,6 +2324,7 @@
       pg.items.forEach(function (it) { drawItem(ctx, it, paint); });
       if (extra) drawItem(ctx, extra, null);
       var si = nv.edit != null ? nv.edit : nv.sel;
+      var lb = document.getElementById('nLayer'); if (lb) lb.hidden = !(nv.sel != null && pg.items[nv.sel] && nv.tool === 'move' && nv.edit == null);
       if (si != null && pg.items[si]) {
         var b = bbox(ctx, pg.items[si]); ctx.save(); ctx.setLineDash([12, 10]); ctx.strokeStyle = '#12A39A'; ctx.lineWidth = 3; ctx.strokeRect(b.x - 12, b.y - 12, Math.max(b.w, 60) + 24, b.h + 24); ctx.restore();
         if (/^(img|text|check)$/.test(pg.items[si].type) && nv.tool === 'move' && nv.edit == null) { var hp = handlePos(pg.items[si], ctx); ctx.save(); ctx.fillStyle = '#FFB23F'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(hp.x, hp.y, 26, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); ctx.strokeStyle = '#16302A'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(hp.x - 9, hp.y - 9); ctx.lineTo(hp.x + 9, hp.y + 9); ctx.moveTo(hp.x + 9, hp.y - 1); ctx.lineTo(hp.x + 9, hp.y + 9); ctx.lineTo(hp.x - 1, hp.y + 9); ctx.moveTo(hp.x - 9, hp.y + 1); ctx.lineTo(hp.x - 9, hp.y - 9); ctx.lineTo(hp.x + 1, hp.y - 9); ctx.stroke(); ctx.restore(); }
@@ -2282,7 +2436,21 @@
       pan = null;
     };
     cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+    bindLayer(o, pg, function () { return nv.sel; }, function (i) { nv.sel = i; }, snap, touch, paint);
     if (editing) drawPanel(n, pg, touch);
+  }
+
+  var LAYERBTNS = [['front', '⤒', 'To front'], ['fwd', '↑', 'Forward'], ['back', '↓', 'Backward'], ['bottom', '⤓', 'To back']].map(function (b) { return '<button type="button" data-layer="' + b[0] + '"><span>' + b[1] + '</span>' + b[2] + '</button>'; }).join('');
+  // bring to front / send to back: the items later in the list are drawn on top
+  function bindLayer(root, pg, getI, setI, snap, touch, paint) {
+    root.querySelectorAll('[data-layer]').forEach(function (b) {
+      b.onclick = function () {
+        var i = getI(), a = pg.items; if (i == null || !a[i]) return;
+        var to = { front: a.length - 1, fwd: Math.min(a.length - 1, i + 1), back: Math.max(0, i - 1), bottom: 0 }[b.dataset.layer];
+        if (to === i) { toast(to ? 'Already on top' : 'Already at the back'); return; }
+        snap(); var it = a.splice(i, 1)[0]; a.splice(to, 0, it); setI(to); touch(); paint();
+      };
+    });
   }
   // editing panel for text and checklists (typing here updates the page live)
   function drawPanel(n, pg, touch) {
@@ -2295,8 +2463,10 @@
         return '<div class="nprow"><button type="button" class="tck' + (r.d ? ' on' : '') + '" data-rtick="' + k + '" aria-label="Tick">' + (r.d ? TICK : '') + '</button><input class="text" data-row="' + k + '" value="' + esc(r.t) + '" placeholder="Item ' + (k + 1) + '" enterkeyhint="next"><button type="button" class="fx" data-rdel="' + k + '" aria-label="Remove item">×</button></div>';
       }).join('') + '</div><button type="button" class="link" id="npAdd" style="align-self:flex-start">+ Add item</button>';
     }
+    h += '<div class="nlayer in">' + LAYERBTNS + '</div>';
     h += '<div class="row"><button type="button" class="btn line small" id="npDel">Delete</button><button type="button" class="btn jungle small" id="npDone" style="flex:1">Done</button></div>';
     box.innerHTML = h;
+    bindLayer(box, pg, function () { return nv.edit; }, function (i) { nv.edit = i; }, function () { nv.hist.push(JSON.stringify(pg.items)); }, touch, function () { if (nv.paint) nv.paint(); });
     var paint = function () { if (nv.paint) nv.paint(); }, redrawPanel = function (focusRow) { drawPanel(n, pg, touch); if (focusRow != null) { var el = box.querySelector('[data-row="' + focusRow + '"]'); if (el) try { el.focus(); } catch (e) {} } };
     // act on the first touch and don't steal focus, so the keyboard stays open and the panel doesn't jump
     box.querySelectorAll('[data-tsz]').forEach(function (b) {
@@ -2916,6 +3086,11 @@
       case 'about': return aboutSheet();
       case 'kcal': return kcalSheet();
       case 'weight': return weightSheet();
+      case 'weighin': return weighinSheet();
+      case 'sharedpick': return sharedPickSheet();
+      case 'shopmonth': return shopMonthSheet(arg || dkey(new Date()).slice(0, 7));
+      case 'shoplearn': return shopLearnSheet();
+      case 'shopset': return shopSetSheet();
       case 'week': return weekSheet();
       case 'roadmap': return roadmapSheet();
       case 'garmin': return garminSheet();
@@ -2956,6 +3131,7 @@
   }
   function closeSheet(fromPop) {
     if (!ui.sheet) return;
+    if (ui.sheet.kind === 'weighin' && typeof wbClose === 'function') { wbClose(); wb.status = 'idle'; wb.reading = null; wb.msg = null; }
     ui.sheet = null;
     var w = document.getElementById('sheet');
     w.classList.remove('in'); w.hidden = true; w.querySelector('.panel').style.transform = '';
@@ -3882,7 +4058,7 @@
 
   // ---------- vision boards, full screen and view only (the eye tab on Today) ----------
   var vb = null;
-  function visionBoards() { return (NOTES || []).filter(function (n) { return n.kind === 'board' && notePages(n).some(function (p) { return p.items.length; }); }).sort(function (a, b) { return (b.pinned - a.pinned) || (b.updated < a.updated ? -1 : 1); }); }
+  function visionBoards() { return orderedNotes(true).filter(function (n) { return notePages(n).some(function (p) { return p.items.length; }); }); }
   function updateEye() {
     var e = document.getElementById('visionEye'); if (!e) return;
     e.hidden = !(ui.tab === 'trail' && NOTES && visionBoards().length);
@@ -3944,6 +4120,712 @@
   document.getElementById('visionEye').addEventListener('click', function () { openVision(); });
   window.addEventListener('resize', function () { if (vb) { var tr = document.getElementById('vbTrack'); drawVision(); var t2 = document.getElementById('vbTrack'); if (t2) t2.scrollLeft = vb.i * t2.clientWidth; } });
 
+
+  // ---------- weigh-in: read the FitDays scale over Bluetooth (learns its signal once), or read a screenshot ----------
+  function logWeight(kg, src, key) {
+    key = key || dkey(new Date()); kg = Math.round(kg * 10) / 10;
+    state.weights = (state.weights || []).filter(function (x) { return x.d !== key; });
+    state.weights.push({ d: key, kg: kg, src: src }); save(); render();
+  }
+  function mergeSyncedWeights() {
+    (state.wellness || []).forEach(function (w) {
+      if (!w.weight || w.weight < 30 || w.weight > 250) return;
+      var ex = (state.weights || []).filter(function (x) { return x.d === w.d; })[0];
+      if (!ex) { state.weights = (state.weights || []).concat([{ d: w.d, kg: Math.round(w.weight * 10) / 10, src: 'sync' }]); }
+      else if (ex.src === 'sync') ex.kg = Math.round(w.weight * 10) / 10;
+    });
+  }
+  var wb = { status: 'idle', seen: {}, reading: null, scan: null };
+  function weighinSheet() {
+    var sc = state.scale, h = '';
+    var bt = !!navigator.bluetooth, scanOk = bt && !!navigator.bluetooth.requestLEScan;
+    if (wb.reading) {
+      h += '<div class="wbig"><span class="cap">Your scale says</span><span class="display">' + wb.reading.toFixed(1) + '<small> kg</small></span><span class="muted small">' + (wb.stable ? 'steady reading' : 'settling…') + '</span></div>';
+      h += '<button type="button" class="btn coral" id="wbSave"' + (wb.stable ? '' : ' disabled') + '>Save ' + wb.reading.toFixed(1) + ' kg</button>';
+    } else if (wb.status === 'scan') {
+      h += '<div class="wbig"><span class="wpulse"></span><span style="font-size:17px;font-weight:600">' + (sc ? 'Step on the scale now' : 'Step on the scale') + '</span><span class="muted small">' + (sc ? 'Listening for your scale…' : 'First time: when the number on the scale stops changing, type it below so the app can learn your scale’s signal.') + '</span></div>';
+      if (!sc) h += '<div class="row"><input id="wbLearn" class="text" type="number" inputmode="decimal" step="0.05" placeholder="number shown on the scale" style="flex:1"><button type="button" class="btn solid" id="wbLearnGo">Learn</button></div>';
+      h += '<button type="button" class="btn ghost" id="wbStop">Stop</button>';
+    } else if (scanOk) {
+      h += '<div class="wbig"><span style="font-size:40px">⚖</span><span style="font-size:17px;font-weight:600">' + (sc ? 'Ready: ' + esc(sc.name || 'your scale') : 'Connect your scale once') + '</span><span class="muted small">' + (sc ? 'Tap start, then step on the scale. No other app needed.' : 'Your FitDays scale sends its reading over Bluetooth. The app listens for it directly.') + '</span></div>';
+      h += '<button type="button" class="btn coral" id="wbStart">Start · then step on</button>';
+      if (sc) h += '<button type="button" class="link small" id="wbForget" style="align-self:center">Forget this scale and learn again</button>';
+    } else {
+      h += '<div class="notice"><b>One-time Chrome setting</b> lets the app hear your scale over Bluetooth:<ol class="steps" style="margin-top:8px"><li>Open a new Chrome tab and type <code>chrome://flags</code></li><li>Search <b>Experimental Web Platform features</b></li><li>Set it to <b>Enabled</b> and tap <b>Relaunch</b></li><li>Come back here and tap Weigh in again</li></ol></div>' +
+        '<button type="button" class="btn ghost small" id="wbCopy">Copy chrome://flags</button>';
+    }
+    if (wb.msg) h += '<div class="notice' + (wb.ok ? ' ok' : '') + '">' + wb.msg + '</div>';
+    h += '<h3 class="sh">Or</h3><div class="list">' + row({ t: '📷 Read a FitDays screenshot', sub: hasAI() ? 'take a screenshot in FitDays, pick it here' : 'needs your Gemini key (Settings → Visualization)', id: 'wbShot' }) + '</div>';
+    h += '<input type="file" id="wbFile" accept="image/*" hidden>';
+    h += '<p class="muted small">Tip: in FitDays you can also tap Share on the result and choose this app.</p>';
+    return { title: 'Weigh in', cap: sc ? 'scale learnt' : '', html: h, bind: bindWeighin };
+  }
+  function wbClose() { try { if (wb.scan && wb.scan.active) wb.scan.stop(); } catch (e) {} wb.scan = null; navigator.bluetooth && navigator.bluetooth.removeEventListener && navigator.bluetooth.removeEventListener('advertisementreceived', wbAdv); }
+  function advFields(ev) {
+    var out = [];
+    if (ev.manufacturerData) ev.manufacturerData.forEach(function (dv, id) { out.push({ k: 'm:' + id, dv: dv }); });
+    if (ev.serviceData) ev.serviceData.forEach(function (dv, id) { out.push({ k: 's:' + id, dv: dv }); });
+    return out;
+  }
+  function wbAdv(ev) {
+    var sc = state.scale, now = Date.now(), id = ev.device && ev.device.id;
+    advFields(ev).forEach(function (f) {
+      var bytes = []; for (var i = 0; i < f.dv.byteLength; i++) bytes.push(f.dv.getUint8(i));
+      var key = id + '|' + f.k; wb.seen[key] = { t: now, b: bytes, name: (ev.device && ev.device.name) || ev.name || '', id: id, k: f.k };
+      if (sc && (sc.id === id || (sc.name && sc.name === ((ev.device && ev.device.name) || ev.name))) && sc.k === f.k && bytes.length > sc.off + 1) {
+        var raw = sc.le ? bytes[sc.off] | (bytes[sc.off + 1] << 8) : (bytes[sc.off] << 8) | bytes[sc.off + 1], kg = raw / sc.div;
+        if (kg < 20 || kg > 250) return;
+        var last = wb.hist || []; last.push(Math.round(kg * 10) / 10); wb.hist = last.slice(-4);
+        wb.reading = kg; wb.stable = wb.hist.length >= 3 && wb.hist.slice(-3).every(function (v) { return v === wb.hist[wb.hist.length - 1]; });
+        if (ui.sheet && ui.sheet.kind === 'weighin') drawSheet();
+      }
+    });
+  }
+  function wbLearn(shown) {
+    // find the device and the two bytes that carry the weight the user typed
+    var best = null, now = Date.now();
+    Object.keys(wb.seen).forEach(function (key) {
+      var s2 = wb.seen[key]; if (now - s2.t > 60000) return;
+      var b = s2.b;
+      for (var o = 0; o + 1 < b.length; o++) [true, false].forEach(function (le) {
+        var raw = le ? b[o] | (b[o + 1] << 8) : (b[o] << 8) | b[o + 1];
+        [10, 100, 20, 200, 22.0462, 220.462].forEach(function (div) {
+          var kg = raw / div; if (Math.abs(kg - shown) <= 0.06 && (!best || s2.t > best.t)) best = { id: s2.id, name: s2.name, k: s2.k, off: o, le: le, div: div, t: s2.t };
+        });
+      });
+    });
+    return best;
+  }
+  function bindWeighin(r) {
+    var st = r.querySelector('#wbStart');
+    if (st) st.onclick = function () {
+      wb.msg = null; wb.reading = null; wb.hist = []; wb.seen = {};
+      navigator.bluetooth.requestLEScan({ acceptAllAdvertisements: true, keepRepeatedDevices: true }).then(function (scan) {
+        wb.scan = scan; wb.status = 'scan';
+        navigator.bluetooth.addEventListener('advertisementreceived', wbAdv);
+        drawSheet();
+        setTimeout(function () { if (wb.status === 'scan' && !wb.reading) { wb.msg = state.scale ? 'Nothing heard yet. Step on the scale again, or check Bluetooth is on.' : null; if (ui.sheet && ui.sheet.kind === 'weighin') drawSheet(); } }, 25000);
+      }).catch(function (e) { wb.msg = 'Bluetooth didn’t start: ' + esc(e.message || e) + '. Turn on Bluetooth and Location, then try again.'; drawSheet(); });
+    };
+    var sp = r.querySelector('#wbStop'); if (sp) sp.onclick = function () { wbClose(); wb.status = 'idle'; drawSheet(); };
+    var lg = r.querySelector('#wbLearnGo');
+    if (lg) lg.onclick = function () {
+      var v = +r.querySelector('#wbLearn').value; if (!v || v < 20 || v > 250) { toast('Type the number on the scale'); return; }
+      var f = wbLearn(v);
+      if (!f) { wb.msg = 'Couldn’t find that number in any Bluetooth signal yet. Stay on the scale for a few seconds and tap Learn again. If it never works, use a screenshot below.'; wb.ok = false; drawSheet(); return; }
+      state.scale = { id: f.id, name: f.name, k: f.k, off: f.off, le: f.le, div: f.div, at: new Date().toISOString() }; save();
+      wbClose(); wb.status = 'idle'; wb.reading = null; wb.ok = true; wb.msg = 'Learnt your scale' + (f.name ? ' (' + esc(f.name) + ')' : '') + '. Saved ' + v + ' kg for today. Next time just tap Start and step on.';
+      logWeight(v, 'scale'); drawSheet();
+    };
+    var sv = r.querySelector('#wbSave'); if (sv) sv.onclick = function () { var kg = wb.reading; wbClose(); wb.status = 'idle'; wb.reading = null; logWeight(kg, 'scale'); closeSheet(); toast('Saved ' + kg.toFixed(1) + ' kg'); };
+    var fg = r.querySelector('#wbForget'); if (fg) fg.onclick = function () { delete state.scale; save(); wb.msg = null; drawSheet(); };
+    var cp = r.querySelector('#wbCopy'); if (cp) cp.onclick = function () { try { navigator.clipboard.writeText('chrome://flags'); toast('Copied. Paste it in a new Chrome tab'); } catch (e) {} };
+    var sh = r.querySelector('#wbShot'), fi = r.querySelector('#wbFile');
+    if (sh) sh.onclick = function () { if (!hasAI()) { toast('Add your Gemini key in Settings → Visualization first'); return; } fi.click(); };
+    if (fi) fi.onchange = function () { var f = fi.files[0]; if (f) blobToDataURL(f).then(readWeightShot); };
+  }
+  function shrinkImage(dataUrl, max) {
+    return new Promise(function (res) {
+      var im = new Image(); im.onload = function () {
+        var k = Math.min(1, max / Math.max(im.width, im.height)), c = document.createElement('canvas'); c.width = Math.round(im.width * k); c.height = Math.round(im.height * k);
+        c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); res(c.toDataURL('image/jpeg', .85));
+      }; im.onerror = function () { res(dataUrl); }; im.src = dataUrl;
+    });
+  }
+  function geminiImages(prompt, dataUrls, temp) {
+    return Promise.all(dataUrls.map(function (u) { return shrinkImage(u, 1800); })).then(function (us) {
+      var parts = us.map(function (u) { return { inline_data: { mime_type: 'image/jpeg', data: u.split(',')[1] } }; });
+      parts.push({ text: prompt });
+      return geminiCall({ contents: [{ parts: parts }], generationConfig: { responseMimeType: 'application/json', temperature: temp == null ? .1 : temp } });
+    }).then(function (t) { return JSON.parse(t.replace(/^\s*```(json)?/, '').replace(/```\s*$/, '')); });
+  }
+  function readWeightShot(dataUrl) {
+    toast('Reading the screenshot…');
+    geminiImages('This is a screenshot from a smart-scale app (like FitDays). Find the body weight reading and its date if shown. Reply JSON: {"weight": number in kg (convert from lb or jin if needed), "date": "YYYY-MM-DD" or null, "fat": body fat % or null}', [dataUrl]).then(function (r) {
+      var kg = +r.weight; if (!kg || kg < 20 || kg > 250) { toast('Couldn’t find a weight in that picture'); return; }
+      var key = r.date && /^\d{4}-\d{2}-\d{2}$/.test(r.date) && r.date <= dkey(new Date()) ? r.date : dkey(new Date());
+      if (!confirm('Save ' + kg.toFixed(1) + ' kg for ' + new Date(key + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + '?')) return;
+      logWeight(kg, 'shot', key); if (ui.sheet) openSheet('weight'); toast('Saved ' + kg.toFixed(1) + ' kg');
+    }).catch(function (e) { toast('AI: ' + (e.message || 'failed')); });
+  }
+  // a picture shared into the app: ask where it should go
+  var pendingShare = null;
+  function sharedPickSheet() {
+    var h = '<p class="muted" style="margin:0">Where should this picture go?</p><div class="list">' +
+      row({ t: '🌄 Vision board', sub: 'place it on a board', id: 'spVision' }) +
+      row({ t: '🧾 Shop sheet', sub: 'add it to today’s sales statement', id: 'spShop' }) +
+      row({ t: '⚖ My weight', sub: 'read the weight from a FitDays screenshot', id: 'spWeight' }) + '</div>';
+    if (pendingShare) h = '<img src="' + pendingShare + '" alt="" style="max-height:220px;object-fit:contain;border-radius:14px;align-self:center">' + h;
+    return { title: 'Shared picture', cap: '', html: h, bind: function (r) {
+      var go = function (fn) { var d = pendingShare; pendingShare = null; closeSheet(); fn(d); };
+      r.querySelector('#spVision').onclick = function () { go(sharedToVision); };
+      r.querySelector('#spShop').onclick = function () { go(function (d) { shopAddPhotos([d]); }); };
+      r.querySelector('#spWeight').onclick = function () { go(readWeightShot); };
+    } };
+  }
+
+  // ---------- Shop accounts: photo of the daily sales statement → editable sheet → close the day → monthly Excel ----------
+  var SHCOLS = ['Item', 'Size', 'Opening', 'Received', 'Total', 'Sales', 'Rate', 'Amount', 'Closing', 'Remarks'];
+  var SC = { item: 0, size: 1, open: 2, recv: 3, total: 4, sales: 5, rate: 6, amt: 7, close: 8, rem: 9 };
+  var shopUi = { month: null }, sp = null;
+  function shop() {
+    var s2 = state.shop = state.shop || {};
+    s2.name = s2.name || 'Laxmi Wines'; s2.days = s2.days || {}; s2.gloss = s2.gloss || {}; s2.fixes = s2.fixes || 0;
+    return s2;
+  }
+  function shopDay(k, make) { var s2 = shop(); if (!s2.days[k] && make) s2.days[k] = { photos: [], grid: null, exp: [], status: 'new', at: new Date().toISOString() }; return s2.days[k]; }
+  function inr(n, dec) { if (n == null || n === '' || isNaN(n)) return '—'; return (n < 0 ? '−' : '') + '₹' + Math.abs(Number(n)).toLocaleString('en-IN', { maximumFractionDigits: dec == null ? 0 : dec }); }
+  function inrK(n) { if (!n) return '₹0'; var a = Math.abs(n); return (n < 0 ? '−' : '') + (a >= 100000 ? '₹' + (a / 100000).toFixed(2).replace(/\.?0+$/, '') + 'L' : a >= 1000 ? '₹' + (a / 1000).toFixed(1).replace(/\.0$/, '') + 'k' : '₹' + Math.round(a)); }
+
+  // --- a small spreadsheet engine: A1 refs, ranges, + − × ÷ ^ %, comparisons and the usual functions ---
+  function colName(c) { var s2 = ''; c++; while (c) { var m = (c - 1) % 26; s2 = String.fromCharCode(65 + m) + s2; c = Math.floor((c - 1) / 26); } return s2; }
+  function colNum(L) { var n = 0; for (var i = 0; i < L.length; i++) n = n * 26 + (L.charCodeAt(i) - 64); return n - 1; }
+  function num(v) { if (typeof v === 'number') return v; if (v == null || v === '') return 0; var t = String(v).replace(/[,₹\s]/g, ''); if (t === '-' || t === '—') return 0; var n = parseFloat(t); return isNaN(n) ? 0 : n; }
+  function isNum(v) { if (typeof v === 'number') return isFinite(v); var t = String(v == null ? '' : v).replace(/[,₹\s]/g, ''); return t !== '' && !isNaN(+t); }
+  function cellVal(g, r, c, seen) {
+    if (!g[r] || g[r][c] == null) return '';
+    var raw = g[r][c];
+    if (typeof raw === 'string' && raw.charAt(0) === '=') {
+      var key = r + ',' + c; seen = seen || {}; if (seen[key]) return '#CYCLE';
+      seen[key] = 1; try { var v = evalFormula(g, raw.slice(1), seen); delete seen[key]; return v; } catch (e) { delete seen[key]; return '#ERR'; }
+    }
+    if (isNum(raw)) return num(raw);
+    return raw;
+  }
+  function evalFormula(g, src, seen) {
+    var i = 0, s2 = src;
+    var ws = function () { while (s2[i] === ' ') i++; };
+    var peek = function (t) { ws(); return s2.substr(i, t.length).toUpperCase() === t; };
+    var flat = function (a) { return [].concat.apply([], a.map(function (x) { return Array.isArray(x) ? flat(x) : [x]; })); };
+    function primary() {
+      ws(); var ch = s2[i];
+      if (ch === '(') { i++; var v = cmp(); ws(); if (s2[i] === ')') i++; return v; }
+      if (ch === '"') { var j = s2.indexOf('"', i + 1); var str = s2.slice(i + 1, j < 0 ? s2.length : j); i = j < 0 ? s2.length : j + 1; return str; }
+      var m = /^[0-9]*\.?[0-9]+(e[+-]?\d+)?/i.exec(s2.slice(i)); if (m) { i += m[0].length; return parseFloat(m[0]); }
+      m = /^\$?([A-Z]{1,2})\$?(\d+)(?::\$?([A-Z]{1,2})\$?(\d+))?/i.exec(s2.slice(i));
+      var fm = /^([A-Z][A-Z0-9.]*)\s*\(/i.exec(s2.slice(i));
+      if (fm) {
+        i += fm[0].length; var args = []; ws();
+        if (s2[i] !== ')') { do { args.push(cmp()); ws(); } while (s2[i] === ',' && ++i); }
+        ws(); if (s2[i] === ')') i++;
+        return fn(fm[1].toUpperCase(), args);
+      }
+      if (m) {
+        i += m[0].length;
+        var c1 = colNum(m[1].toUpperCase()), r1 = +m[2] - 1;
+        if (!m[3]) return cellVal(g, r1, c1, seen);
+        var c2 = colNum(m[3].toUpperCase()), r2 = +m[4] - 1, out = [];
+        for (var r = Math.min(r1, r2); r <= Math.max(r1, r2); r++) for (var c = Math.min(c1, c2); c <= Math.max(c1, c2); c++) out.push(cellVal(g, r, c, seen));
+        return out;
+      }
+      if (peek('TRUE')) { i += 4; return 1; } if (peek('FALSE')) { i += 5; return 0; }
+      throw new Error('bad formula');
+    }
+    function postfix() { var v = primary(); ws(); while (s2[i] === '%') { i++; v = num(v) / 100; ws(); } return v; }
+    function unary() { ws(); if (s2[i] === '-') { i++; return -num(unary()); } if (s2[i] === '+') { i++; return num(unary()); } return postfix(); }
+    function pow() { var v = unary(); ws(); while (s2[i] === '^') { i++; v = Math.pow(num(v), num(unary())); ws(); } return v; }
+    function mul() { var v = pow(); ws(); while (s2[i] === '*' || s2[i] === '/') { var op = s2[i++]; var b = pow(); v = op === '*' ? num(v) * num(b) : num(b) === 0 ? '#DIV/0' : num(v) / num(b); ws(); } return v; }
+    function add() { var v = mul(); ws(); while (s2[i] === '+' || s2[i] === '-' || s2[i] === '&') { var op = s2[i++]; var b = mul(); v = op === '&' ? String(v) + String(b) : op === '+' ? num(v) + num(b) : num(v) - num(b); ws(); } return v; }
+    function cmp() {
+      var v = add(); ws(); var m = /^(<=|>=|<>|=|<|>)/.exec(s2.slice(i));
+      if (!m) return v; i += m[0].length; var b = add(), x = isNum(v) && isNum(b) ? num(v) : String(v).toLowerCase(), y = isNum(v) && isNum(b) ? num(b) : String(b).toLowerCase();
+      return { '=': x == y, '<>': x != y, '<': x < y, '>': x > y, '<=': x <= y, '>=': x >= y }[m[0]] ? 1 : 0;
+    }
+    function crit(c) {
+      var m = /^(<=|>=|<>|=|<|>)?(.*)$/.exec(String(c)), op = m[1] || '=', val = m[2];
+      return function (x) { var a = isNum(x) && isNum(val) ? num(x) : String(x).toLowerCase(), b = isNum(x) && isNum(val) ? num(val) : String(val).toLowerCase(); return { '=': a == b, '<>': a != b, '<': a < b, '>': a > b, '<=': a <= b, '>=': a >= b }[op]; };
+    }
+    function fn(name, a) {
+      var nums = function () { return flat(a).filter(isNum).map(num); };
+      switch (name) {
+        case 'SUM': return nums().reduce(function (x, y) { return x + y; }, 0);
+        case 'AVERAGE': case 'AVG': var n1 = nums(); return n1.length ? n1.reduce(function (x, y) { return x + y; }, 0) / n1.length : '#DIV/0';
+        case 'MIN': var n2 = nums(); return n2.length ? Math.min.apply(null, n2) : 0;
+        case 'MAX': var n3 = nums(); return n3.length ? Math.max.apply(null, n3) : 0;
+        case 'COUNT': return nums().length;
+        case 'COUNTA': return flat(a).filter(function (x) { return x !== '' && x != null; }).length;
+        case 'PRODUCT': return nums().reduce(function (x, y) { return x * y; }, 1);
+        case 'ROUND': var p = Math.pow(10, num(a[1] || 0)); return Math.round(num(a[0]) * p) / p;
+        case 'ROUNDUP': var p2 = Math.pow(10, num(a[1] || 0)); return Math.ceil(num(a[0]) * p2) / p2;
+        case 'ROUNDDOWN': var p3 = Math.pow(10, num(a[1] || 0)); return Math.floor(num(a[0]) * p3) / p3;
+        case 'INT': return Math.floor(num(a[0]));
+        case 'ABS': return Math.abs(num(a[0]));
+        case 'MOD': return num(a[0]) % num(a[1]);
+        case 'SQRT': return Math.sqrt(num(a[0]));
+        case 'POWER': return Math.pow(num(a[0]), num(a[1]));
+        case 'IF': return num(a[0]) ? (a.length > 1 ? a[1] : 1) : (a.length > 2 ? a[2] : 0);
+        case 'AND': return flat(a).every(function (x) { return num(x); }) ? 1 : 0;
+        case 'OR': return flat(a).some(function (x) { return num(x); }) ? 1 : 0;
+        case 'NOT': return num(a[0]) ? 0 : 1;
+        case 'SUMIF': case 'COUNTIF':
+          var rg = flat([a[0]]), test = crit(a[1]), sr = a[2] != null ? flat([a[2]]) : rg, tot = 0, cnt = 0;
+          rg.forEach(function (x, k) { if (test(x)) { cnt++; tot += num(sr[k]); } });
+          return name === 'SUMIF' ? tot : cnt;
+        default: throw new Error('unknown function');
+      }
+    }
+    var out = cmp(); return Array.isArray(out) ? out[0] : out;
+  }
+  function fmtCell(v) { if (typeof v === 'number') return Math.abs(v - Math.round(v)) < 1e-9 ? Math.round(v).toLocaleString('en-IN') : Number(v.toFixed(2)).toLocaleString('en-IN'); return v == null ? '' : String(v); }
+
+  // --- the grid of a day ---
+  function blankGrid() { var g = [SHCOLS.slice()]; for (var i = 0; i < 12; i++) g.push(SHCOLS.map(function () { return ''; })); return withTotalRow(g); }
+  function withTotalRow(g) {
+    g = g.filter(function (r) { return r[0] !== 'TOTAL'; });
+    var n = g.length; var t = SHCOLS.map(function () { return ''; }); t[0] = 'TOTAL'; t[SC.sales] = '=SUM(F2:F' + n + ')'; t[SC.amt] = '=SUM(H2:H' + n + ')';
+    g.push(t); return g;
+  }
+  function dataRows(g) { var out = []; for (var r = 1; r < g.length; r++) if (g[r][0] !== 'TOTAL') out.push(r); return out; }
+  function rowKey(g, r) { return (String(g[r][SC.item] || '').trim().toLowerCase().replace(/[^a-z0-9ಀ-೿]+/g, '') + '|' + String(g[r][SC.size] || '').replace(/[^0-9]/g, '')); }
+  function daySales(d) { if (!d || !d.grid) return 0; var g = d.grid, t = 0; dataRows(g).forEach(function (r) { t += num(cellVal(g, r, SC.amt)); }); return t; }
+  function prevDayKey(k) { var ks = Object.keys(shop().days).filter(function (x) { return x < k && shop().days[x].grid; }).sort(); return ks.pop(); }
+  // checks: anything that doesn't add up turns red
+  function shopChecks(k) {
+    var d = shopDay(k), g = d && d.grid, bad = {}, msgs = [];
+    if (!g) return { bad: bad, msgs: msgs };
+    var pk = prevDayKey(k), prevClose = {};
+    if (pk) { var pg = shop().days[pk].grid; dataRows(pg).forEach(function (r) { if (isNum(cellVal(pg, r, SC.close))) prevClose[rowKey(pg, r)] = num(cellVal(pg, r, SC.close)); }); }
+    dataRows(g).forEach(function (r) {
+      var v = function (c) { return cellVal(g, r, c); }, has = function (c) { var x = g[r][c]; return x !== '' && x != null; };
+      var nm = (g[r][SC.item] || 'Row ' + (r + 1)) + (g[r][SC.size] ? ' ' + g[r][SC.size] : '');
+      if (!has(SC.item) && !has(SC.open) && !has(SC.sales)) return;
+      var o = num(v(SC.open)), rc = num(v(SC.recv)), sl = num(v(SC.sales)), rt = num(v(SC.rate)), am = num(v(SC.amt)), cl = num(v(SC.close));
+      if (has(SC.total) && Math.abs(num(v(SC.total)) - (o + rc)) > .01) { bad[r + ',' + SC.total] = 1; msgs.push({ r: r, c: SC.total, t: '<b>' + esc(nm) + '</b>: total ' + fmtCell(num(v(SC.total))) + ' ≠ opening ' + o + ' + received ' + rc }); }
+      if (has(SC.sales) && has(SC.rate) && has(SC.amt) && Math.abs(sl * rt - am) > .5) { bad[r + ',' + SC.amt] = 1; msgs.push({ r: r, c: SC.amt, t: '<b>' + esc(nm) + '</b>: ' + sl + ' × ' + rt + ' = ' + fmtCell(sl * rt) + ', but amount says ' + fmtCell(am) }); }
+      if (has(SC.close) && has(SC.open) && Math.abs(o + rc - sl - cl) > .01) { bad[r + ',' + SC.close] = 1; msgs.push({ r: r, c: SC.close, t: '<b>' + esc(nm) + '</b>: ' + o + (rc ? ' + ' + rc : '') + ' − ' + sl + ' = ' + (o + rc - sl) + ', but closing says ' + cl }); }
+      var pc = prevClose[rowKey(g, r)];
+      if (pc != null && has(SC.open) && Math.abs(pc - o) > .01) { bad[r + ',' + SC.open] = 1; msgs.push({ r: r, c: SC.open, t: '<b>' + esc(nm) + '</b>: opening ' + o + ', but yesterday closed at ' + pc }); }
+    });
+    if (d.written && d.written.sales && Math.abs(daySales(d) - d.written.sales) > .5) msgs.push({ r: null, t: 'Amounts add up to <b>' + inr(daySales(d)) + '</b>, but the sheet’s written total is <b>' + inr(d.written.sales) + '</b>' });
+    return { bad: bad, msgs: msgs };
+  }
+
+  // --- Shop tab ---
+  function shopMonthDays(m) { var ds = shop().days; return Object.keys(ds).filter(function (k) { return k.slice(0, 7) === m; }).sort().reverse(); }
+  function monthTotals(m) {
+    var t = { sales: 0, profit: 0, exp: 0, net: 0, cash: 0, n: 0 };
+    shopMonthDays(m).forEach(function (k) { var d = shop().days[k]; if (d.status !== 'closed') return; t.n++; t.sales += d.sales || 0; t.profit += d.profit || 0; t.exp += d.expTotal || 0; t.net += d.net || 0; t.cash += d.cash || 0; });
+    return t;
+  }
+  function renderShop() {
+    var s2 = shop(), tk = dkey(new Date()), m = shopUi.month || tk.slice(0, 7), mt = monthTotals(m), md = new Date(m + '-01T00:00:00');
+    var h = '<div class="stack">' + topbar(esc(s2.name));
+    h += '<div class="hero" style="background:' + T.jungle + ';color:#fff;gap:10px">' + sun(T.mango, 120, -34, -44) +
+      '<div class="row between"><span class="cap">' + md.toLocaleDateString('en', { month: 'long', year: 'numeric' }) + ' · ' + mt.n + ' day' + (mt.n === 1 ? '' : 's') + ' closed</span><span class="row" style="gap:4px"><button type="button" class="nib sm shm" data-shm="-1" aria-label="Previous month">‹</button><button type="button" class="nib sm shm" data-shm="1" aria-label="Next month">›</button></span></div>' +
+      '<div class="shtiles">' + [[inrK(mt.sales), 'sales'], [inrK(mt.profit), 'profit'], [inrK(mt.exp), 'expenses'], [inrK(mt.net), 'net']].map(function (x) { return '<div><b class="display">' + x[0] + '</b><small>' + x[1] + '</small></div>'; }).join('') + '</div></div>';
+    h += '<div class="row" style="gap:10px"><button type="button" class="btn coral" style="flex:1" id="shAdd">📷 Today’s sheet</button><button type="button" class="btn line" style="flex:1" data-sheet="shopmonth:' + m + '">⤴ Month file</button></div>';
+    h += '<input type="file" id="shFile" accept="image/*" multiple hidden>';
+    var ks = shopMonthDays(m);
+    if (!ks.length) h += '<p class="muted" style="margin:0">No days yet. Take photos of today’s Statement of Sales (all pages) and tap <b>Today’s sheet</b>. The app reads the handwriting into a sheet you can check and fix.</p>';
+    else h += '<div class="list">' + ks.map(function (k) {
+      var d = s2.days[k], st = d.status === 'closed' ? ['closed', '#CDEFEA'] : d.status === 'reading' ? ['reading…', '#FFE6B8'] : d.grid ? ['to check', '#FFE0D9'] : ['photos only', '#F1E6D6'];
+      return '<button type="button" class="r" data-shday="' + k + '"><span class="t">' + new Date(k + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + '<small>' + (d.status === 'closed' ? 'sales ' + inr(d.sales) + ' · net ' + inr(d.net) : d.grid ? 'sales ' + inr(daySales(d)) + ' so far' : d.photos.length + ' photo' + (d.photos.length === 1 ? '' : 's')) + '</small></span><span class="tkpill" style="background:' + st[1] + '">' + st[0] + '</span>' + CHEV + '</button>';
+    }).join('') + '</div>';
+    h += '<div class="list">' + row({ t: '🧠 Learning your handwriting', sub: Object.keys(s2.gloss).length + ' words learnt · ' + s2.fixes + ' corrections', sheet: 'shoplearn' }) + row({ t: 'Shop settings', sub: 'name, usual profit %', sheet: 'shopset' }) + '</div>';
+    if (!hasAI()) h += '<div class="notice">Reading photos needs your free Gemini key (Settings → Visualization). Without it you can still type the sheet in.</div>';
+    return h + '</div>';
+  }
+  function bindShop(view) {
+    view.querySelectorAll('[data-shm]').forEach(function (b) { b.onclick = function () { var d = new Date((shopUi.month || dkey(new Date()).slice(0, 7)) + '-01T00:00:00'); d.setMonth(d.getMonth() + +b.dataset.shm); shopUi.month = dkey(d).slice(0, 7); render(); }; });
+    var fi = view.querySelector('#shFile');
+    view.querySelector('#shAdd').onclick = function () { fi.click(); };
+    fi.onchange = function () { var fs = [].slice.call(fi.files); if (!fs.length) return; Promise.all(fs.map(blobToDataURL)).then(function (us) { shopAddPhotos(us); }); fi.value = ''; };
+    view.querySelectorAll('[data-shday]').forEach(function (b) { b.onclick = function () { openShopDay(b.dataset.shday); }; });
+  }
+  function shopAddPhotos(urls, key) {
+    key = key || (sp && sp.k) || dkey(new Date());
+    var d = shopDay(key, true);
+    Promise.all(urls.map(function (u) { return shrinkImage(u, 2000); })).then(function (us) {
+      return Promise.all(us.map(function (u, i) { var id = 'sp' + Date.now().toString(36) + i; d.photos.push(id); return idbPut('shopimg-' + id, u); }));
+    }).then(function () {
+      save(); if (!sp || sp.k !== key) openShopDay(key); else drawShopDay();
+      if (hasAI()) shopRead(key); else { if (!d.grid) { d.grid = blankGrid(); save(); } drawShopDay(); }
+    }).catch(function (e) { toast('Couldn’t save the photos: ' + (e.message || e)); });
+  }
+  function shopPhotos(d) { return Promise.all(d.photos.map(function (id) { return idbGet('shopimg-' + id).catch(function () { return null; }); })).then(function (a) { return a.filter(Boolean); }); }
+  // read the handwriting with Gemini, using what it has learnt
+  function shopRead(key) {
+    var d = shopDay(key, true), s2 = shop();
+    d.status = 'reading'; save(); if (sp && sp.k === key) drawShopDay();
+    var known = {}; Object.keys(s2.days).forEach(function (k) { var g = s2.days[k].grid; if (g) dataRows(g).forEach(function (r) { if (g[r][0]) known[g[r][0]] = 1; }); });
+    var gl = Object.keys(s2.gloss).sort(function (a, b) { return s2.gloss[b].n - s2.gloss[a].n; }).slice(0, 80).map(function (k) { return '"' + k + '" → "' + s2.gloss[k].to + '"'; });
+    var prompt = 'These photos are the pages of one day’s handwritten "Statement of Sales" from a liquor shop in Karnataka, India (Laxmi Wines). Read every filled row carefully.\n' +
+      'Columns on the form: Type of Liquors (brand + size), Opening Balance, Stock Received, Total, Sales, Rate, Amount (Rs.), Closing Balance, Remarks.\n' +
+      'The printed sizes 750 ml, 375 ml, 180 ml, 90 ml are in the first column; the handwritten brand name appears on the first row of each group (often abbreviated, sometimes in Kannada script, sometimes with a price like 650 or 330 next to it). Repeat the brand on every size row of its group. Put any handwritten price next to the name into "remarks".\n' +
+      'A dash "-" or "—" in a number column means 0. Skip rows with no numbers at all. Keep numbers exactly as written; do not correct the maths.\n' +
+      'Some pages also have a list of expenses (names with amounts, usually with a total) and written day totals like "Sale 74085", "Exp 9850" and a balance. Return those too.\n' +
+      (Object.keys(known).length ? 'Brand names used in earlier days (prefer these spellings): ' + Object.keys(known).slice(0, 150).join(', ') + '.\n' : '') +
+      (gl.length ? 'Corrections the owner made on earlier days (read these the corrected way): ' + gl.join('; ') + '.\n' : '') +
+      'Reply JSON: {"rows":[{"item":"brand","size":"750","open":number|null,"recv":number|null,"total":number|null,"sales":number|null,"rate":number|null,"amount":number|null,"close":number|null,"remarks":"text"}],"expenses":[{"name":"text","amount":number}],"written":{"sales":number|null,"expenses":number|null,"balance":number|null}}';
+    shopPhotos(d).then(function (imgs) {
+      if (!imgs.length) throw new Error('no photos');
+      return geminiImages(prompt, imgs, .1);
+    }).then(function (r) {
+      var g = [SHCOLS.slice()], fixed = 0;
+      (r.rows || []).forEach(function (x) {
+        var item = String(x.item || '').trim(), gk = item.toLowerCase();
+        if (s2.gloss[gk]) { item = s2.gloss[gk].to; fixed++; }
+        var nv2 = function (v) { return v == null || v === '' ? '' : String(v); };
+        var row2 = [item, nv2(x.size), nv2(x.open), nv2(x.recv), nv2(x.total), nv2(x.sales), nv2(x.rate), nv2(x.amount), nv2(x.close), nv2(x.remarks)];
+        g.push(row2);
+      });
+      if (g.length < 2) g.push(SHCOLS.map(function () { return ''; }));
+      d.grid = withTotalRow(g); d.ai = d.grid.map(function (rw) { return rw.slice(); });
+      d.exp = (r.expenses || []).filter(function (e) { return e && (e.name || e.amount); }).map(function (e) { return { t: String(e.name || ''), v: num(e.amount) }; });
+      d.written = r.written || {}; d.status = 'draft'; save();
+      if (sp && sp.k === key) { sp.view = 'both'; drawShopDay(); }
+      var ck = shopChecks(key);
+      toast('Read ' + (d.grid.length - 2) + ' rows' + (ck.msgs.length ? ' · ' + ck.msgs.length + ' to check' : '') + (fixed ? ' · ' + fixed + ' names auto-fixed' : ''));
+      if (ui.tab === 'shop') render();
+    }).catch(function (e) {
+      d.status = d.grid ? 'draft' : 'new'; if (!d.grid) d.grid = blankGrid(); save();
+      if (sp && sp.k === key) drawShopDay();
+      toast('Reading failed: ' + (e.message || 'AI error') + '. You can type it in or tap Read again.');
+    });
+  }
+
+  // --- the day screen: photos + sheet + close the day ---
+  function openShopDay(k) {
+    resetOverlay(); closeSheet();
+    var d = shopDay(k, true); if (!d.grid && d.status !== 'reading' && !d.photos.length) { d.grid = blankGrid(); save(); }
+    sp = { k: k, view: d.grid ? 'both' : 'photo', sel: null, anchor: null, range: false, ph: 0, zoom: 1, step: 'sheet', hist: [] };
+    drawShopDay(); showOverlay('spo');
+  }
+  function closeShopDay() { sp = null; closeOverlayEl(); if (ui.tab === 'shop') render(); }
+  function drawShopDay() {
+    var o = document.getElementById('overlay'), d = shopDay(sp.k, true), keepY = o.scrollTop;
+    var gridBox = o.querySelector('.shgrid'), keepGX = gridBox ? gridBox.scrollLeft : 0, keepGY = gridBox ? gridBox.scrollTop : 0;
+    var dl = new Date(sp.k + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' });
+    var h = '<div class="inner shd"><div class="row between"><button type="button" class="btn ghost small" id="spBack">‹ Shop</button><span class="cap">' + dl + ' · ' + d.photos.length + ' photo' + (d.photos.length === 1 ? '' : 's') + '</span><button type="button" class="btn ghost small" id="spClose">Done</button></div>';
+    if (sp.step === 'close') { o.innerHTML = h + shopCloseHtml(d) + '</div>'; bindShopClose(o, d); o.scrollTop = 0; return; }
+    if (d.status === 'reading') h += '<div class="shreading"><span class="wpulse"></span><b>Reading your sheet…</b><span class="muted small">' + d.photos.length + ' photo' + (d.photos.length === 1 ? '' : 's') + ' · usually 20–60 seconds</span></div>';
+    h += '<div class="seg2 shseg" role="tablist">' + [['photo', 'Photo'], ['both', 'Both'], ['sheet', 'Sheet']].map(function (v) { return '<button type="button" role="tab" data-spv="' + v[0] + '" aria-selected="' + (sp.view === v[0]) + '">' + v[1] + '</button>'; }).join('') + '</div>';
+    if (sp.view !== 'sheet') {
+      h += '<div class="shphoto' + (sp.view === 'photo' ? ' big' : '') + '" id="spPh">' + (d.photos.length ? '<img id="spImg" alt="Sheet photo" style="width:' + (sp.zoom * 100) + '%">' : '<span class="muted small" style="padding:30px;display:block;text-align:center">No photo yet</span>') + '</div>';
+      h += '<div class="row between shphbar"><span class="row" style="gap:4px">' + (d.photos.length > 1 ? '<button type="button" class="nib" data-sph="-1" aria-label="Previous photo">‹</button><span class="cap">' + (sp.ph + 1) + ' / ' + d.photos.length + '</span><button type="button" class="nib" data-sph="1" aria-label="Next photo">›</button>' : '') + '<button type="button" class="nib sm" id="spAddPh">+ Photo</button>' + (d.photos.length ? '<button type="button" class="nib sm" id="spDelPh" aria-label="Delete this photo">🗑</button>' : '') + '</span>' +
+        '<span class="row" style="gap:4px"><button type="button" class="nib" id="spZo" aria-label="Zoom out">−</button><span class="cap">' + Math.round(sp.zoom * 100) + '%</span><button type="button" class="nib" id="spZi" aria-label="Zoom in">+</button></span></div>';
+      h += '<input type="file" id="spFile" accept="image/*" multiple hidden>';
+    }
+    if (sp.view !== 'photo' && d.grid) h += shopGridHtml(d);
+    else if (sp.view !== 'photo' && !d.grid) h += '<p class="muted small">The sheet appears here once the photos are read.</p>';
+    if (d.grid && sp.view !== 'photo') {
+      var ck = shopChecks(sp.k);
+      if (ck.msgs.length) h += '<div class="shissues">' + ck.msgs.slice(0, 12).map(function (m) { return '<button type="button" class="shiss"' + (m.r != null ? ' data-goto="' + m.r + ',' + m.c + '"' : '') + '>⚠ ' + m.t + '</button>'; }).join('') + (ck.msgs.length > 12 ? '<span class="muted small">+ ' + (ck.msgs.length - 12) + ' more</span>' : '') + '</div>';
+      else h += '<div class="notice ok">✓ Every row adds up.</div>';
+    }
+    h += '<div class="row" style="gap:10px;margin-top:4px">' + (hasAI() && d.photos.length ? '<button type="button" class="btn line small" id="spRead">↻ Read again</button>' : '') + '<button type="button" class="btn coral" style="flex:1" id="spNext"' + (d.grid ? '' : ' disabled') + '>' + (d.status === 'closed' ? 'Day summary →' : 'Close the day →') + '</button></div>';
+    o.innerHTML = h + '</div>';
+    o.scrollTop = keepY;
+    var gb = o.querySelector('.shgrid'); if (gb) { gb.scrollLeft = keepGX; gb.scrollTop = keepGY; }
+    bindShopDay(o, d);
+  }
+  function selRange() {
+    if (!sp.sel) return null;
+    var a = sp.anchor || sp.sel, b = sp.sel;
+    return { r1: Math.min(a[0], b[0]), r2: Math.max(a[0], b[0]), c1: Math.min(a[1], b[1]), c2: Math.max(a[1], b[1]) };
+  }
+  function rangeName(rg) { return colName(rg.c1) + (rg.r1 + 1) + (rg.r1 === rg.r2 && rg.c1 === rg.c2 ? '' : ':' + colName(rg.c2) + (rg.r2 + 1)); }
+  function shopGridHtml(d) {
+    var g = d.grid, ck = shopChecks(sp.k), rg = selRange(), sel = sp.sel;
+    var raw = sel ? (g[sel[0]] && g[sel[0]][sel[1]] != null ? g[sel[0]][sel[1]] : '') : '';
+    var h = '<div class="shfbar"><span class="shref">' + (sel ? rangeName(rg) : '—') + '</span><span class="shfx">ƒx</span><input id="spFx" class="shfin" value="' + esc(raw) + '" placeholder="' + (sel ? 'type a value, or = for a formula' : 'tap a cell') + '"' + (sel ? '' : ' disabled') + ' autocomplete="off" autocapitalize="off" enterkeyhint="next"></div>';
+    h += '<div class="shfns">' + ['SUM', 'AVERAGE', 'MIN', 'MAX', 'COUNT', 'ROUND', 'IF', 'SUMIF', '+', '−', '×', '÷', '%', '(', ')'].map(function (f) { return '<button type="button" data-fn="' + f + '">' + f + '</button>'; }).join('') + '</div>';
+    h += '<div class="shtools"><button type="button" class="nib sm' + (sp.range ? ' on' : '') + '" id="spRange">⬚ Select range</button><button type="button" class="nib sm" id="spAddRow">+ Row</button><button type="button" class="nib sm" id="spDelRow"' + (sel && sel[0] > 0 && g[sel[0]][0] !== 'TOTAL' ? '' : ' disabled') + '>− Row</button><button type="button" class="nib sm" id="spSort"' + (sel ? '' : ' disabled') + '>⇅ Sort</button><button type="button" class="nib sm" id="spFill">ƒ Fill maths</button><button type="button" class="nib sm" id="spUndo">↶ Undo</button></div>';
+    h += '<div class="shgrid"><table class="shtab"><thead><tr><th class="corner"></th>' + SHCOLS.map(function (c, ci) { return '<th data-col="' + ci + '"' + (rg && ci >= rg.c1 && ci <= rg.c2 ? ' class="on"' : '') + '>' + colName(ci) + '</th>'; }).join('') + '</tr></thead><tbody>';
+    g.forEach(function (rw, r) {
+      var tot = rw[0] === 'TOTAL';
+      h += '<tr' + (r === 0 ? ' class="hd"' : tot ? ' class="tot"' : '') + '><th>' + (r + 1) + '</th>' + SHCOLS.map(function (c, ci) {
+        var v = r === 0 ? rw[ci] : cellVal(g, r, ci), cls = [];
+        if (rg && r >= rg.r1 && r <= rg.r2 && ci >= rg.c1 && ci <= rg.c2) cls.push('sel');
+        if (sel && sel[0] === r && sel[1] === ci) cls.push('cur');
+        if (ck.bad[r + ',' + ci]) cls.push('bad');
+        if (typeof rw[ci] === 'string' && rw[ci].charAt(0) === '=') cls.push('fx');
+        if (typeof v === 'number') cls.push('n');
+        if (ci === 0) cls.push('name');
+        return '<td data-rc="' + r + ',' + ci + '"' + (cls.length ? ' class="' + cls.join(' ') + '"' : '') + '>' + esc(r === 0 ? v : fmtCell(v)) + '</td>';
+      }).join('') + '</tr>';
+    });
+    h += '</tbody></table></div>';
+    // status bar like Excel: select cells to see the maths
+    if (rg) {
+      var vals = []; for (var r = rg.r1; r <= rg.r2; r++) for (var c = rg.c1; c <= rg.c2; c++) if (r > 0) { var v = cellVal(g, r, c); if (typeof v === 'number') vals.push(v); }
+      var sum = vals.reduce(function (a, b) { return a + b; }, 0);
+      h += '<div class="shstat"><span>Sum <b>' + fmtCell(sum) + '</b></span><span>Avg <b>' + (vals.length ? fmtCell(sum / vals.length) : '—') + '</b></span><span>Count <b>' + vals.length + '</b></span><span>Min <b>' + (vals.length ? fmtCell(Math.min.apply(null, vals)) : '—') + '</b></span><span>Max <b>' + (vals.length ? fmtCell(Math.max.apply(null, vals)) : '—') + '</b></span></div>';
+    }
+    return h;
+  }
+  function spSnap(d) { sp.hist.push(JSON.stringify(d.grid)); if (sp.hist.length > 60) sp.hist.shift(); }
+  function learnFix(d, r, c, val) {
+    // remember how the owner corrects what the AI read, so the next day reads better
+    var s2 = shop(), was = d.ai && d.ai[r] ? d.ai[r][c] : null;
+    if (was == null || String(was) === String(val)) return;
+    s2.fixes++;
+    if ((c === SC.item) && String(was).trim() && String(val).trim()) {
+      var k = String(was).trim().toLowerCase(); s2.gloss[k] = { to: String(val).trim(), n: ((s2.gloss[k] || {}).n || 0) + 1 };
+    }
+    d.ai[r][c] = val;
+  }
+  function bindShopDay(o, d) {
+    var q = function (s2) { return o.querySelector(s2); };
+    q('#spBack').onclick = closeShopDay; q('#spClose').onclick = closeShopDay;
+    o.querySelectorAll('[data-spv]').forEach(function (b) { b.onclick = function () { sp.view = b.dataset.spv; drawShopDay(); }; });
+    // photo
+    var img = q('#spImg');
+    if (img && d.photos.length) { sp.ph = Math.min(sp.ph, d.photos.length - 1); idbGet('shopimg-' + d.photos[sp.ph]).then(function (u) { if (u) img.src = u; }); }
+    o.querySelectorAll('[data-sph]').forEach(function (b) { b.onclick = function () { sp.ph = (sp.ph + +b.dataset.sph + d.photos.length) % d.photos.length; drawShopDay(); }; });
+    var zi = q('#spZi'), zo = q('#spZo');
+    if (zi) zi.onclick = function () { sp.zoom = Math.min(4, sp.zoom + .5); drawShopDay(); };
+    if (zo) zo.onclick = function () { sp.zoom = Math.max(1, sp.zoom - .5); drawShopDay(); };
+    var ph = q('#spPh');
+    if (ph) { // pinch to zoom the photo
+      var pts = {}, pd = null;
+      ph.addEventListener('pointerdown', function (e) { pts[e.pointerId] = e; var ids = Object.keys(pts); if (ids.length === 2) { var a = pts[ids[0]], b = pts[ids[1]]; pd = { d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), z: sp.zoom }; } });
+      ph.addEventListener('pointermove', function (e) { if (!pts[e.pointerId]) return; pts[e.pointerId] = e; var ids = Object.keys(pts); if (pd && ids.length === 2) { var a = pts[ids[0]], b = pts[ids[1]], dd = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY); sp.zoom = Math.max(1, Math.min(4, pd.z * dd / pd.d)); if (img) img.style.width = (sp.zoom * 100) + '%'; } });
+      var pu = function (e) { delete pts[e.pointerId]; if (Object.keys(pts).length < 2) pd = null; };
+      ph.addEventListener('pointerup', pu); ph.addEventListener('pointercancel', pu);
+      ph.style.touchAction = 'pan-x pan-y';
+    }
+    var fi = q('#spFile');
+    var ap = q('#spAddPh'); if (ap) ap.onclick = function () { fi.click(); };
+    if (fi) fi.onchange = function () { var fs = [].slice.call(fi.files); if (!fs.length) return; Promise.all(fs.map(blobToDataURL)).then(function (us) { shopAddPhotos(us, sp.k); }); };
+    var dp = q('#spDelPh'); if (dp) dp.onclick = function () { if (!confirm('Delete this photo?')) return; var id = d.photos.splice(sp.ph, 1)[0]; idbDel('shopimg-' + id).catch(function () {}); sp.ph = 0; save(); drawShopDay(); };
+    var rd = q('#spRead'); if (rd) rd.onclick = function () { if (d.grid && d.grid.length > 3 && !confirm('Read the photos again? Your edits on this sheet will be replaced.')) return; shopRead(sp.k); };
+    q('#spNext').onclick = function () { if (!d.grid) return; sp.step = 'close'; drawShopDay(); };
+    if (!d.grid || sp.view === 'photo') return;
+    // grid
+    var g = d.grid, fx = q('#spFx');
+    var put = function (r, c, v) {
+      if (r === 0) return;
+      var was = g[r][c]; if (String(was) === String(v)) return;
+      g[r][c] = v; learnFix(d, r, c, v); d.edited = true; save();
+    };
+    var refresh = function () { drawShopDay(); var f2 = document.getElementById('spFx'); return f2; };
+    o.querySelectorAll('[data-rc]').forEach(function (td) {
+      td.onclick = function () {
+        var rc = td.dataset.rc.split(',').map(Number);
+        // while typing a formula, tapping a cell adds its name to the formula (like Excel)
+        if (fx && document.activeElement === fx && /^=/.test(fx.value) && sp.sel && (rc[0] !== sp.sel[0] || rc[1] !== sp.sel[1])) {
+          var pos = fx.selectionStart || fx.value.length; fx.value = fx.value.slice(0, pos) + colName(rc[1]) + (rc[0] + 1) + fx.value.slice(pos);
+          put(sp.sel[0], sp.sel[1], fx.value); var keep = fx.value; var f3 = refresh(); if (f3) { f3.value = keep; f3.focus(); f3.setSelectionRange(keep.length, keep.length); } return;
+        }
+        if (sp.commitPending) sp.commitPending();
+        if (sp.range && sp.sel) { sp.sel = rc; drawShopDay(); return; }
+        sp.sel = rc; sp.anchor = rc; drawShopDay();
+        var f4 = document.getElementById('spFx'); if (f4 && rc[0] > 0) { try { f4.focus(); f4.setSelectionRange(f4.value.length, f4.value.length); } catch (e) {} }
+      };
+    });
+    o.querySelectorAll('[data-col]').forEach(function (th) { th.onclick = function () { var c = +th.dataset.col, rows = dataRows(g); sp.anchor = [rows[0] || 1, c]; sp.sel = [rows[rows.length - 1] || 1, c]; drawShopDay(); }; });
+    if (fx) {
+      var startVal = fx.value;
+      fx.addEventListener('focus', function () { startVal = fx.value; });
+      fx.addEventListener('input', function () { if (!sp.sel) return; var td = o.querySelector('[data-rc="' + sp.sel[0] + ',' + sp.sel[1] + '"]'); if (td && !/^=/.test(fx.value)) td.textContent = fx.value; });
+      var commit = function (move) {
+        if (!sp.sel) return; var v = fx.value.trim();
+        if (v !== String(startVal)) { spSnap(d); put(sp.sel[0], sp.sel[1], v); startVal = v; }
+        if (move && sp.sel[0] < g.length - 1) { sp.sel = [sp.sel[0] + 1, sp.sel[1]]; sp.anchor = sp.sel; }
+        var f5 = refresh(); if (move && f5) { try { f5.focus(); } catch (e) {} }
+      };
+      fx.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); commit(true); } });
+      // leaving the box saves what was typed (but never while the screen is being redrawn)
+      sp.commitPending = function () { if (!sp.sel || !fx.isConnected) return; var v = fx.value.trim(); if (v !== String(startVal)) { spSnap(d); put(sp.sel[0], sp.sel[1], v); startVal = v; } };
+      fx.addEventListener('blur', function () { setTimeout(function () { if (fx.isConnected && sp && document.activeElement !== fx) { var before = String(startVal); sp.commitPending(); if (String(startVal) !== before) drawShopDay(); } }, 0); });
+    }
+    o.querySelectorAll('[data-fn]').forEach(function (b) {
+      b.addEventListener('pointerdown', function (e) { e.preventDefault(); });
+      b.onclick = function () {
+        if (!sp.sel || !fx) { toast('Tap the cell for the answer first'); return; }
+        var f = b.dataset.fn, ins = { '+': '+', '−': '-', '×': '*', '÷': '/', '%': '%', '(': '(', ')': ')' }[f];
+        var rg = selRange(), many = rg && (rg.r1 !== rg.r2 || rg.c1 !== rg.c2);
+        if (!ins) {
+          // a function: if a range is selected, write the answer in the cell just below/after it
+          if (many) {
+            var tr = rg.c1 === rg.c2 ? [Math.min(rg.r2 + 1, g.length - 1), rg.c1] : [rg.r1, Math.min(rg.c2 + 1, SHCOLS.length - 1)];
+            spSnap(d); put(tr[0], tr[1], '=' + f + '(' + rangeName(rg) + ')'); sp.sel = tr; sp.anchor = tr; sp.range = false; drawShopDay(); return;
+          }
+          ins = f + '(';
+        }
+        var v = fx.value; if (!/^=/.test(v)) v = '=' + (v && !ins.match(/^[A-Z]/) ? v : '');
+        fx.value = v + ins; fx.focus(); fx.setSelectionRange(fx.value.length, fx.value.length);
+      };
+    });
+    q('#spRange').onclick = function () { sp.range = !sp.range; if (sp.range && sp.sel) sp.anchor = sp.sel; drawShopDay(); toast(sp.range ? 'Now tap the last cell of the range' : 'Range off'); };
+    q('#spAddRow').onclick = function () {
+      spSnap(d); var at = sp.sel && sp.sel[0] > 0 && g[sp.sel[0]][0] !== 'TOTAL' ? sp.sel[0] + 1 : g.length - 1;
+      g.splice(at, 0, SHCOLS.map(function () { return ''; })); if (d.ai) d.ai.splice(at, 0, SHCOLS.map(function () { return ''; }));
+      d.grid = withTotalRow(g); save(); sp.sel = [at, 0]; sp.anchor = sp.sel; drawShopDay();
+    };
+    q('#spDelRow').onclick = function () {
+      if (!sp.sel || sp.sel[0] === 0) return; var r = sp.sel[0]; if (g[r][0] === 'TOTAL') return;
+      spSnap(d); g.splice(r, 1); if (d.ai) d.ai.splice(r, 1); d.grid = withTotalRow(g); save(); sp.sel = null; sp.anchor = null; drawShopDay();
+    };
+    q('#spSort').onclick = function () {
+      if (!sp.sel) return; var c = sp.sel[1], rows = dataRows(g).map(function (r) { return g[r]; }), asc = sp.sortCol === c ? !sp.sortAsc : true;
+      spSnap(d); rows.sort(function (a, b) { var x = isNum(a[c]) ? num(a[c]) : String(a[c]).toLowerCase(), y = isNum(b[c]) ? num(b[c]) : String(b[c]).toLowerCase(); return (x > y ? 1 : x < y ? -1 : 0) * (asc ? 1 : -1); });
+      d.grid = withTotalRow([g[0]].concat(rows)); d.ai = null; sp.sortCol = c; sp.sortAsc = asc; save(); drawShopDay(); toast('Sorted by ' + SHCOLS[c] + (asc ? ' ↑' : ' ↓'));
+    };
+    q('#spFill').onclick = function () {
+      if (!confirm('Fill in the maths where it’s blank?\nTotal = Opening + Received\nAmount = Sales × Rate\nClosing = Total − Sales')) return;
+      spSnap(d); var n = 0;
+      dataRows(g).forEach(function (r) {
+        var R = r + 1, has = function (c) { return g[r][c] !== '' && g[r][c] != null; };
+        if (!has(SC.item) && !has(SC.open)) return;
+        if (!has(SC.total) && has(SC.open)) { g[r][SC.total] = '=C' + R + '+D' + R; n++; }
+        if (!has(SC.amt) && has(SC.sales) && has(SC.rate)) { g[r][SC.amt] = '=F' + R + '*G' + R; n++; }
+        if (!has(SC.close) && has(SC.open)) { g[r][SC.close] = '=C' + R + '+D' + R + '-F' + R; n++; }
+      });
+      save(); drawShopDay(); toast(n ? n + ' cells filled with formulas' : 'Nothing blank to fill');
+    };
+    q('#spUndo').onclick = function () { if (!sp.hist.length) { toast('Nothing to undo'); return; } d.grid = JSON.parse(sp.hist.pop()); save(); drawShopDay(); };
+    o.querySelectorAll('[data-goto]').forEach(function (b) { b.onclick = function () { var rc = b.dataset.goto.split(',').map(Number); sp.sel = rc; sp.anchor = rc; drawShopDay(); var td = o.querySelector('td.cur'); if (td) td.scrollIntoView({ block: 'center', inline: 'center' }); }; });
+  }
+
+  // --- close the day: sales → profit % → profit → expenses → net income ---
+  function shopCloseHtml(d) {
+    var s2 = shop(), sales = d.salesOverride != null ? d.salesOverride : daySales(d), pct = d.pct != null ? d.pct : s2.pct, profit = pct != null && pct !== '' ? sales * num(pct) / 100 : null;
+    var exp = d.exp || [], et = exp.reduce(function (a, e) { return a + num(e.v); }, 0), net = profit != null ? profit - et : null;
+    var h = '<h1 class="display" style="font-size:30px;margin:0">Close the day</h1>';
+    h += '<div class="shf"><div><span class="lab">Total sales</span><small>' + (d.salesOverride != null ? 'typed by you' : 'sum of the Amount column') + (d.written && d.written.sales && Math.abs(d.written.sales - daySales(d)) > .5 ? ' · sheet says ' + inr(d.written.sales) : '') + '</small></div><label class="shmoney">₹<input id="scSales" inputmode="decimal" value="' + Math.round(sales * 100) / 100 + '"></label></div>';
+    h += '<div class="shf hi"><div><span class="lab">Profit percentage</span><small>' + (s2.pct != null ? 'your usual: ' + s2.pct + '%' : 'type your margin') + '</small></div><label class="shmoney"><input id="scPct" inputmode="decimal" value="' + (pct == null ? '' : pct) + '" placeholder="20">%</label></div>';
+    h += '<div class="shf"><div><span class="lab">Profit</span><small>' + (profit != null ? fmtCell(sales) + ' × ' + pct + '%' : 'appears when you type the %') + '</small></div><b class="shv" id="scProfit">' + (profit != null ? inr(profit) : '—') + '</b></div>';
+    h += '<div class="card stack shexp" style="gap:6px"><div class="row between"><span class="lab">Expenses today</span><b id="scExpT">' + inr(et) + '</b></div>' + exp.map(function (e, i) {
+      return '<div class="row shexr" style="gap:8px"><input class="tkin" data-ei="' + i + '" data-ek="t" value="' + esc(e.t) + '" placeholder="what"><label class="shmoney sm">₹<input data-ei="' + i + '" data-ek="v" inputmode="decimal" value="' + (e.v || '') + '"></label><button type="button" class="tkx" data-edel="' + i + '" aria-label="Remove">✕</button></div>';
+    }).join('') + '<button type="button" class="link" id="scAddExp" style="align-self:flex-start">+ Add expense</button>' + (d.written && d.written.expenses && Math.abs(d.written.expenses - et) > .5 ? '<span class="muted small">The sheet’s written expense total is ' + inr(d.written.expenses) + '</span>' : '') + '</div>';
+    h += '<div class="shnet"><div><span class="cap">Net income</span><small>profit − expenses</small></div><b class="display" id="scNet">' + (net != null ? inr(net) : '—') + '</b></div>';
+    h += '<p class="muted small" id="scCash">Cash in hand (sales − expenses): <b>' + inr(sales - et) + '</b>' + (d.written && d.written.balance ? ' · sheet says ' + inr(d.written.balance) : '') + '</p>';
+    var mn = new Date(sp.k + 'T00:00:00').toLocaleDateString('en', { month: 'long' });
+    h += '<div class="row" style="gap:10px"><button type="button" class="btn line" id="scBack">‹ Sheet</button><button type="button" class="btn coral" style="flex:1" id="scSave">' + (d.status === 'closed' ? 'Update ' + mn + ' file' : 'Save to ' + mn + ' file') + '</button></div>';
+    return h;
+  }
+  function bindShopClose(o, d) {
+    var s2 = shop(), q = function (x) { return o.querySelector(x); };
+    var calc = function () {
+      var sales = num(q('#scSales').value), pv = q('#scPct').value.trim(), pct = pv === '' ? null : num(pv), et = (d.exp || []).reduce(function (a, e) { return a + num(e.v); }, 0);
+      var profit = pct != null ? sales * pct / 100 : null;
+      q('#scProfit').textContent = profit != null ? inr(profit) : '—'; q('#scExpT').textContent = inr(et);
+      q('#scNet').textContent = profit != null ? inr(profit - et) : '—';
+      q('#scCash').innerHTML = 'Cash in hand (sales − expenses): <b>' + inr(sales - et) + '</b>';
+      return { sales: sales, pct: pct, profit: profit, et: et };
+    };
+    q('#scSales').addEventListener('input', function () { var v = num(q('#scSales').value); d.salesOverride = Math.abs(v - daySales(d)) > .5 ? v : null; save(); calc(); });
+    q('#scPct').addEventListener('input', function () { var v = q('#scPct').value.trim(); d.pct = v === '' ? null : num(v); save(); calc(); });
+    o.querySelectorAll('[data-ei]').forEach(function (el) { el.addEventListener('input', function () { var e = d.exp[+el.dataset.ei]; e[el.dataset.ek] = el.dataset.ek === 'v' ? num(el.value) : el.value; save(); calc(); }); });
+    o.querySelectorAll('[data-edel]').forEach(function (b) { b.onclick = function () { d.exp.splice(+b.dataset.edel, 1); save(); drawShopDay(); }; });
+    q('#scAddExp').onclick = function () { (d.exp = d.exp || []).push({ t: '', v: 0 }); save(); drawShopDay(); var ins = o.querySelectorAll('[data-ek="t"]'); if (ins.length) ins[ins.length - 1].focus(); };
+    q('#scBack').onclick = function () { sp.step = 'sheet'; drawShopDay(); };
+    q('#scSave').onclick = function () {
+      var c = calc(); if (c.pct == null) { toast('Type the profit percentage first'); q('#scPct').focus(); return; }
+      d.sales = c.sales; d.pct = c.pct; d.profit = c.profit; d.expTotal = c.et; d.net = c.profit - c.et; d.cash = c.sales - c.et; d.status = 'closed'; d.closedAt = new Date().toISOString();
+      s2.pct = c.pct; save();
+      closeShopDay(); toast('Saved · net ' + inr(d.net));
+    };
+  }
+
+  // --- month file: Excel (sheet per day + summary) or PDF ---
+  function shopMonthSheet(m) {
+    var ks = shopMonthDays(m).slice().reverse(), s2 = shop(), mt = monthTotals(m), md = new Date(m + '-01T00:00:00');
+    var h = '<div class="shmtab"><table><thead><tr><th>Date</th><th>Sales</th><th>Profit</th><th>Exp.</th><th>Net</th></tr></thead><tbody>' + ks.map(function (k) {
+      var d = s2.days[k], c = d.status === 'closed';
+      return '<tr' + (c ? '' : ' class="open"') + ' data-shday="' + k + '"><td>' + new Date(k + 'T00:00:00').getDate() + ' ' + md.toLocaleDateString('en', { month: 'short' }) + '</td><td>' + (c ? fmtCell(d.sales) : 'open') + '</td><td>' + (c ? fmtCell(Math.round(d.profit)) : '') + '</td><td>' + (c ? fmtCell(d.expTotal) : '') + '</td><td>' + (c ? fmtCell(Math.round(d.net)) : '') + '</td></tr>';
+    }).join('') + '</tbody><tfoot><tr><td>Total</td><td>' + fmtCell(mt.sales) + '</td><td>' + fmtCell(Math.round(mt.profit)) + '</td><td>' + fmtCell(mt.exp) + '</td><td>' + fmtCell(Math.round(mt.net)) + '</td></tr></tfoot></table></div>';
+    if (!ks.length) h = '<p class="muted">No days in this month yet.</p>';
+    h += '<span class="cap">Inside the Excel file</span><div class="optrow"><span class="opt sm">📊 Month summary</span>' + ks.filter(function (k) { return s2.days[k].grid; }).map(function (k) { return '<span class="opt sm">📄 ' + new Date(k + 'T00:00:00').getDate() + ' ' + md.toLocaleDateString('en', { month: 'short' }) + '</span>'; }).join('') + '</div>';
+    h += '<div class="row" style="gap:10px"><button type="button" class="btn jungle" style="flex:1" id="smXls"' + (ks.length ? '' : ' disabled') + '>Share Excel</button><button type="button" class="btn line" style="flex:1" id="smPdf"' + (ks.length ? '' : ' disabled') + '>Save as PDF</button></div>';
+    h += '<p class="muted small">Each closed day adds its own sheet and a row to the summary. Days still open are left out of the totals.</p>';
+    return { title: md.toLocaleDateString('en', { month: 'long', year: 'numeric' }), cap: esc(s2.name), html: h, bind: function (r) {
+      r.querySelectorAll('[data-shday]').forEach(function (tr) { tr.onclick = function () { openShopDay(tr.dataset.shday); }; });
+      var x = r.querySelector('#smXls'); if (x) x.onclick = function () { shopExcel(m); };
+      var p = r.querySelector('#smPdf'); if (p) p.onclick = function () { shopPdf(m); };
+    } };
+  }
+  var XLS = null;
+  function loadXlsx() { return window.XLSX ? Promise.resolve(window.XLSX) : XLS || (XLS = loadScript('xlsx.mini.min.js').then(function () { return window.XLSX; }).catch(function (e) { XLS = null; throw e; })); }
+  function shopExcel(m) {
+    toast('Building the Excel file…');
+    loadXlsx().then(function (X) {
+      var s2 = shop(), ks = shopMonthDays(m).slice().reverse(), wb2 = X.utils.book_new(), md = new Date(m + '-01T00:00:00');
+      var mname = md.toLocaleDateString('en', { month: 'long', year: 'numeric' });
+      // summary
+      var sum = [[s2.name + ' · ' + mname], [], ['Date', 'Total sales', 'Profit %', 'Profit', 'Expenses', 'Net income', 'Cash in hand']], r0 = 4;
+      ks.forEach(function (k) { var d = s2.days[k]; if (d.status !== 'closed') return; sum.push([k, d.sales, d.pct, Math.round(d.profit * 100) / 100, d.expTotal, Math.round(d.net * 100) / 100, d.cash]); });
+      var last = sum.length;
+      var ws = X.utils.aoa_to_sheet(sum);
+      ['B', 'D', 'E', 'F', 'G'].forEach(function (c) { ws[c + (last + 1)] = { t: 'n', f: 'SUM(' + c + r0 + ':' + c + last + ')' }; });
+      ws['A' + (last + 1)] = { t: 's', v: 'Total' };
+      ws['!ref'] = 'A1:G' + (last + 1); ws['!cols'] = [{ wch: 12 }, { wch: 12 }, { wch: 9 }, { wch: 12 }, { wch: 11 }, { wch: 12 }, { wch: 13 }];
+      X.utils.book_append_sheet(wb2, ws, 'Month summary');
+      // one sheet per day, formulas kept
+      ks.forEach(function (k) {
+        var d = s2.days[k]; if (!d.grid) return;
+        var aoa = [[s2.name + ' · Statement of Sales · ' + k], []], g = d.grid, off = 2;
+        g.forEach(function (rw) { aoa.push(rw.map(function () { return ''; })); });
+        var sh = X.utils.aoa_to_sheet(aoa);
+        g.forEach(function (rw, r) {
+          rw.forEach(function (v, c) {
+            var ref = colName(c) + (r + off + 1);
+            if (typeof v === 'string' && v.charAt(0) === '=') {
+              // shift references down by the 2 title rows
+              var f = v.slice(1).replace(/(\$?[A-Z]{1,2}\$?)(\d+)/g, function (all, L, n) { return L + (+n + off); });
+              var cv = cellVal(g, r, c); sh[ref] = { t: typeof cv === 'number' ? 'n' : 's', v: cv, f: f };
+            } else if (r > 0 && isNum(v)) sh[ref] = { t: 'n', v: num(v) };
+            else if (v !== '' && v != null) sh[ref] = { t: 's', v: String(v) };
+          });
+        });
+        var rr = g.length + off + 2;
+        var put = function (a, b, f) { sh['A' + rr] = { t: 's', v: a }; sh['B' + rr] = f ? { t: 'n', v: b, f: f } : (typeof b === 'number' ? { t: 'n', v: b } : { t: 's', v: String(b == null ? '' : b) }); rr++; };
+        sh['A' + rr] = { t: 's', v: 'Expenses' }; rr++;
+        var e0 = rr;
+        (d.exp || []).forEach(function (e) { sh['A' + rr] = { t: 's', v: e.t || 'expense' }; sh['B' + rr] = { t: 'n', v: num(e.v) }; rr++; });
+        var e1 = rr - 1; rr++;
+        var salesRow = rr; put('Total sales', d.status === 'closed' ? d.sales : daySales(d));
+        var pctRow = rr; put('Profit %', d.pct == null ? '' : d.pct);
+        var profRow = rr; put('Profit', d.profit || 0, 'B' + salesRow + '*B' + pctRow + '/100');
+        var expRow = rr; put('Expenses', d.expTotal || 0, e1 >= e0 ? 'SUM(B' + e0 + ':B' + e1 + ')' : '0');
+        put('Net income', d.net || 0, 'B' + profRow + '-B' + expRow);
+        put('Cash in hand', d.cash || 0, 'B' + salesRow + '-B' + expRow);
+        sh['!ref'] = 'A1:' + colName(SHCOLS.length - 1) + rr;
+        sh['!cols'] = SHCOLS.map(function (c, i) { return { wch: i === 0 ? 22 : 10 }; });
+        var nm = new Date(k + 'T00:00:00').getDate() + ' ' + md.toLocaleDateString('en', { month: 'short' });
+        X.utils.book_append_sheet(wb2, sh, nm);
+      });
+      var out = X.write(wb2, { bookType: 'xlsx', type: 'array' }), fname = s2.name.replace(/[^A-Za-z0-9]+/g, '-') + '-' + m + '.xlsx';
+      var file = new File([out], fname, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      shareFile(file, s2.name + ' · ' + mname);
+    }).catch(function (e) { toast('Couldn’t build the file: ' + (e.message || e)); });
+  }
+  function shareFile(file, title) {
+    if (navigator.canShare && navigator.canShare({ files: [file] })) { navigator.share({ files: [file], title: title }).catch(function () {}); return; }
+    var a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = file.name; document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 2000); toast('Saved to Downloads');
+  }
+  function shopPdf(m) {
+    var s2 = shop(), ks = shopMonthDays(m).slice().reverse(), mt = monthTotals(m), md = new Date(m + '-01T00:00:00'), mname = md.toLocaleDateString('en', { month: 'long', year: 'numeric' });
+    var css = 'body{font-family:Arial,sans-serif;color:#16302A;margin:24px}h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:22px 0 6px}table{border-collapse:collapse;width:100%;font-size:11px;margin-bottom:8px}th,td{border:1px solid #cfc6b6;padding:4px 6px;text-align:right}th{background:#0F4D40;color:#fff}td:first-child,th:first-child{text-align:left}tfoot td{font-weight:bold;background:#FFE6B8}.pb{page-break-before:always}';
+    var h = '<h1>' + esc(s2.name) + ' · ' + mname + '</h1><table><thead><tr><th>Date</th><th>Sales</th><th>Profit %</th><th>Profit</th><th>Expenses</th><th>Net</th><th>Cash</th></tr></thead><tbody>' +
+      ks.filter(function (k) { return s2.days[k].status === 'closed'; }).map(function (k) { var d = s2.days[k]; return '<tr><td>' + k + '</td><td>' + fmtCell(d.sales) + '</td><td>' + d.pct + '</td><td>' + fmtCell(Math.round(d.profit)) + '</td><td>' + fmtCell(d.expTotal) + '</td><td>' + fmtCell(Math.round(d.net)) + '</td><td>' + fmtCell(d.cash) + '</td></tr>'; }).join('') +
+      '</tbody><tfoot><tr><td>Total</td><td>' + fmtCell(mt.sales) + '</td><td></td><td>' + fmtCell(Math.round(mt.profit)) + '</td><td>' + fmtCell(mt.exp) + '</td><td>' + fmtCell(Math.round(mt.net)) + '</td><td>' + fmtCell(mt.cash) + '</td></tr></tfoot></table>';
+    ks.forEach(function (k) {
+      var d = s2.days[k]; if (!d.grid) return; var g = d.grid;
+      h += '<h2 class="pb">' + k + '</h2><table><thead><tr>' + SHCOLS.map(function (c) { return '<th>' + c + '</th>'; }).join('') + '</tr></thead><tbody>' + g.slice(1).map(function (rw, i) { return '<tr>' + rw.map(function (v, c) { return '<td>' + esc(fmtCell(cellVal(g, i + 1, c))) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table>';
+      if (d.status === 'closed') h += '<table style="width:50%"><tr><td>Total sales</td><td>' + fmtCell(d.sales) + '</td></tr><tr><td>Profit (' + d.pct + '%)</td><td>' + fmtCell(Math.round(d.profit)) + '</td></tr><tr><td>Expenses</td><td>' + fmtCell(d.expTotal) + '</td></tr><tr><td><b>Net income</b></td><td><b>' + fmtCell(Math.round(d.net)) + '</b></td></tr></table>';
+    });
+    var f = document.createElement('iframe'); f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0'; document.body.appendChild(f);
+    var doc = f.contentWindow.document; doc.open(); doc.write('<!doctype html><html><head><meta charset="utf-8"><title>' + esc(s2.name) + ' ' + m + '</title><style>' + css + '</style></head><body>' + h + '</body></html>'); doc.close();
+    setTimeout(function () { try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) { toast('Printing isn’t available here'); } setTimeout(function () { f.remove(); }, 60000); }, 300);
+    toast('Choose “Save as PDF”, then share it');
+  }
+  function shopLearnSheet() {
+    var s2 = shop(), ks = Object.keys(s2.gloss).sort(function (a, b) { return s2.gloss[b].n - s2.gloss[a].n; });
+    var h = '<p class="muted" style="margin:0">Every time you fix a brand name the AI misread, the app remembers it. Next time it reads that word the right way, and the names you’ve used before guide it too.</p>';
+    h += ks.length ? '<div class="list">' + ks.map(function (k) { return '<div class="r"><span class="t"><span class="hw">' + esc(k) + '</span> → ' + esc(s2.gloss[k].to) + '<small>fixed ' + s2.gloss[k].n + '×</small></span><button type="button" class="fx" data-gdel="' + esc(k) + '" aria-label="Forget">×</button></div>'; }).join('') + '</div>' : '<div class="notice">Nothing learnt yet. Fix a misread name in the Item column and it shows up here.</div>';
+    h += '<div class="card stack" style="gap:6px"><span class="cap">Checks on every sheet</span><span style="font-size:13px;line-height:1.6">✓ Opening matches yesterday’s closing<br>✓ Opening + received − sales = closing<br>✓ Sales × rate = amount<br>✓ Amounts add up to the written total</span></div>';
+    h += '<p class="muted small">' + s2.fixes + ' corrections so far. Photos are read by Google’s Gemini using your own key. Everything else stays on your phone.</p>';
+    return { title: 'Learning', cap: ks.length + ' words', html: h, bind: function (r) { r.querySelectorAll('[data-gdel]').forEach(function (b) { b.onclick = function () { delete s2.gloss[b.dataset.gdel]; save(); drawSheet(); }; }); } };
+  }
+  function shopSetSheet() {
+    var s2 = shop();
+    var h = '<label class="lab rng">Shop name<input class="text" id="ssName" value="' + esc(s2.name) + '"></label><label class="lab rng">Usual profit %<input class="text" id="ssPct" inputmode="decimal" value="' + (s2.pct == null ? '' : s2.pct) + '" placeholder="e.g. 20"></label><button type="button" class="btn jungle" id="ssSave">Save</button>';
+    return { title: 'Shop settings', cap: '', html: h, bind: function (r) { r.querySelector('#ssSave').onclick = function () { s2.name = r.querySelector('#ssName').value.trim() || 'My shop'; var p = r.querySelector('#ssPct').value.trim(); s2.pct = p === '' ? null : num(p); save(); closeSheet(); render(); }; } };
+  }
+
   // ---------- shell ----------
   function render() {
     migrate(state);
@@ -3951,6 +4833,7 @@
     var view = document.getElementById('view');
     if (ui.tab === 'trail') { view.innerHTML = renderToday(); bindTrail(view, todayNum()); bindTargets(view); }
     else if (ui.tab === 'log') { view.innerHTML = renderLog(); bindLog(view); }
+    else if (ui.tab === 'shop') { view.innerHTML = renderShop(); bindShop(view); }
     else if (ui.tab === 'fit') { view.innerHTML = renderFit(); bindFit(view); if (fitUi.view === 'plan') stravaSync(false); }
     else { view.innerHTML = renderSettings(); bindSettings(view); stravaSync(false); }
     updateEye();
