@@ -8,5 +8,7 @@
   "movePings": true,
   "moveEveryMinutes": 30,
   "nightPing": true,
-  "nightHour": 22
+  "nightHour": 22,
+  "breathPing": true,
+  "breathTime": "06:30"
 }

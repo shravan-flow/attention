@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '34';
+  var APP_VERSION = '35';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -285,6 +285,7 @@
       tile('data-tab-go="fit:food"', bc ? fmtN(Math.max(0, bc.kcal + ex - eaten.kcal)) : fmtN(eaten.kcal), bc ? 'kcal left' : 'kcal eaten') + '</div>';
     var vd = (state.vizDone || {})[key], vs = vizSettings(), pills = '';
     if (!vd) pills += '<button type="button" class="hpill" data-viz="1"><span class="pp">' + PLAY + '</span>Visualize <i>' + vs.mins + ' min</i></button>';
+    if (new Date().getHours() >= 12 && !brDone(key)) pills += '<button type="button" class="hpill" data-breath="1"><span class="pp">🌬</span>Breathe <i>' + brMins() + ' min</i></button>';
     if (!drillDoneToday()) pills += '<button type="button" class="hpill" data-drill="1"><span class="pp">🧠</span>Think <i>3 min</i></button>';
     questsFor(today).forEach(function (q) {
       if (d[q.f]) return;
@@ -292,6 +293,7 @@
         : '<button type="button" class="hpill" data-qt="' + q.f + '" aria-label="Mark done: ' + q.n + '"><span class="pp o"></span>' + q.n + '</button>';
     });
     h += '<div class="hpills">' + (pills || '<span class="hdone">✓ Today’s practices are done</span>') + '</div></div>';
+    if (new Date().getHours() < 12) h += breathCard();
     h += timerBlock();
     h += goalCard();
     var up = [], dd0 = new Date();
@@ -1717,10 +1719,11 @@
     if (nv) notesLeave(); nv = null;
     if (tk) { var tx = ideaById(tk.id); if (tx) tx.last = tk.page; save(); } tk = null;
     vb = null; sp = null; bp = null;
-    var o = document.getElementById('overlay'); o.classList.remove('dark', 'vzo', 'nto', 'tko', 'vbo', 'spo');
+    if (br) brStop(); br = null;
+    var o = document.getElementById('overlay'); o.classList.remove('dark', 'vzo', 'nto', 'tko', 'vbo', 'spo', 'bro');
   }
   function closeOverlayEl() {
-    var o = document.getElementById('overlay'); o.hidden = true; o.classList.remove('dark', 'vzo', 'nto', 'tko', 'vbo', 'spo');
+    var o = document.getElementById('overlay'); o.hidden = true; o.classList.remove('dark', 'vzo', 'nto', 'tko', 'vbo', 'spo', 'bro');
     updateEye();
     document.body.style.overflow = ui.sheet ? 'hidden' : '';
   }
@@ -3090,6 +3093,8 @@
       case 'sharedpick': return sharedPickSheet();
       case 'shopmonth': return shopMonthSheet(arg || dkey(new Date()).slice(0, 7));
       case 'shoplearn': return shopLearnSheet();
+      case 'shopteach': return shopTeachSheet();
+      case 'breath': return breathSheet();
       case 'shopset': return shopSetSheet();
       case 'shopstock': return shopStockSheet();
       case 'shopprices': return shopPricesSheet();
@@ -3152,8 +3157,9 @@
   })();
   // rows and cards that open a sheet or jump to another tab
   document.addEventListener('click', function (e) {
-    var t = e.target.closest && e.target.closest('[data-sheet],[data-tab-go],[data-viz],[data-ocal],[data-drill]');
+    var t = e.target.closest && e.target.closest('[data-sheet],[data-tab-go],[data-viz],[data-ocal],[data-drill],[data-breath]');
     if (!t) return;
+    if (t.dataset.breath) { e.stopPropagation(); openBreath(); return; }
     if (t.dataset.viz) { openViz(false); return; }
     if (t.dataset.drill) { e.stopPropagation(); openDrill(); return; }
     if (t.dataset.ocal) { openNotes('cal', t.dataset.ocal); return; }
@@ -4430,7 +4436,7 @@
       var d = s2.days[k], st = d.status === 'closed' ? ['closed', '#CDEFEA'] : d.status === 'reading' ? ['reading…', '#FFE6B8'] : d.grid ? ['to check', '#FFE0D9'] : ['photos only', '#F1E6D6'];
       return '<button type="button" class="r" data-shday="' + k + '"><span class="t">' + new Date(k + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + '<small>' + (d.status === 'closed' ? 'sales ' + inr(d.sales) + ' · net ' + inr(d.net) : d.grid ? 'sales ' + inr(daySales(d)) + ' so far' : d.photos.length + ' photo' + (d.photos.length === 1 ? '' : 's')) + '</small></span><span class="tkpill" style="background:' + st[1] + '">' + st[0] + '</span>' + CHEV + '</button>';
     }).join('') + '</div>';
-    h += '<div class="list">' + row({ t: '📋 KSBCL price list', sub: PL && PL.asOf ? fmtN(PL.items.length) + ' items · as on ' + new Date(PL.asOf + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short', year: 'numeric' }) : 'add the PDF or Excel list: exact names, MRP, cost', sheet: 'shopprices' }) + row({ t: '📊 Month file', sub: 'share ' + md.toLocaleDateString('en', { month: 'long' }) + ' as Excel or PDF', sheet: 'shopmonth:' + m }) + row({ t: '🧠 Learning your handwriting', sub: Object.keys(s2.gloss).length + ' words learnt · ' + s2.fixes + ' corrections', sheet: 'shoplearn' }) + row({ t: 'Shop settings', sub: 'name, usual profit %', sheet: 'shopset' }) + '</div>';
+    h += '<div class="list">' + row({ t: '📋 KSBCL price list', sub: PL && PL.asOf ? fmtN(PL.items.length) + ' items · as on ' + new Date(PL.asOf + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short', year: 'numeric' }) : 'add the PDF or Excel list: exact names, MRP, cost', sheet: 'shopprices' }) + row({ t: '📊 Month file', sub: 'share ' + md.toLocaleDateString('en', { month: 'long' }) + ' as Excel or PDF', sheet: 'shopmonth:' + m }) + row({ t: '📚 Teach from old sheets', sub: teachSub(), sheet: 'shopteach' }) + row({ t: '🧠 Learning your handwriting', sub: Object.keys(s2.gloss).length + ' words learnt · ' + s2.fixes + ' corrections', sheet: 'shoplearn' }) + row({ t: 'Shop settings', sub: 'name, usual profit %', sheet: 'shopset' }) + '</div>';
     if (!hasAI()) h += '<div class="notice">Reading photos needs your free Gemini key (Settings → Visualization). Without it you can still type the sheet in.</div>';
     return h + '</div>';
   }
@@ -4461,22 +4467,16 @@
   function shopRead(key) {
     var d = shopDay(key, true), s2 = shop();
     d.status = 'reading'; save(); if (sp && sp.k === key) drawShopDay();
-    var known = {}; Object.keys(s2.days).forEach(function (k) { var g = s2.days[k].grid; if (g) dataRows(g).forEach(function (r) { if (g[r][0]) known[g[r][0]] = 1; }); });
-    bills(); Object.keys(s2.items).forEach(function (k) { known[s2.items[k].item] = 1; });
-    var al = Object.keys(s2.alias).map(function (k) { return '"' + k + '" = ' + s2.alias[k]; });
-    var gl = Object.keys(s2.gloss).sort(function (a, b) { return s2.gloss[b].n - s2.gloss[a].n; }).slice(0, 80).map(function (k) { return '"' + k + '" → "' + s2.gloss[k].to + '"'; });
     var prompt = 'These photos are the pages of one day’s handwritten "Statement of Sales" from a liquor shop in Karnataka, India (Laxmi Wines). Read every filled row carefully.\n' +
       'Columns on the form: Type of Liquors (brand + size), Opening Balance, Stock Received, Total, Sales, Rate, Amount (Rs.), Closing Balance, Remarks.\n' +
       'The printed sizes 750 ml, 375 ml, 180 ml, 90 ml are in the first column; the handwritten brand name appears on the first row of each group (often abbreviated, sometimes in Kannada script, sometimes with a price like 650 or 330 next to it). Repeat the brand on every size row of its group. Put any handwritten price next to the name into "remarks".\n' +
       'A dash "-" or "—" in a number column means 0. Skip rows with no numbers at all. Keep numbers exactly as written; do not correct the maths.\n' +
       'Some pages also have a list of expenses (names with amounts, usually with a total) and written day totals like "Sale 74085", "Exp 9850" and a balance. Return those too.\n' +
-      (Object.keys(known).length ? 'Brand names used in earlier days (prefer these spellings): ' + Object.keys(known).slice(0, 150).join(', ') + '.\n' : '') +
-      (al.length ? 'Short names this shop uses and the full brand they stand for (from KSBCL bills): ' + al.slice(0, 120).join('; ') + '. Write the short name the shop uses.\n' : '') +
-      (gl.length ? 'Corrections the owner made on earlier days (read these the corrected way): ' + gl.join('; ') + '.\n' : '') +
+      shopHints() +
       'Reply JSON: {"rows":[{"item":"brand","size":"750","open":number|null,"recv":number|null,"total":number|null,"sales":number|null,"rate":number|null,"amount":number|null,"close":number|null,"remarks":"text"}],"expenses":[{"name":"text","amount":number}],"written":{"sales":number|null,"expenses":number|null,"balance":number|null}}';
     shopPhotos(d).then(function (imgs) {
       if (!imgs.length) throw new Error('no photos');
-      return geminiImages(prompt, imgs, .1);
+      return geminiImagesEx(prompt, imgs, .1);
     }).then(function (r) {
       var g = [SHCOLS.slice()], fixed = 0;
       (r.rows || []).forEach(function (x) {
@@ -5317,15 +5317,520 @@
   function shopLearnSheet() {
     var s2 = shop(), ks = Object.keys(s2.gloss).sort(function (a, b) { return s2.gloss[b].n - s2.gloss[a].n; });
     var h = '<p class="muted" style="margin:0">Every time you fix a brand name the AI misread, the app remembers it. Next time it reads that word the right way, and the names you’ve used before guide it too.</p>';
+    h += '<div class="list">' + row({ t: '📚 Teach from old sheets', sub: teachSub(), sheet: 'shopteach' }) + '</div>';
+    if (learnt().usual.length || learnt().examples.length) h += learnedHtml();
     h += ks.length ? '<div class="list">' + ks.map(function (k) { return '<div class="r"><span class="t"><span class="hw">' + esc(k) + '</span> → ' + esc(s2.gloss[k].to) + '<small>fixed ' + s2.gloss[k].n + '×</small></span><button type="button" class="fx" data-gdel="' + esc(k) + '" aria-label="Forget">×</button></div>'; }).join('') + '</div>' : '<div class="notice">Nothing learnt yet. Fix a misread name in the Item column and it shows up here.</div>';
     h += '<div class="card stack" style="gap:6px"><span class="cap">Checks on every sheet</span><span style="font-size:13px;line-height:1.6">✓ Opening matches yesterday’s closing<br>✓ Opening + received − sales = closing<br>✓ Sales × rate = amount<br>✓ Amounts add up to the written total</span></div>';
     h += '<p class="muted small">' + s2.fixes + ' corrections so far. Photos are read by Google’s Gemini using your own key. Everything else stays on your phone.</p>';
-    return { title: 'Learning', cap: ks.length + ' words', html: h, bind: function (r) { r.querySelectorAll('[data-gdel]').forEach(function (b) { b.onclick = function () { delete s2.gloss[b.dataset.gdel]; save(); drawSheet(); }; }); } };
+    return { title: 'Learning', cap: ks.length + ' words', html: h, bind: function (r) { fillThumbs(r); r.querySelectorAll('[data-gdel]').forEach(function (b) { b.onclick = function () { delete s2.gloss[b.dataset.gdel]; save(); drawSheet(); }; }); } };
   }
   function shopSetSheet() {
     var s2 = shop();
     var h = '<label class="lab rng">Shop name<input class="text" id="ssName" value="' + esc(s2.name) + '"></label><label class="lab rng">Usual profit %<input class="text" id="ssPct" inputmode="decimal" value="' + (s2.pct == null ? '' : s2.pct) + '" placeholder="e.g. 20"></label><button type="button" class="btn jungle" id="ssSave">Save</button>';
     return { title: 'Shop settings', cap: '', html: h, bind: function (r) { r.querySelector('#ssSave').onclick = function () { s2.name = r.querySelector('#ssName').value.trim() || 'My shop'; var p = r.querySelector('#ssPct').value.trim(); s2.pct = p === '' ? null : num(p); save(); closeSheet(); render(); }; } };
+  }
+
+  // ---------- Teach from old sheets: read many past sheets once, learn his names, habits and usual list ----------
+  var TT = { busy: false, th: {}, adding: null, tab: 'sure', names: null, lock: null };
+  function teach() {
+    var s2 = shop(); s2.teach = s2.teach || { jobs: [], backfill: true, stage: 'pick', pick: {} }; s2.teach.pick = s2.teach.pick || {};
+    return s2.teach;
+  }
+  function teachSub() { var t = teach(), n = t.jobs.length, dn = t.jobs.filter(function (j) { return j.st !== 'wait'; }).length; return t.stage === 'reading' ? (t.running ? 'reading ' : 'paused · ') + dn + ' of ' + n + ' sheets' : t.stage === 'names' ? 'all read · confirm his short names' : learnt().sheets ? 'learnt from ' + learnt().sheets + ' sheets · add more' : 'read many past sheets at once so it learns faster'; }
+  function learnt() { var s2 = shop(); s2.learn = s2.learn || { digits: {}, notes: {}, usual: [], examples: [] }; return s2.learn; }
+  var DIGNAME = function (p) { var a = p.split('>'); return 'his ' + a[1] + ' gets read as ' + a[0]; };
+  // hints for the AI from everything learnt so far
+  function learnHints() {
+    var L = learnt(), out = '';
+    if (L.usual.length) out += 'The items this shop usually writes, in their usual order (a smudged name is most likely the item in that position): ' + L.usual.slice(0, 80).map(function (x) { return x.item + (x.size ? ' ' + x.size : ''); }).join('; ') + '.\n';
+    var dg = Object.keys(L.digits).filter(function (k) { return L.digits[k] >= 2; }).sort(function (a, b) { return L.digits[b] - L.digits[a]; }).slice(0, 6);
+    if (dg.length) out += 'Digits that are easy to misread in this writer’s hand: ' + dg.map(function (p) { var a = p.split('>'); return 'his "' + a[1] + '" looks like "' + a[0] + '"'; }).join('; ') + '. Only when a digit is unclear, use the row (opening + received − sales = closing, sales × rate = amount) to decide.\n';
+    var nt = Object.keys(L.notes).filter(function (k) { return L.notes[k] >= 2; }).sort(function (a, b) { return L.notes[b] - L.notes[a]; }).slice(0, 6);
+    if (nt.length) out += 'How this writer writes: ' + nt.join('; ') + '.\n';
+    return out;
+  }
+  function shopHints() {
+    var s2 = shop(), known = {}; bills();
+    Object.keys(s2.days).forEach(function (k) { var g = s2.days[k].grid; if (g) dataRows(g).forEach(function (r) { if (g[r][0]) known[g[r][0]] = 1; }); });
+    Object.keys(s2.items).forEach(function (k) { known[s2.items[k].item] = 1; });
+    var al = Object.keys(s2.alias).map(function (k) { return '"' + k + '" = ' + s2.alias[k]; });
+    var gl = Object.keys(s2.gloss).sort(function (a, b) { return s2.gloss[b].n - s2.gloss[a].n; }).slice(0, 120).map(function (k) { return '"' + k + '" → "' + s2.gloss[k].to + '"'; });
+    return (Object.keys(known).length ? 'Brand names used in earlier days (prefer these spellings): ' + Object.keys(known).slice(0, 150).join(', ') + '.\n' : '') +
+      (al.length ? 'Short names this shop uses and the full brand they stand for (from KSBCL bills): ' + al.slice(0, 120).join('; ') + '. Write the short name the shop uses.\n' : '') +
+      (gl.length ? 'This writer’s short names and what they mean (read these the corrected way): ' + gl.join('; ') + '.\n' : '') + learnHints();
+  }
+  // example pages (photo + correct reading) shown to the AI before the new day's photos
+  function exampleParts() {
+    var ex = learnt().examples.slice(0, 3);
+    return Promise.all(ex.map(function (e) { return idbGet('shopimg-' + e.id).catch(function () { return null; }); })).then(function (us) {
+      return Promise.all(us.map(function (u) { return u ? shrinkImage(u, 1400) : null; })).then(function (s) {
+        var parts = [];
+        s.forEach(function (u, i) {
+          if (!u) return;
+          parts.push({ inline_data: { mime_type: 'image/jpeg', data: u.split(',')[1] } });
+          parts.push({ text: 'EXAMPLE ' + (parts.length / 2 + .5 | 0) + ': a page in this same handwriting, read correctly (item, size, opening, received, total, sales, rate, amount, closing):\n' + ex[i].rows.slice(0, 30).map(function (r) { return r.slice(0, 9).join(' | '); }).join('\n') });
+        });
+        if (parts.length) parts.push({ text: 'Those were examples only. Now read the NEW page(s) below.' });
+        return parts;
+      });
+    }).catch(function () { return []; });
+  }
+  function geminiImagesEx(prompt, dataUrls, temp) {
+    return exampleParts().then(function (pre) {
+      return Promise.all(dataUrls.map(function (u) { return shrinkImage(u, 1800); })).then(function (us) {
+        var parts = pre.concat(us.map(function (u) { return { inline_data: { mime_type: 'image/jpeg', data: u.split(',')[1] } }; }));
+        parts.push({ text: prompt });
+        return geminiCall({ contents: [{ parts: parts }], generationConfig: { responseMimeType: 'application/json', temperature: temp == null ? .1 : temp } });
+      });
+    }).then(function (t) { return JSON.parse(t.replace(/^\s*```(json)?/, '').replace(/```\s*$/, '')); });
+  }
+  function teachPrompt() {
+    return 'This photo is ONE page of a handwritten "Statement of Sales" from a liquor shop in Karnataka, India (Laxmi Wines). Read every filled row carefully.\n' +
+      'Columns on the form: Type of Liquors (brand + size), Opening Balance, Stock Received, Total, Sales, Rate, Amount (Rs.), Closing Balance, Remarks.\n' +
+      'The printed sizes 750 ml, 375 ml, 180 ml, 90 ml are in the first column; the handwritten brand name appears on the first row of each group (often abbreviated, sometimes in Kannada script, sometimes with a price like 650 or 330 next to it). Repeat the brand on every size row of its group. Put any handwritten price next to the name into "remarks".\n' +
+      'A dash "-" or "—" in a number column means 0. Skip rows with no numbers at all. Keep numbers exactly as written; do not correct the maths.\n' +
+      'Return any list of expenses and written day totals too. Read the date written on the page (Indian day/month/year order) as "YYYY-MM-DD", or null if there is none.\n' +
+      'If the photo is too blurry to read or is not a sales sheet, set "readable" to false.\n' +
+      'In "notes" give up to 3 short, general observations about HOW this person writes (for example "a dash means 0", "½ next to a beer means 650 ml", "cases and bottles written as 2-6"), only if clearly seen on this page.\n' +
+      shopHints() +
+      'Reply JSON: {"readable":true,"date":"YYYY-MM-DD"|null,"rows":[{"item":"brand","size":"750","open":number|null,"recv":number|null,"total":number|null,"sales":number|null,"rate":number|null,"amount":number|null,"close":number|null,"remarks":"text"}],"expenses":[{"name":"text","amount":number}],"written":{"sales":number|null,"expenses":number|null,"balance":number|null},"notes":["..."]}';
+  }
+  function teachWake(on) {
+    if (on) { if (TT.lock || !('wakeLock' in navigator)) return; navigator.wakeLock.request('screen').then(function (w) { TT.lock = w; w.addEventListener('release', function () { TT.lock = null; }); }).catch(function () {}); }
+    else if (TT.lock) { try { TT.lock.release(); } catch (e) {} TT.lock = null; }
+  }
+  function teachDraw() {
+    if (ui.sheet && ui.sheet.kind === 'shopteach') drawSheet();
+    var dm = document.getElementById('tdim'); if (dm) { var t = teach(), n = t.jobs.length, dn = t.jobs.filter(function (j) { return j.st !== 'wait'; }).length; dm.querySelector('b').textContent = t.stage === 'reading' ? dn + ' / ' + n : '✓'; dm.querySelector('span').textContent = t.stage === 'reading' ? (t.running ? 'Reading his sheets… keep the phone on charge' : 'Paused') : 'All read. Tap to see the names'; }
+    if (ui.tab === 'shop' && !ui.sheet && !sp && !bp) render();
+  }
+  function teachDim(on) {
+    var dm = document.getElementById('tdim');
+    if (!on) { if (dm) dm.remove(); return; }
+    if (dm) return;
+    dm = document.createElement('div'); dm.id = 'tdim'; dm.setAttribute('role', 'button'); dm.setAttribute('aria-label', 'Wake the screen');
+    dm.innerHTML = '<b class="display"></b><span></span><small>tap to wake</small>';
+    dm.onclick = function () { teachDim(false); }; document.body.appendChild(dm); teachDraw();
+  }
+  // add photos one by one (keeps memory low even with 60+ big photos)
+  function teachAdd(files) {
+    var t = teach(); files = files.slice().sort(function (a, b) { return (a.lastModified - b.lastModified) || (a.name < b.name ? -1 : 1); });
+    TT.adding = { i: 0, n: files.length }; teachDraw();
+    var chain = Promise.resolve();
+    files.forEach(function (f, i) {
+      chain = chain.then(function () { return blobToDataURL(f); }).then(function (u) { return Promise.all([shrinkImage(u, 2000), shrinkImage(u, 200)]); }).then(function (a) {
+        var id = 'tc' + Date.now().toString(36) + i;
+        TT.th[id] = a[1];
+        return Promise.all([idbPut('shopimg-' + id, a[0]), idbPut('teachth-' + id, a[1])]).then(function () { t.jobs.push({ id: id, st: 'wait' }); TT.adding.i = i + 1; if (i % 3 === 2) { save(); teachDraw(); } });
+      }).catch(function () {});
+    });
+    chain.then(function () { TT.adding = null; if (t.stage === 'done') t.stage = 'pick'; save(); teachDraw(); });
+  }
+  function teachRun() {
+    var t = teach(); if (TT.busy || !t.running) return;
+    var j = t.jobs.filter(function (x) { return x.st === 'wait'; })[0];
+    if (!j) { t.running = false; teachWake(false); save(); teachAnalyse(); return; }
+    if (!hasAI()) { t.running = false; save(); toast('Reading needs your free Gemini key (Settings → Visualization)'); teachDraw(); return; }
+    TT.busy = true; t.stage = 'reading'; teachWake(true); teachDraw();
+    var gap = 4000;
+    idbGet('shopimg-' + j.id).then(function (u) { if (!u) throw new Error('photo missing'); return geminiImages(teachPrompt(), [u], .1); }).then(function (r) {
+      var nv2 = function (v) { return v == null || v === '' ? '' : String(v); };
+      j.rows = (r.rows || []).filter(function (x) { return x && (x.item || x.open != null || x.sales != null); }).map(function (x) { return [String(x.item || '').trim(), nv2(x.size), nv2(x.open), nv2(x.recv), nv2(x.total), nv2(x.sales), nv2(x.rate), nv2(x.amount), nv2(x.close), nv2(x.remarks)]; });
+      var dt = /^\d{4}-\d{2}-\d{2}$/.test(r.date || '') && r.date >= '2015-01-01' && r.date <= dkey(new Date()) ? r.date : null;
+      j.date = dt; j.exp = (r.expenses || []).filter(function (e) { return e && (e.name || e.amount); }).map(function (e) { return { t: String(e.name || ''), v: num(e.amount) }; });
+      j.written = r.written || {}; j.notes = (r.notes || []).slice(0, 3).map(function (x) { return String(x).trim().toLowerCase().replace(/\.$/, ''); }).filter(Boolean);
+      j.st = r.readable === false || !j.rows.length ? 'bad' : 'read';
+    }).catch(function (e) {
+      j.tries = (j.tries || 0) + 1; gap = 10000;
+      if (j.tries >= 3) { j.st = 'err'; j.err = String(e.message || e).slice(0, 80); }
+    }).then(function () {
+      TT.busy = false; save(); teachDraw();
+      if (t.running) setTimeout(teachRun, document.hidden ? 1000 : gap);
+    });
+  }
+  // a misread digit: same length, exactly one digit different → "read>meant"
+  function digitSwap(a, b) {
+    a = String(a == null ? '' : a).replace(/[,\s]/g, ''); b = String(b); if (!/^\d+$/.test(a) || a.length !== b.length || a === b) return null;
+    var p = null; for (var i = 0; i < a.length; i++) if (a[i] !== b[i]) { if (p) return null; p = a[i] + '>' + b[i]; } return p;
+  }
+  function addDays(k, n) { var d = new Date(k + 'T00:00:00'); d.setDate(d.getDate() + n); return dkey(d); }
+  // all read pages grouped by date, with the numbers checked across days and fixed where two checks agree
+  function teachDays() {
+    var t = teach(), s2 = shop(), by = {}, checked = 0;
+    var mapName = function (x) { var g = s2.gloss[String(x).trim().toLowerCase()]; return g ? g.to : String(x).trim(); };
+    t.jobs.forEach(function (j) {
+      if (j.st !== 'read') return;
+      j.rows.forEach(function (r) { [2, 3, 5, 6, 7, 8].forEach(function (c) { if (isNum(r[c])) checked++; }); });
+      if (!j.date) return;
+      var D = by[j.date] = by[j.date] || { k: j.date, rows: [], ids: [], exp: [], written: {} };
+      D.ids.push(j.id); (j.exp || []).forEach(function (e) { D.exp.push(e); });
+      Object.keys(j.written || {}).forEach(function (f) { if (j.written[f] != null) D.written[f] = j.written[f]; });
+      j.rows.forEach(function (r) { var c = r.slice(); c[0] = mapName(r[0]); c.job = j.id; c.hw = r[0]; D.rows.push(c); });
+    });
+    var ks = Object.keys(by).sort(), fixes = [], digits = {};
+    var key = function (r) { return normName(r[0]).replace(/ /g, '') + '|' + String(r[1] || '').replace(/[^0-9]/g, ''); };
+    var colMap = function (D, c) { var m = {}; D.rows.forEach(function (r) { if (isNum(r[c])) m[key(r)] = num(r[c]); }); return m; };
+    var dshort = function (k) { return new Date(k + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }); };
+    ks.forEach(function (k, i) {
+      var D = by[k], P = i && ks[i - 1] === addDays(k, -1) ? by[ks[i - 1]] : null, N = ks[i + 1] === addDays(k, 1) ? by[ks[i + 1]] : null;
+      var pc = P ? colMap(P, 8) : {}, no = N ? colMap(N, 2) : {};
+      D.rows.forEach(function (r) {
+        var v = function (c) { return isNum(r[c]) ? num(r[c]) : null; }, kk = key(r);
+        var fix = function (c, to, why) { var p = digitSwap(r[c], to); if (!p) return false; fixes.push({ k: k, item: r[0], hw: r.hw, size: r[1], col: c, from: r[c], to: String(to), why: why }); digits[p] = (digits[p] || 0) + 1; r[c] = String(to); return true; };
+        var o = v(2), rc = v(3) || 0, sl = v(5), rt = v(6), am = v(7), cl = v(8);
+        if (o != null && sl != null && cl != null && Math.abs(o + rc - sl - cl) > .01) {
+          var cl2 = o + rc - sl, o2 = cl - rc + sl, sl2 = o + rc - cl;
+          if (N && no[kk] === cl2 && fix(8, cl2, 'Opening on ' + dshort(N.k) + ' was ' + cl2 + ', and ' + (o + rc) + ' − ' + sl + ' sold = ' + cl2 + '.')) {}
+          else if (P && pc[kk] === o2 && fix(2, o2, dshort(P.k) + ' closed at ' + o2 + ', and ' + cl + ' + ' + sl + ' sold = ' + o2 + '.')) {}
+          else if (rt && am != null && sl2 > 0 && Math.abs(sl2 * rt - am) < .5 && fix(5, sl2, sl2 + ' × ₹' + rt + ' = ₹' + am + ', and ' + (o + rc) + ' − ' + cl + ' = ' + sl2 + '.')) { sl = sl2; }
+        }
+        sl = v(5);
+        if (sl != null && rt && am != null && Math.abs(sl * rt - am) > .5) {
+          if (fix(7, Math.round(sl * rt), sl + ' × ₹' + rt + ' = ₹' + Math.round(sl * rt) + '.')) {}
+          else if (sl && Math.abs(am / sl - Math.round(am / sl)) < 1e-9) fix(6, Math.round(am / sl), '₹' + am + ' ÷ ' + sl + ' = ₹' + Math.round(am / sl) + '.');
+        }
+      });
+    });
+    return { by: by, ks: ks, fixes: fixes, digits: digits, checked: checked };
+  }
+  // every short name he writes, matched to the price list
+  function teachNames() {
+    var t = teach(), s2 = shop(), cnt = {}, out = [];
+    t.jobs.forEach(function (j) { if (j.st === 'read') j.rows.forEach(function (r) { var hw = String(r[0] || '').trim(); if (!hw) return; var sz = String(r[1] || '').replace(/[^0-9]/g, ''), k = hw + '|' + sz; cnt[k] = cnt[k] || { hw: hw, size: sz, n: 0 }; cnt[k].n++; }); });
+    Object.keys(cnt).forEach(function (k) {
+      var x = cnt[k], g = s2.gloss[x.hw.toLowerCase()], full = (s2.alias || {})[x.hw];
+      var c = plSearch((g ? g.to : full || x.hw) + (x.size ? ' ' + x.size : ''), 5, x.size, true);
+      var conf;
+      if (g) { conf = 'known'; c = c.filter(function (y) { return normName(y.it.name) !== normName(g.to); }); }
+      else if (!c.length) conf = 'none';
+      else { var top = c[0], gap = c[1] ? top.s - c[1].s : 1; conf = normName(top.it.name) === normName(x.hw) ? 'same' : top.s >= 1.15 && gap >= .12 ? 'sure' : top.s >= .9 ? 'likely' : 'pick'; }
+      out.push({ k: k, hw: x.hw, size: x.size, n: x.n, cands: c, conf: conf, known: g ? g.to : null });
+    });
+    out.sort(function (a, b) { return b.n - a.n; });
+    out.forEach(function (x) { if (t.pick[x.k] == null) t.pick[x.k] = x.conf === 'none' || x.conf === 'pick' ? '' : x.conf === 'known' ? 'k' : '0'; });
+    return out;
+  }
+  function teachTab(x) { return x.conf === 'none' ? 'new' : x.conf === 'likely' || x.conf === 'pick' ? 'check' : 'sure'; }
+  function teachAnalyse() {
+    var t = teach(); t.stage = 'names'; TT.tab = 'sure'; save();
+    loadPL().then(function () { TT.names = teachNames(); save(); teachDraw(); if (!ui.sheet || ui.sheet.kind !== 'shopteach') toast('All sheets read · check the names in Shop → Teach'); });
+  }
+  function teachFinish() {
+    var t = teach(), s2 = shop(), L = learnt(), names = TT.names || teachNames(), named = 0;
+    names.forEach(function (x) {
+      var p = t.pick[x.k]; if (p == null || p === '' || p === 'k') return;
+      var c = x.cands[+p]; if (!c) return;
+      var gk = x.hw.toLowerCase(); s2.gloss[gk] = { to: c.it.name, n: Math.max(x.n, (s2.gloss[gk] || {}).n || 0) }; named++;
+    });
+    var res = teachDays(), by = res.by, ks = res.ks;
+    // his usual list, in his order
+    var pos = {}; ks.forEach(function (k) { var rs = by[k].rows; rs.forEach(function (r, i) { if (!r[0]) return; var kk = r[0] + '|' + String(r[1] || '').replace(/[^0-9]/g, ''); var p = pos[kk] = pos[kk] || { item: r[0], size: String(r[1] || '').replace(/[^0-9]/g, ''), s: 0, n: 0 }; p.s += i / Math.max(1, rs.length - 1); p.n++; }); });
+    var need = Math.max(2, Math.ceil(ks.length * .4));
+    var usual = Object.keys(pos).map(function (k) { return pos[k]; }).filter(function (p) { return p.n >= need || ks.length < 3; }).sort(function (a, b) { return a.s / a.n - b.s / b.n; }).slice(0, 80).map(function (p) { return { item: p.item, size: p.size }; });
+    if (usual.length) L.usual = usual;
+    Object.keys(res.digits).forEach(function (p) { L.digits[p] = (L.digits[p] || 0) + res.digits[p]; });
+    t.jobs.forEach(function (j) { if (j.st === 'read') (j.notes || []).forEach(function (n) { L.notes[n] = (L.notes[n] || 0) + 1; }); });
+    // example pages: the cleanest, fullest pages from different days
+    var clean = function (r) { var v = function (c) { return isNum(r[c]) ? num(r[c]) : null; }; var o = v(2), rc = v(3) || 0, sl = v(5), rt = v(6), am = v(7), cl = v(8); return !(o != null && sl != null && cl != null && Math.abs(o + rc - sl - cl) > .01) && !(sl != null && rt && am != null && Math.abs(sl * rt - am) > .5); };
+    var pages = []; ks.forEach(function (k) { by[k].ids.forEach(function (id) { var rs = by[k].rows.filter(function (r) { return r.job === id; }); if (rs.length >= 5 && rs.every(clean)) pages.push({ id: id, date: k, rows: rs.map(function (r) { return r.slice(0, 10); }) }); }); });
+    pages.sort(function (a, b) { return b.rows.length - a.rows.length; });
+    var ex = [], used = {}; pages.forEach(function (p) { if (ex.length < 3 && !used[p.date]) { used[p.date] = 1; ex.push(p); } });
+    if (ex.length) L.examples = ex;
+    // fill the past days into the accounts
+    var added = 0, closed = 0, skipped = 0;
+    if (t.backfill) ks.forEach(function (k) {
+      var D = by[k], ex2 = s2.days[k]; if (ex2 && ex2.grid) { skipped++; return; }
+      var g = withTotalRow([SHCOLS.slice()].concat(D.rows.map(function (r) { return r.slice(0, 10); })));
+      var d = s2.days[k] = { photos: D.ids.slice(), grid: g, ai: g.map(function (rw) { return rw.slice(); }), exp: D.exp.slice(), written: D.written, status: 'draft', at: new Date().toISOString(), src: 'teach' };
+      added++;
+      var pr = profitRows(d), pct = pr.avg != null ? Math.round(pr.avg * 10) / 10 : s2.pct;
+      if (pct != null && pct !== '') { var sales = daySales(d), et = d.exp.reduce(function (a, e) { return a + num(e.v); }, 0); d.pct = pct; d.sales = sales; d.profit = sales * pct / 100; d.expTotal = et; d.net = d.profit - et; d.cash = sales - et; d.status = 'closed'; d.closedAt = new Date().toISOString(); closed++; }
+    });
+    L.sheets = (L.sheets || 0) + t.jobs.filter(function (j) { return j.st === 'read'; }).length; L.at = new Date().toISOString();
+    t.result = { sheets: t.jobs.filter(function (j) { return j.st === 'read'; }).length, named: named, fixes: res.fixes.length, added: added, closed: closed, skipped: skipped, first: ks[0] || null };
+    t.stage = 'done'; t.running = false; teachWake(false); save(); teachDraw();
+  }
+  // start again with new photos: drop the old photos that no day or example uses
+  function teachReset() {
+    var t = teach(), s2 = shop(), keep = {};
+    Object.keys(s2.days).forEach(function (k) { (s2.days[k].photos || []).forEach(function (id) { keep[id] = 1; }); });
+    learnt().examples.forEach(function (e) { keep[e.id] = 1; });
+    t.jobs.forEach(function (j) { if (!keep[j.id]) { idbDel('shopimg-' + j.id).catch(function () {}); idbDel('teachth-' + j.id).catch(function () {}); } });
+    s2.teach = { jobs: [], backfill: t.backfill, stage: 'pick', pick: {} }; TT.names = null; save(); teachDraw();
+  }
+  function thumbImg(id) { return '<img class="ttimg" data-tth="' + id + '" alt=""' + (TT.th[id] ? ' src="' + TT.th[id] + '"' : '') + '>'; }
+  function fillThumbs(r) { r.querySelectorAll('[data-tth]').forEach(function (im) { var id = im.dataset.tth; if (TT.th[id]) return; idbGet('teachth-' + id).then(function (u) { if (u) { TT.th[id] = u; im.src = u; } }).catch(function () {}); }); }
+  function shopTeachSheet() {
+    var t = teach(), L = learnt(), h = '', cap = '', bind = [];
+    var dshort = function (k) { return k ? new Date(k + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) : '?'; };
+    var tile = function (v, l) { return '<div><b class="display">' + v + '</b><small>' + l + '</small></div>'; };
+    if (t.stage === 'pick') {
+      cap = 'from your old sheets';
+      h += '<div class="card stack" style="gap:8px"><b style="font-size:14px">How it learns</b>' + ['Reads every old sheet, one at a time.', 'Checks the numbers: each day’s <b>closing</b> must be the next day’s <b>opening</b>, and sold × rate = amount. Where one figure breaks both, it works out what he meant.', 'Collects all his short names and matches them to your price list in one go. You confirm once.', 'Keeps 3 clean sheets as examples it shows the AI every day after.'].map(function (x, i) { return '<div class="ttstep"><span>' + (i + 1) + '</span><p>' + x + '</p></div>'; }).join('') + '</div>';
+      h += '<input type="file" id="ttFile" accept="image/*" multiple hidden><button type="button" class="ttdrop" id="ttAdd"' + (TT.adding ? ' disabled' : '') + '><span style="font-size:26px">📚</span><b>' + (TT.adding ? 'Adding photo ' + TT.adding.i + ' of ' + TT.adding.n + '…' : t.jobs.length ? 'Add more photos' : 'Add photos of old sheets') + '</b><small>Pick many at once · days in a row help most · 30 is plenty to start</small></button>';
+      if (t.jobs.length) h += '<div class="ttgrid">' + t.jobs.slice(0, 11).map(function (j) { return '<div class="ttth">' + thumbImg(j.id) + '</div>'; }).join('') + (t.jobs.length > 11 ? '<div class="ttth more">+' + (t.jobs.length - 11) + '</div>' : '') + '</div>';
+      h += '<label class="ttsw"><span><b>Also save these days to my accounts</b><small>fills in past months: sales, profit, stock</small></span><input type="checkbox" id="ttBack"' + (t.backfill ? ' checked' : '') + '><i></i></label>';
+      if (!hasAI()) h += '<div class="notice">Reading needs your free Gemini key (Settings → Visualization).</div>';
+      h += '<button type="button" class="btn jungle" id="ttGo"' + (t.jobs.length && !TT.adding && hasAI() ? '' : ' disabled') + '>Start learning' + (t.jobs.length ? ' · ' + t.jobs.length + ' sheet' + (t.jobs.length > 1 ? 's' : '') : '') + '</button>';
+      if (t.jobs.length) h += '<button type="button" class="btn ghost small" id="ttClear">Remove these photos</button>';
+      bind.push(function (r) {
+        var f = r.querySelector('#ttFile'); r.querySelector('#ttAdd').onclick = function () { f.click(); };
+        f.onchange = function () { var fs = [].slice.call(f.files); f.value = ''; if (fs.length) teachAdd(fs); };
+        r.querySelector('#ttBack').onchange = function (e) { t.backfill = e.target.checked; save(); };
+        r.querySelector('#ttGo').onclick = function () { t.running = true; t.stage = 'reading'; save(); teachRun(); };
+        var c = r.querySelector('#ttClear'); if (c) c.onclick = function () { if (confirm('Remove the ' + t.jobs.length + ' photos?')) teachReset(); };
+      });
+    } else if (t.stage === 'reading') {
+      var n = t.jobs.length, dn = t.jobs.filter(function (j) { return j.st !== 'wait'; }).length, cur = t.jobs.filter(function (j) { return j.st === 'wait'; })[0];
+      var res = teachDays(), nm = {}; t.jobs.forEach(function (j) { if (j.st === 'read') j.rows.forEach(function (r) { if (r[0]) nm[r[0] + '|' + r[1]] = 1; }); });
+      cap = (t.running ? 'reading sheet ' + Math.min(n, dn + 1) : 'paused at ' + dn) + ' of ' + n;
+      h += '<div class="ttbar"><i style="width:' + Math.round(dn / Math.max(1, n) * 100) + '%"></i></div>';
+      h += '<div class="shtiles ttq">' + tile(fmtN(Object.keys(nm).length), 'short names') + tile(fmtN(res.checked), 'numbers checked') + tile(res.fixes.length, 'figures fixed') + '</div>';
+      var left = n - dn; if (t.running && left) h += '<p class="muted small" style="margin:0">About ' + Math.max(1, Math.round(left * 9 / 60)) + ' min left. Keep the app open: the screen stays on while it reads.</p>';
+      var STS = { read: ['✓', '#CDEFEA'], bad: ['blurry', '#FFD9D3'], err: ['failed', '#FFD9D3'], wait: ['', ''] };
+      h += '<div class="ttgrid">' + t.jobs.map(function (j) {
+        var now = cur && j.id === cur.id && t.running, fx = res.fixes.filter(function (f) { return f.k === j.date; }).length, s = now ? ['reading', '#fff'] : j.st === 'read' && fx ? [fx + ' fixed', '#FFE6B8'] : STS[j.st] || ['', ''];
+        return '<div class="ttth' + (now ? ' now' : '') + (j.st === 'wait' && !now ? ' wait' : '') + '">' + thumbImg(j.id) + '<small>' + (j.st === 'read' ? dshort(j.date) : '') + '</small>' + (s[0] ? '<span class="tkpill" style="background:' + s[1] + '">' + s[0] + '</span>' : '') + '</div>';
+      }).join('') + '</div>';
+      var lf = res.fixes[res.fixes.length - 1];
+      if (lf) h += '<div class="card stack" style="gap:6px"><b style="font-size:13px">Just fixed on ' + dshort(lf.k) + '</b><div class="row" style="gap:8px;align-items:center"><span class="hw" style="font-size:14px">' + esc(lf.hw || lf.item) + ' ' + esc(lf.size || '') + ' · ' + SHCOLS[lf.col].toLowerCase() + ' <s>' + esc(lf.from) + '</s></span><b>→ ' + esc(lf.to) + '</b></div><span class="muted small">' + esc(lf.why) + ' So it was ' + esc(lf.to) + '.</span></div>';
+      var errs = t.jobs.filter(function (j) { return j.st === 'err'; }).length;
+      if (errs) h += '<div class="notice">' + errs + ' sheet' + (errs > 1 ? 's' : '') + ' couldn’t be read (AI busy or no internet). <button type="button" class="link" id="ttRetry">Try again</button></div>';
+      h += '<div class="row" style="gap:10px"><button type="button" class="btn line" style="flex:1" id="ttPause">' + (t.running ? 'Pause' : 'Continue') + '</button><button type="button" class="btn jungle" style="flex:1" id="ttDim">🌙 Dim screen</button></div>';
+      h += '<p class="muted small">Put the phone on charge and leave it. If you switch apps it pauses, and carries on from the same sheet when you come back. Blurry sheets are skipped.</p>';
+      if (!t.running && dn) h += '<button type="button" class="btn ghost small" id="ttStop">Stop here and use the ' + t.jobs.filter(function (j) { return j.st === 'read'; }).length + ' read so far</button>';
+      bind.push(function (r) {
+        r.querySelector('#ttPause').onclick = function () { t.running = !t.running; save(); if (t.running) teachRun(); else teachWake(false); teachDraw(); };
+        r.querySelector('#ttDim').onclick = function () { teachDim(true); };
+        var rt = r.querySelector('#ttRetry'); if (rt) rt.onclick = function () { t.jobs.forEach(function (j) { if (j.st === 'err') { j.st = 'wait'; j.tries = 0; } }); t.running = true; save(); teachRun(); };
+        var sp2 = r.querySelector('#ttStop'); if (sp2) sp2.onclick = function () { t.jobs = t.jobs.filter(function (j) { return j.st !== 'wait'; }); save(); teachAnalyse(); };
+      });
+    } else if (t.stage === 'names') {
+      var names = TT.names; if (!names) { if (PL) names = TT.names = teachNames(); else { loadPL().then(function () { TT.names = teachNames(); teachDraw(); }); return { title: 'Names', cap: '', html: '<p class="muted">Loading…</p>', bind: function () {} }; } }
+      var cnt = { sure: 0, check: 0, new: 0 }; names.forEach(function (x) { cnt[teachTab(x)]++; });
+      cap = names.length + ' found · ' + (names.length - cnt.new) + ' matched';
+      if (!PL || !PL.items.length) h += '<div class="notice">Add the KSBCL price list first (Shop → Price list) so his short names can be matched to the exact names.</div>';
+      h += '<div class="ttseg">' + [['sure', 'Sure'], ['check', 'Check'], ['new', 'New']].map(function (x) { return '<button type="button" data-ttab="' + x[0] + '" class="' + (TT.tab === x[0] ? 'on' : '') + '">' + x[1] + ' ' + cnt[x[0]] + '</button>'; }).join('') + '</div>';
+      var show = names.filter(function (x) { return teachTab(x) === TT.tab; });
+      var CONF = { known: ['learnt', '#CDEFEA'], same: ['exact', '#CDEFEA'], sure: ['sure', '#CDEFEA'], likely: ['likely', '#FFE6B8'], pick: ['pick one', '#FFD9D3'], none: ['new', '#F1E6D6'] };
+      h += show.length ? '<div class="stack" style="gap:8px">' + show.map(function (x) {
+        var p = t.pick[x.k];
+        return '<div class="ncrow ttn"><span class="hw">' + esc(x.hw) + (x.size ? ' ' + x.size : '') + '<small>seen ' + x.n + '×</small></span><select data-tpk="' + esc(x.k) + '"><option value="">keep “' + esc(x.hw) + '”</option>' + (x.known ? '<option value="k"' + (p === 'k' ? ' selected' : '') + '>' + esc(x.known) + '</option>' : '') + x.cands.map(function (c, k) { return '<option value="' + k + '"' + (String(k) === p ? ' selected' : '') + '>' + esc(c.it.name) + (c.it.ml ? ' ' + c.it.ml : '') + '</option>'; }).join('') + '</select><span class="tkpill" style="background:' + CONF[x.conf][1] + '">' + CONF[x.conf][0] + '</span></div>';
+      }).join('') + '</div>' : '<div class="notice">Nothing here.</div>';
+      if (TT.tab === 'sure' && cnt.sure) h += '<button type="button" class="btn line" id="ttAcc">Looks right · go to the ' + cnt.check + ' to check</button>';
+      if (TT.tab === 'new' && cnt.new) h += '<p class="muted small" style="margin:0">Not in the price list. Keep them as he writes them, or pick the right one.</p>';
+      h += '<button type="button" class="btn jungle" id="ttSave">Save what it learned</button>';
+      h += '<p class="muted small">Sorted by how often he writes them, so the top few cover most of every sheet. You can fix any of these later in Shop → Learning.</p>';
+      bind.push(function (r) {
+        r.querySelectorAll('[data-ttab]').forEach(function (b) { b.onclick = function () { TT.tab = b.dataset.ttab; drawSheet(); }; });
+        r.querySelectorAll('[data-tpk]').forEach(function (s) { s.onchange = function () { t.pick[s.dataset.tpk] = s.value; save(); }; });
+        var a = r.querySelector('#ttAcc'); if (a) a.onclick = function () { TT.tab = cnt.check ? 'check' : 'new'; drawSheet(); r.scrollTop = 0; };
+        r.querySelector('#ttSave').onclick = function () { teachFinish(); toast('Learned · it uses this on every new sheet'); };
+      });
+    } else {
+      var R = t.result || {};
+      cap = R.sheets ? 'from ' + R.sheets + ' sheets' : '';
+      h += learnedHtml();
+      if (R.added) h += '<div class="list"><button type="button" class="r" id="ttMonth"><span class="t">' + R.added + ' day' + (R.added > 1 ? 's' : '') + ' added to accounts<small>' + (R.closed < R.added ? (R.added - R.closed) + ' still open: add the price list or your usual profit % to close them' : 'sales, profit and stock filled in') + (R.skipped ? ' · ' + R.skipped + ' already there, left as they were' : '') + '</small></span>' + CHEV + '</button></div>';
+      h += '<p class="muted small">Each new day’s photo is read with all of this. Every fix you make still teaches it more.</p>';
+      h += '<div class="row" style="gap:10px"><button type="button" class="btn line" style="flex:1" id="ttMore">Teach more</button><button type="button" class="btn jungle" style="flex:1" id="ttDone">Done</button></div>';
+      bind.push(function (r) {
+        r.querySelector('#ttMore').onclick = teachReset;
+        r.querySelector('#ttDone').onclick = function () { closeSheet(); render(); };
+        var m = r.querySelector('#ttMonth'); if (m) m.onclick = function () { shopUi.month = (R.first || dkey(new Date())).slice(0, 7); closeSheet(); ui.tab = 'shop'; render(); };
+      });
+    }
+    return { title: { pick: 'Teach', reading: 'Reading', names: 'Names', done: 'Learned' }[t.stage] || 'Teach', cap: cap, html: '<div class="stack" style="gap:12px">' + h + '</div>', bind: function (r) { bind.forEach(function (f) { f(r); }); fillThumbs(r); } };
+  }
+  function learnedHtml() {
+    var L = learnt(), s2 = shop(), h = '';
+    var dg = Object.keys(L.digits).filter(function (k) { return L.digits[k] >= 2; }).sort(function (a, b) { return L.digits[b] - L.digits[a]; }).slice(0, 5);
+    var nt = Object.keys(L.notes).filter(function (k) { return L.notes[k] >= 2; }).sort(function (a, b) { return L.notes[b] - L.notes[a]; }).slice(0, 5);
+    h += '<div class="shtiles ttq"><div><b class="display">' + Object.keys(s2.gloss).length + '</b><small>names</small></div><div><b class="display">' + L.usual.length + '</b><small>usual items</small></div><div><b class="display">' + (dg.length + nt.length) + '</b><small>habits</small></div></div>';
+    if (dg.length || nt.length) h += '<div class="card stack" style="gap:2px"><b style="font-size:14px;margin-bottom:4px">His writing habits</b>' + dg.map(function (p) { var a = p.split('>'); return '<div class="tthab"><span class="hw">' + a[1] + ' / ' + a[0] + '</span><span>his ' + a[1] + ' often reads as ' + a[0] + '</span><small>fixed ' + L.digits[p] + '×</small></div>'; }).join('') + nt.map(function (x) { return '<div class="tthab"><span class="hw">✎</span><span>' + esc(x) + '</span><small>' + L.notes[x] + ' sheets</small></div>'; }).join('') + '</div>';
+    if (L.usual.length) h += '<details class="card ttus"><summary><b>His usual list (' + L.usual.length + ' items)</b><span>See order ›</span></summary><ol>' + L.usual.map(function (x) { return '<li>' + esc(x.item) + (x.size ? ' <small>' + x.size + '</small>' : '') + '</li>'; }).join('') + '</ol><p class="muted small" style="margin:0">Same order every day, so a smudged name in row 7 is almost always the row-7 item.</p></details>';
+    if (L.examples.length) h += '<div class="card stack" style="gap:8px"><b style="font-size:14px">Example sheets shown to the AI</b><div class="row" style="gap:6px;align-items:center">' + L.examples.map(function (e) { return '<div class="ttth sm">' + thumbImg(e.id) + '<small>' + new Date(e.date + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) + '</small></div>'; }).join('') + '<span class="muted small" style="flex:1">the cleanest sheets, with every figure checked</span></div></div>';
+    return h;
+  }
+  // carry on after the app was in the background or reopened
+  document.addEventListener('visibilitychange', function () { if (document.hidden) return; var t = state.shop && state.shop.teach; if (t && t.running) { teachWake(true); if (!TT.busy) teachRun(); } });
+  setTimeout(function () { var t = state.shop && state.shop.teach; if (t && t.running && !TT.busy) teachRun(); }, 2500);
+
+  // ---------- Morning breath: Bhastrika (bellows) + Kapalabhati (skull-shining) ----------
+  var BRLV = {
+    gentle: { name: 'Gentle', bhR: 2, bhN: 15, bhS: 2.4, kpR: 2, kpN: 20, kpP: 50, rest: 30, quiet: 60 },
+    regular: { name: 'Regular', bhR: 3, bhN: 20, bhS: 2, kpR: 3, kpN: 30, kpP: 60, rest: 30, quiet: 60 },
+    strong: { name: 'Strong', bhR: 3, bhN: 30, bhS: 1.6, kpR: 3, kpN: 60, kpP: 80, rest: 30, quiet: 90 }
+  };
+  var BREX = {
+    bh: { name: 'Bhastrika', en: 'bellows breath', how: 'Breathe in and out through the nose, both strong and equal, filling and emptying the chest. Keep the shoulders still.' },
+    kp: { name: 'Kapalabhati', en: 'skull-shining breath', how: 'Short, sharp breaths out through the nose by snapping the belly in. Let the breath in happen on its own.' }
+  };
+  var br = null;
+  function prana() {
+    var p = state.prana = state.prana || {};
+    if (!p.lv) p.lv = 'regular'; if (!p.order) p.order = 'bk'; if (p.sound == null) p.sound = true; if (p.voice == null) p.voice = true; if (p.vib == null) p.vib = true;
+    p.log = p.log || {}; p.custom = p.custom || Object.assign({}, BRLV.regular, { name: 'My own' });
+    return p;
+  }
+  function brCfg() { var p = prana(); return p.lv === 'custom' ? p.custom : BRLV[p.lv] || BRLV.regular; }
+  function brDone(k) { return !!(state.prana && state.prana.log && state.prana.log[k || dkey(new Date())]); }
+  function brStreak() { var n = 0, d = new Date(); if (!brDone(dkey(d))) d.setDate(d.getDate() - 1); while (brDone(dkey(d))) { n++; d.setDate(d.getDate() - 1); } return n; }
+  function brPhases() {
+    var c = brCfg(), p = prana(), order = p.order === 'kb' ? ['kp', 'bh'] : ['bh', 'kp'], out = [{ t: 'prep', s: 8 }];
+    order.forEach(function (ex, ei) {
+      var R = ex === 'bh' ? c.bhR : c.kpR, N = ex === 'bh' ? c.bhN : c.kpN, beat = ex === 'bh' ? c.bhS : 60 / c.kpP;
+      out.push({ t: 'intro', ex: ex, s: 6 });
+      for (var r = 1; r <= R; r++) {
+        out.push({ t: 'work', ex: ex, r: r, R: R, n: N, beat: beat, s: N * beat });
+        if (r < R || ei < order.length - 1) out.push({ t: 'rest', ex: ex, s: c.rest, last: r === R });
+      }
+    });
+    out.push({ t: 'quiet', s: c.quiet });
+    return out;
+  }
+  function brMins() { return Math.round(brPhases().reduce(function (a, x) { return a + x.s; }, 0) / 60); }
+  function brTone(f1, f2, dur, vol, type) {
+    if (!prana().sound || !(window.AudioContext || window.webkitAudioContext)) return;
+    try { var c = actx(), o = c.createOscillator(), g = c.createGain(), t = c.currentTime; o.type = type || 'sine'; o.frequency.setValueAtTime(f1, t); if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + dur); g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + Math.min(.03, dur / 4)); g.gain.exponentialRampToValueAtTime(.0001, t + dur); o.connect(g); g.connect(c.destination); o.start(t); o.stop(t + dur + .05); } catch (e) {}
+  }
+  function brBell() { brTone(660, 0, 1.6, .12); setTimeout(function () { brTone(990, 0, 1.2, .06); }, 40); }
+  function brSay(t) { if (!prana().voice || !window.speechSynthesis) return; try { speechSynthesis.cancel(); var u = new SpeechSynthesisUtterance(t); u.rate = .95; u.lang = 'en-IN'; speechSynthesis.speak(u); } catch (e) {} }
+  function brBuzz(p) { if (prana().vib && navigator.vibrate) try { navigator.vibrate(p); } catch (e) {} }
+  function openBreath() {
+    resetOverlay(); closeSheet();
+    br = { stage: prana().ack ? 'ready' : 'safety', phases: brPhases(), i: 0 };
+    drawBreath(); showOverlay('bro');
+  }
+  function brStop(keep) {
+    if (!br) return;
+    if (br.raf) cancelAnimationFrame(br.raf); br.raf = null;
+    if (window.speechSynthesis) try { speechSynthesis.cancel(); } catch (e) {}
+    if (br.lock) { try { br.lock.release(); } catch (e) {} br.lock = null; }
+    if (!keep) br = null;
+  }
+  function closeBreath() { brStop(); closeOverlayEl(); if (ui.tab === 'trail') render(); }
+  function drawBreath() {
+    var o = document.getElementById('overlay'), c = brCfg(), p = prana(), h = '<div class="inner">';
+    var order = p.order === 'kb' ? ['kp', 'bh'] : ['bh', 'kp'];
+    if (br.stage === 'safety' || br.stage === 'ready') {
+      h += '<div class="row between"><span class="cap">Morning breath</span><button type="button" class="nib" id="brX" aria-label="Close">✕</button></div>';
+      h += '<h1 class="display" style="margin:0;line-height:1.05">Bhastrika +<br><i>Kapalabhati</i></h1>';
+      if (br.stage === 'safety') {
+        h += '<div class="brcard"><b>Before you start</b><ul><li>Do it first thing, on an <b>empty stomach</b>, sitting upright.</li><li>Breathe through the <b>nose</b>. Strong, not straining.</li><li><b>Stop and breathe normally</b> if you feel dizzy, light-headed, tingling or any chest pain.</li><li>Skip it, or ask your doctor first, if you have high blood pressure, a heart condition, a hernia, epilepsy, recent surgery on the belly or chest, or are pregnant.</li><li>Never do it while driving or in water.</li></ul></div>';
+        h += '<button type="button" class="btn solid" id="brAck">I understand · continue</button>';
+      } else {
+        h += '<div class="brplan">' + order.map(function (ex) { var R = ex === 'bh' ? c.bhR : c.kpR, N = ex === 'bh' ? c.bhN : c.kpN; return '<div><b>' + BREX[ex].name + '</b><small>' + BREX[ex].en + '</small><span>' + R + ' × ' + N + (ex === 'bh' ? ' breaths' : ' strokes') + '</span></div>'; }).join('') + '<div><b>Sit still</b><small>notice the body</small><span>' + (c.quiet >= 60 ? Math.round(c.quiet / 60 * 10) / 10 + ' min' : c.quiet + ' s') + '</span></div></div>';
+        h += '<p class="muted" style="margin:0">' + c.name + ' · about ' + brMins() + ' min · ' + c.rest + ' s of normal breathing between rounds. The app counts and paces each breath with a sound' + (p.voice ? ' and a voice' : '') + '.</p>';
+        h += '<button type="button" class="btn solid" id="brGo">Begin</button><button type="button" class="btn ghost" id="brSet">Change rounds, pace or order</button>';
+      }
+    } else if (br.stage === 'run') {
+      h += '<div class="row between"><button type="button" class="nib" id="brX" aria-label="Stop">✕</button><span class="cap" id="brCap"></span></div>';
+      h += '<div class="brstage"><div class="brorb" id="brOrb"><span id="brLbl"></span><b class="display" id="brCnt"></b></div></div>';
+      h += '<div class="brtxt"><span class="display" id="brT"></span><p id="brS"></p></div>';
+      h += '<div class="brbar" id="brBar">' + br.phases.map(function (x) { return '<i class="' + x.t + '" style="flex:' + Math.max(1, x.s) + '"></i>'; }).join('') + '</div>';
+      h += '<div class="row" style="gap:10px"><button type="button" class="btn ghost" style="flex:1" id="brP">Pause</button><button type="button" class="btn ghost" style="flex:1" id="brK">Skip ›</button></div>';
+    } else {
+      var L = p.log[dkey(new Date())] || {}, s = brStreak();
+      h += '<div class="row between"><span class="cap">Morning breath</span><button type="button" class="nib" id="brX" aria-label="Close">✕</button></div>';
+      h += '<div class="brstage"><div class="brorb done"><svg viewBox="0 0 24 24" width="64" height="64" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="#0F4D40" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></div></div>';
+      h += '<h1 class="display" style="margin:0;text-align:center">Done.<br><i>Carry this calm into the day.</i></h1>';
+      h += '<div class="brplan"><div><b>' + (L.bh || 0) + '</b><small>Bhastrika breaths</small></div><div><b>' + (L.kp || 0) + '</b><small>Kapalabhati strokes</small></div><div><b>' + s + '</b><small>day' + (s === 1 ? '' : 's') + ' in a row</small></div></div>';
+      h += '<button type="button" class="btn solid" id="brEnd">Done</button>';
+    }
+    o.innerHTML = h + '</div>';
+    var q = function (x) { return o.querySelector(x); };
+    q('#brX').onclick = function () { if (br.stage === 'run' && br.i > 1 && !confirm('Stop the breathing session?')) return; closeBreath(); };
+    if (q('#brAck')) q('#brAck').onclick = function () { p.ack = true; save(); br.stage = 'ready'; drawBreath(); };
+    if (q('#brSet')) q('#brSet').onclick = function () { closeBreath(); openSheet('breath'); };
+    if (q('#brEnd')) q('#brEnd').onclick = closeBreath;
+    if (q('#brGo')) q('#brGo').onclick = function () { actx(); br.stage = 'run'; br.i = 0; br.started = new Date().toISOString(); br.done = { bh: 0, kp: 0 }; drawBreath(); brEnter(0); if ('wakeLock' in navigator) navigator.wakeLock.request('screen').then(function (w) { if (br) br.lock = w; else w.release(); }).catch(function () {}); };
+    if (q('#brP')) q('#brP').onclick = function () { brPause(!br.paused); };
+    if (q('#brK')) q('#brK').onclick = function () { brNext(); };
+  }
+  function brEnter(i) {
+    br.i = i; br.t0 = performance.now(); br.beat = -1; br.paused = false;
+    var ph = br.phases[i]; if (!ph) return brFinish();
+    var nx = br.phases[i + 1];
+    var T = { prep: 'Sit tall', intro: BREX[ph.ex] && BREX[ph.ex].name, work: BREX[ph.ex] && BREX[ph.ex].name, rest: 'Breathe normally', quiet: 'Sit still' }[ph.t];
+    var S = ph.t === 'prep' ? 'Spine straight, shoulders soft, mouth closed. Hands on the knees.' : ph.t === 'intro' ? BREX[ph.ex].how : ph.t === 'work' ? (ph.ex === 'bh' ? 'In and out, strong and even.' : 'Snap the belly in on each OUT. The in-breath is passive.') : ph.t === 'rest' ? (nx && nx.t === 'intro' ? 'Next: ' + BREX[nx.ex].name : 'Next: round ' + (nx ? nx.r : '') + ' of ' + (nx ? nx.R : '')) : 'Eyes closed. Notice the tingling, the heartbeat, the quiet.';
+    var tt = document.getElementById('brT'), ss = document.getElementById('brS'); if (tt) tt.textContent = T; if (ss) ss.textContent = S;
+    var cp = document.getElementById('brCap'); if (cp) cp.textContent = ph.t === 'work' ? BREX[ph.ex].en + ' · round ' + ph.r + ' of ' + ph.R : ph.t === 'intro' ? 'next up' : ph.t === 'rest' ? 'rest' : '';
+    document.querySelectorAll('#brBar i').forEach(function (b, k) { b.classList.toggle('on', k < i); b.classList.toggle('cur', k === i); });
+    var orb = document.getElementById('brOrb'); if (orb) orb.className = 'brorb ' + ph.t + (ph.ex ? ' ' + ph.ex : '');
+    if (ph.t === 'prep') brSay('Sit tall. Breathe through the nose.');
+    else if (ph.t === 'intro') { brBell(); brSay(BREX[ph.ex].name + '.'); }
+    else if (ph.t === 'work') { brBuzz(60); brSay((ph.r === 1 ? '' : 'Round ' + ph.r + '. ') + 'Begin.'); }
+    else if (ph.t === 'rest') { brBell(); brBuzz([60, 60, 60]); brSay('Rest. Breathe normally.'); }
+    else if (ph.t === 'quiet') { brBell(); brBuzz([60, 60, 60]); brSay('Sit still, and notice.'); }
+    if (!br.raf) br.raf = requestAnimationFrame(brTick);
+  }
+  function brNext() { if (!br) return; var ph = br.phases[br.i]; if (ph && ph.t === 'work') br.done[ph.ex] += Math.min(ph.n, Math.max(0, br.beat + 1)); brEnter(br.i + 1); }
+  function brPause(on) {
+    if (!br || br.stage !== 'run') return;
+    if (on && !br.paused) { br.paused = true; br.pausedAt = performance.now(); if (window.speechSynthesis) try { speechSynthesis.cancel(); } catch (e) {} }
+    else if (!on && br.paused) { br.paused = false; br.t0 += performance.now() - br.pausedAt; }
+    var b = document.getElementById('brP'); if (b) b.textContent = br.paused ? 'Resume' : 'Pause';
+    var orb = document.getElementById('brOrb'); if (orb) orb.classList.toggle('paused', br.paused);
+  }
+  function brTick() {
+    if (!br || br.stage !== 'run') return;
+    br.raf = requestAnimationFrame(brTick);
+    var ph = br.phases[br.i]; if (!ph) return;
+    var el = br.paused ? (br.pausedAt - br.t0) / 1000 : (performance.now() - br.t0) / 1000;
+    var orb = document.getElementById('brOrb'), lbl = document.getElementById('brLbl'), cnt = document.getElementById('brCnt');
+    if (!orb) return;
+    var sc = 1, label = '', count = '';
+    if (ph.t === 'work') {
+      var b = Math.floor(el / ph.beat), f = (el % ph.beat) / ph.beat;
+      if (b !== br.beat && b < ph.n && !br.paused) { br.beat = b; if (ph.ex === 'kp') brTone(190, 120, .07, .25, 'triangle'); else brTone(300, 420, ph.beat * .45, .07); }
+      if (ph.ex === 'bh' && !br.paused && b < ph.n && f >= .5 && br.half !== b) { br.half = b; brTone(420, 300, ph.beat * .45, .07); }
+      if (ph.ex === 'bh') { var e = f < .5 ? f * 2 : 2 - f * 2; e = e * e * (3 - 2 * e); sc = .72 + .5 * e; label = f < .5 ? 'IN' : 'OUT'; }
+      else { sc = f < .22 ? 1 - .28 * Math.sin(Math.PI * f / .22) : 1; label = f < .35 ? 'OUT' : ''; }
+      count = Math.min(ph.n, b + 1) + '<small>/' + ph.n + '</small>';
+    } else {
+      var cyc = 10, g = (el % cyc) / cyc, e2 = g < .4 ? g / .4 : g < .5 ? 1 : 1 - (g - .5) / .5; e2 = e2 * e2 * (3 - 2 * e2);
+      sc = .8 + .25 * e2; count = Math.max(0, Math.ceil(ph.s - el)); label = ph.t === 'intro' ? 'get ready' : ph.t === 'prep' ? 'settle' : g < .4 ? 'in' : g < .5 ? '' : 'out';
+    }
+    orb.style.transform = 'scale(' + sc.toFixed(3) + ')';
+    if (lbl.textContent !== label) lbl.textContent = label;
+    var ch = String(count); if (cnt.innerHTML !== ch) cnt.innerHTML = ch;
+    if (!br.paused && el >= ph.s) brNext();
+  }
+  function brFinish() {
+    var c = brCfg(), k = dkey(new Date()), p = prana();
+    p.log[k] = { at: new Date().toISOString(), bh: br.done.bh, kp: br.done.kp, lv: p.lv, mins: Math.round((Date.now() - new Date(br.started || Date.now())) / 60000) };
+    save(); brBell(); brSay('Well done.'); brBuzz([80, 60, 80]);
+    brStop(true); br.stage = 'done'; drawBreath();
+  }
+  document.addEventListener('visibilitychange', function () { if (document.hidden && br && br.stage === 'run') brPause(true); });
+  function breathCard() {
+    var k = dkey(new Date()); if (brDone(k)) return '';
+    var c = brCfg(), s = brStreak(), p = prana(), order = p.order === 'kb' ? ['kp', 'bh'] : ['bh', 'kp'];
+    return '<div class="hero brhero"><button type="button" class="brgo" data-breath="1" aria-label="Start morning breath"><span class="cap">First thing · morning breath' + (s ? ' · ' + s + '-day streak' : '') + '</span><span class="display brh">' + order.map(function (x) { return BREX[x].name; }).join(' + ') + '</span><small>' + c.bhR + ' × ' + c.bhN + ' breaths · ' + c.kpR + ' × ' + c.kpN + ' strokes · about ' + brMins() + ' min</small><span class="brplay">' + PLAY + '</span></button></div>';
+  }
+  function breathSheet() {
+    var p = prana(), c = brCfg(), k = dkey(new Date());
+    var h = '<div class="ttseg">' + ['gentle', 'regular', 'strong', 'custom'].map(function (l) { return '<button type="button" data-brlv="' + l + '" class="' + (p.lv === l ? 'on' : '') + '">' + (l === 'custom' ? 'My own' : BRLV[l].name) + '</button>'; }).join('') + '</div>';
+    var fld = function (key, lab, unit, step) { return '<label class="brf"><span>' + lab + '</span><input inputmode="decimal" data-brc="' + key + '" value="' + c[key] + '"' + (p.lv === 'custom' ? '' : ' disabled') + '><small>' + unit + '</small></label>'; };
+    h += '<div class="card stack" style="gap:6px"><b>Bhastrika</b>' + fld('bhR', 'Rounds', '') + fld('bhN', 'Breaths per round', '') + fld('bhS', 'Seconds per breath', 'in + out') + '</div>';
+    h += '<div class="card stack" style="gap:6px"><b>Kapalabhati</b>' + fld('kpR', 'Rounds', '') + fld('kpN', 'Strokes per round', '') + fld('kpP', 'Pace', 'per minute') + '</div>';
+    h += '<div class="card stack" style="gap:6px"><b>Between and after</b>' + fld('rest', 'Rest between rounds', 'seconds') + fld('quiet', 'Sit still at the end', 'seconds') + '</div>';
+    if (p.lv !== 'custom') h += '<p class="muted small" style="margin:0">Pick “My own” to change the numbers. Start gentle and move up when it feels easy.</p>';
+    h += '<div class="list">' + row({ t: 'Order', sub: p.order === 'kb' ? 'Kapalabhati first, then Bhastrika' : 'Bhastrika first (warms up), then Kapalabhati', id: 'brOrd' }) + '</div>';
+    var tg = function (key, lab, sub) { return '<label class="ttsw"><span><b>' + lab + '</b><small>' + sub + '</small></span><input type="checkbox" data-brt="' + key + '"' + (p[key] ? ' checked' : '') + '><i></i></label>'; };
+    h += tg('sound', 'Pacing sound', 'a soft tone on every breath') + tg('voice', 'Voice', 'announces rounds and rests') + tg('vib', 'Vibrate', 'at the start and end of each round');
+    var days = []; for (var i = 13; i >= 0; i--) { var d = new Date(); d.setDate(d.getDate() - i); days.push(dkey(d)); }
+    h += '<div class="card stack" style="gap:8px"><b>Last 2 weeks</b><div class="brdays">' + days.map(function (x) { return '<i class="' + (brDone(x) ? 'on' : '') + (x === k ? ' today' : '') + '" title="' + x + '"></i>'; }).join('') + '</div><small class="muted">' + brStreak() + '-day streak · ' + Object.keys(p.log).length + ' sessions in all</small></div>';
+    h += '<p class="muted small">A “Morning breath” reminder comes to your phone at 6:30 am. Stop and breathe normally if you feel dizzy. If you have high blood pressure, a heart condition, a hernia or are pregnant, ask your doctor first.</p>';
+    h += '<button type="button" class="btn jungle" id="brStart">' + (brDone(k) ? 'Do it again' : 'Start now') + ' · ' + brMins() + ' min</button>';
+    return { title: 'Morning breath', cap: (BRLV[p.lv] || { name: 'my own' }).name.toLowerCase(), html: '<div class="stack" style="gap:12px">' + h + '</div>', bind: function (r) {
+      r.querySelectorAll('[data-brlv]').forEach(function (b) { b.onclick = function () { p.lv = b.dataset.brlv; save(); drawSheet(); }; });
+      r.querySelectorAll('[data-brc]').forEach(function (inp) { inp.onchange = function () { var v = num(inp.value), key = inp.dataset.brc, lim = { bhR: [1, 10], bhN: [5, 120], bhS: [1, 6], kpR: [1, 10], kpN: [5, 300], kpP: [20, 120], rest: [0, 300], quiet: [0, 600] }[key]; p.custom[key] = Math.min(lim[1], Math.max(lim[0], v || lim[0])); save(); drawSheet(); }; });
+      r.querySelectorAll('[data-brt]').forEach(function (cb) { cb.onchange = function () { p[cb.dataset.brt] = cb.checked; save(); }; });
+      r.querySelector('#brOrd').onclick = function () { p.order = p.order === 'kb' ? 'bk' : 'kb'; save(); drawSheet(); };
+      r.querySelector('#brStart').onclick = openBreath;
+    } };
   }
 
   // ---------- shell ----------
@@ -5355,6 +5860,7 @@
       if (e.data.type === 'move') { var mm = /move=([a-z0-9]+)/.exec(e.data.url || ''); openMove(mm ? mm[1] : suggestMove()); return; }
       if (e.data.type === 'goal') { if (/win=1/.test(e.data.url || '')) { hitSingle(); openGoal(); } else if (vz) return; else openMorning(); return; }
       if (e.data.type === 'tonight') { resetOverlay(); closeOverlayEl(); ui.tab = 'trail'; render(); openSheet('tonight'); return; }
+      if (e.data.type === 'breathe') { openBreath(); return; }
       if (e.data.type === 'checkin' && !ci) openCheckin();
     });
   }
@@ -5371,5 +5877,6 @@
   else if (/[?&]goal=1/.test(location.search)) openMorning();
   else if (/[?&]shared=1/.test(location.search)) { history.replaceState(history.state, '', location.pathname); receiveShared(); }
   else if (/[?&]tonight=1/.test(location.search)) { openSheet('tonight'); history.replaceState(history.state, '', location.pathname); }
+  else if (/[?&]breathe=1/.test(location.search)) { history.replaceState(history.state, '', location.pathname); openBreath(); }
   else if (/[?&]checkin=1/.test(location.search)) openCheckin();
 })();

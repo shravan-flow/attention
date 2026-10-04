@@ -1,5 +1,5 @@
 /* Attention service worker: offline shell, push reminders, tap-to-check-in. */
-var CACHE = 'attention-v28';
+var CACHE = 'attention-v29';
 var SHELL = ['./', 'index.html', 'style.css', 'app.js', 'manifest.webmanifest', 'moves.json', 'foods.json', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/badge-96.png', 'fonts/space-grotesk.woff2', 'fonts/space-mono-400.woff2', 'fonts/space-mono-700.woff2'];
 
 self.addEventListener('install', function (e) {
@@ -47,7 +47,7 @@ self.addEventListener('push', function (e) {
         body: body,
         icon: 'icons/icon-192.png',
         badge: 'icons/badge-96.png',
-        tag: d.kind === 'goal' ? 'attention-goal' : d.kind === 'move' ? 'attention-move' : d.kind === 'night' ? 'attention-night' : 'attention-ping',
+        tag: d.kind === 'goal' ? 'attention-goal' : d.kind === 'move' ? 'attention-move' : d.kind === 'night' ? 'attention-night' : d.kind === 'breath' ? 'attention-breath' : 'attention-ping',
         renotify: true,
         vibrate: [120, 80, 120],
         data: { url: d.url || './?checkin=1' }
@@ -62,7 +62,7 @@ self.addEventListener('notificationclick', function (e) {
   e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (list) {
     for (var i = 0; i < list.length; i++) {
       if (list[i].url.indexOf(self.registration.scope) === 0 && 'focus' in list[i]) {
-        list[i].postMessage({ type: url.indexOf('goal=1') >= 0 ? 'goal' : url.indexOf('move=') >= 0 ? 'move' : url.indexOf('tonight=1') >= 0 ? 'tonight' : 'checkin', url: url });
+        list[i].postMessage({ type: url.indexOf('goal=1') >= 0 ? 'goal' : url.indexOf('move=') >= 0 ? 'move' : url.indexOf('tonight=1') >= 0 ? 'tonight' : url.indexOf('breathe=1') >= 0 ? 'breathe' : 'checkin', url: url });
         return list[i].focus();
       }
     }
