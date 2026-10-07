@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '37';
+  var APP_VERSION = '38';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -4470,25 +4470,27 @@
     d.status = 'reading'; save(); if (sp && sp.k === key) drawShopDay();
     var prompt = 'These photos are the pages of one day’s handwritten "Statement of Sales" from a liquor shop in Karnataka, India (Laxmi Wines). Read every filled row carefully.\n' +
       'Columns on the form: Type of Liquors (brand + size), Opening Balance, Stock Received, Total, Sales, Rate, Amount (Rs.), Closing Balance, Remarks.\n' +
-      'The printed sizes 750 ml, 375 ml, 180 ml, 90 ml are in the first column; the handwritten brand name appears on the first row of each group (often abbreviated, sometimes in Kannada script, sometimes with a price like 650 or 330 next to it). Repeat the brand on every size row of its group. Put any handwritten price next to the name into "remarks".\n' +
+      'Each numbered row (Sl. No.) on the form is ONE row in your answer: same order, never merge, split, skip or invent rows. The "Type of Liquor" column has a handwritten brand name and, at its right end, the bottle size in ml (60, 90, 180, 275, 330, 375, 500, 650, 750, 1000, 2000). Copy the size exactly as written: 60 is common, never change it to 90. Put the size in "size", never inside "item".\n' +
+      'A row with ONLY a size (no name) is the same brand as the nearest row above it that has a name: repeat that brand. A row with its OWN handwritten name is a NEW brand, however short or abbreviated (like "RC W", "R Stg", "BCD", "N.P."): write that name, never the brand from above. Names can also be in Kannada. A price like 650 or 330 written next to a beer can be its size; anything else goes in "remarks".\n' +
       'A dash "-" or "—" in a number column means 0. Skip rows with no numbers at all. Keep numbers exactly as written; do not correct the maths.\n' +
       'Some pages also have a list of expenses (names with amounts, usually with a total) and written day totals like "Sale 74085", "Exp 9850" and a balance. Return those too.\n' +
       shopHints() +
-      'Reply JSON: {"rows":[{"item":"brand","size":"750","open":number|null,"recv":number|null,"total":number|null,"sales":number|null,"rate":number|null,"amount":number|null,"close":number|null,"remarks":"text"}],"expenses":[{"name":"text","amount":number}],"written":{"sales":number|null,"expenses":number|null,"balance":number|null}}';
+      'Reply JSON: {"rows":[{"sl":1,"item":"brand","size":"750","open":number|null,"recv":number|null,"total":number|null,"sales":number|null,"rate":number|null,"amount":number|null,"close":number|null,"remarks":"text"}],"expenses":[{"name":"text","amount":number}],"written":{"sales":number|null,"expenses":number|null,"balance":number|null}}';
     shopPhotos(d).then(function (imgs) {
       if (!imgs.length) throw new Error('no photos');
       return geminiImagesEx(prompt, imgs, .1);
     }).then(function (r) {
       var g = [SHCOLS.slice()], fixed = 0;
       (r.rows || []).forEach(function (x) {
-        var item = String(x.item || '').trim();
+        var ss = splitSize(x.item, x.size), item = ss[0]; x.size = ss[1];
         var nv2 = function (v) { return v == null || v === '' ? '' : String(v); };
         var row2 = [item, nv2(x.size), nv2(x.open), nv2(x.recv), nv2(x.total), nv2(x.sales), nv2(x.rate), nv2(x.amount), nv2(x.close), nv2(x.remarks)];
         g.push(row2);
       });
       if (g.length < 2) g.push(SHCOLS.map(function () { return ''; }));
+      var aiRows = g.map(function (rw) { return rw.slice(); });
       fillDownNames(g);
-      d.grid = withTotalRow(g); d.ai = d.grid.map(function (rw) { return rw.slice(); });
+      d.grid = withTotalRow(g); d.ai = withTotalRow(aiRows);
       dataRows(d.grid).forEach(function (rr) { var gk = String(d.grid[rr][SC.item] || '').trim().toLowerCase(); if (gk && s2.gloss[gk]) { d.grid[rr][SC.item] = s2.gloss[gk].to; fixed++; } });
       var cy = carryNames(key);
       d.exp = (r.expenses || []).filter(function (e) { return e && (e.name || e.amount); }).map(function (e) { return { t: String(e.name || ''), v: num(e.amount) }; });
@@ -4983,6 +4985,12 @@
 
   // ---------- phone-friendly editing: the sheet as brand cards, a row editor with a number pad, a name picker ----------
   // a row with only a size under a brand belongs to that brand
+  // "100 pipers 750" → item "100 pipers", size "750"
+  function splitSize(item, size) {
+    var it = String(item || '').trim(), sz = String(size == null ? '' : size).trim(), m = /^(.*?)[\s-]*(\d{2,4})\s*(ml)?\.?$/i.exec(it);
+    if (m && m[1].trim() && /^(60|90|180|200|275|330|375|500|650|700|750|1000|2000)$/.test(m[2]) && (!sz || sz.replace(/[^0-9]/g, '') === m[2])) { it = m[1].trim(); sz = m[2]; }
+    return [it, sz];
+  }
   function fillDownNames(g) {
     var last = '', n = 0;
     dataRows(g).forEach(function (r) {
@@ -5077,7 +5085,8 @@
     h += '<div class="rehint" id="reHint" hidden></div>';
     h += '<div class="rekp">' + ['1', '2', '3', '⌫', '4', '5', '6', 'C', '7', '8', '9', '‹', '.', '0', '00', '›'].map(function (k) { return '<button type="button" data-kp="' + k + '"' + (k === '›' || k === '‹' ? ' class="nx" aria-label="' + (k === '›' ? 'Next box' : 'Previous box') + '"' : k === '⌫' ? ' aria-label="Delete"' : k === 'C' ? ' aria-label="Clear"' : '') + '>' + k + '</button>'; }).join('') + '</div>';
     h += '<div class="row" style="gap:10px"><button type="button" class="btn line" style="flex:1" id="rePrev"' + (idx > 0 ? '' : ' disabled') + '>‹ Prev row</button><button type="button" class="btn jungle" style="flex:1" id="reNext">' + (idx < rows.length - 1 ? 'Next row ›' : 'Done ✓') + '</button></div>';
-    h += '<div class="row" style="gap:10px"><button type="button" class="btn ghost small" id="reList">‹ Back to the list</button><button type="button" class="btn ghost small" id="reDel">Delete row</button></div>';
+    var gr = groupRows(g, r);
+    h += '<div class="row" style="gap:8px;flex-wrap:wrap"><button type="button" class="btn ghost small" id="reList">‹ List</button>' + (gr.length > 1 && gr[0] !== r ? '<button type="button" class="btn ghost small" id="reSplit">✂ New brand from here</button>' : '') + '<button type="button" class="btn ghost small" id="reDel">Delete row</button></div>';
     return h;
   }
   function bindRowEd(o, d) {
@@ -5144,20 +5153,27 @@
     q('#reNext').onclick = function () { goRow(1); };
     q('#reList').onclick = function () { commitField(); sp.step = 'sheet'; sp.view = 'list'; drawShopDay(); var el = document.querySelector('[data-lsrow="' + r + '"]'); if (el) el.scrollIntoView({ block: 'center' }); };
     q('#reName').onclick = function () { commitField(); openNamePick(r, 'row'); };
+    var rs = q('#reSplit'); if (rs) rs.onclick = function () { commitField(); openNamePick(r, 'row', 'down'); };
     q('#reDel').onclick = function () { if (!confirm('Delete this row?')) return; spSnap(d); g.splice(r, 1); if (d.ai) d.ai.splice(r, 1); d.from = null; d.grid = withTotalRow(g); save(); sp.step = 'sheet'; sp.view = 'list'; drawShopDay(); };
     paint();
   }
   // --- name picker: yesterday's sheet first, then the price list ---
-  function openNamePick(r, back) { sp.step = 'name'; sp.nrow = r; sp.nback = back; sp.nq = ''; sp.nall = true; drawShopDay(); document.getElementById('overlay').scrollTop = 0; }
+  function openNamePick(r, back, mode) { sp.step = 'name'; sp.nrow = r; sp.nback = back; sp.nq = ''; sp.nmode = mode || (back === 'row' ? 'one' : 'all'); drawShopDay(); document.getElementById('overlay').scrollTop = 0; }
   function namePickHtml(d) {
     var g = d.grid, r = sp.nrow, raw = d.ai && d.ai[r] ? String(d.ai[r][SC.item] || '').trim() : '', nm = String(g[r][SC.item] || '').trim();
     var grp = groupRows(g, r);
     var h = '<div class="npk"><small>On the sheet</small><span class="hw">' + esc(raw || nm || '—') + ' ' + esc(g[r][SC.size] || '') + '</span>' + (nm && nm !== raw ? '<small>now: <b>' + esc(nm) + '</b></small>' : '') + '</div>';
+    if (grp.length > 1) {
+      var below = grp.slice(grp.indexOf(r)), opts = [['one', 'Only this row', g[r][SC.size] || '']];
+      if (below.length > 1 && below.length < grp.length) opts.push(['down', 'This row and below', below.map(function (x) { return g[x][SC.size] || '?'; }).join(', ')]);
+      opts.push(['all', 'Whole brand', grp.map(function (x) { return g[x][SC.size] || '?'; }).join(', ')]);
+      if (!opts.some(function (o) { return o[0] === sp.nmode; })) sp.nmode = below.length > 1 && below.length < grp.length ? 'down' : 'one';
+      h += '<div class="npmode"><span class="cap npcap">Change the name of</span>' + opts.map(function (o) { return '<button type="button" data-nmode="' + o[0] + '" class="' + (sp.nmode === o[0] ? 'on' : '') + '"><b>' + o[1] + '</b><small>' + esc(o[2]) + '</small></button>'; }).join('') + '</div>';
+    }
     h += '<input class="text" id="npQ" placeholder="Search: a few letters or initials" autocomplete="off" autocapitalize="off" value="' + esc(sp.nq || '') + '">';
     h += '<div id="npRes">' + namePickResults(d) + '</div>';
-    if (grp.length > 1) h += '<label class="ttsw"><span><b>Use for the sizes under it too</b><small>' + grp.map(function (x) { return esc(g[x][SC.size] || '?'); }).join(', ') + '</small></span><input type="checkbox" id="npAll"' + (sp.nall ? ' checked' : '') + '><i></i></label>';
     h += '<button type="button" class="btn ghost small" id="npBack">‹ Back</button>';
-    h += '<p class="muted small">Your pick is remembered for “' + esc(raw || nm) + '” next time.</p>';
+    if (raw) h += '<p class="muted small">Your pick is remembered for “' + esc(raw) + '” next time.</p>';
     return h;
   }
   // the rows that share this row's name, starting here and going down
@@ -5189,7 +5205,7 @@
       o.querySelectorAll('[data-npk]').forEach(function (b) {
         b.onclick = function () {
           var it = sp.nlist[+b.dataset.npk]; if (!it) return; spSnap(d);
-          var grp = sp.nall ? groupRows(g, r) : [r], raw = d.ai && d.ai[r] ? String(d.ai[r][SC.item] || '').trim() : String(g[r][SC.item] || '').trim();
+          var gr = groupRows(g, r), grp = sp.nmode === 'all' ? gr : sp.nmode === 'down' ? gr.slice(gr.indexOf(r)) : [r], raw = d.ai && d.ai[r] ? String(d.ai[r][SC.item] || '').trim() : String(g[r][SC.item] || '').trim();
           grp.forEach(function (x) { g[x][SC.item] = it.name; if (it.mrp && !String(g[x][SC.rate] || '').trim() && x === r) g[x][SC.rate] = String(it.mrp); });
           if (raw && raw.toLowerCase() !== it.name.toLowerCase()) { var s2 = shop(), k = raw.toLowerCase(); s2.gloss[k] = { to: it.name, n: ((s2.gloss[k] || {}).n || 0) + 1 }; s2.fixes++; }
           d.edited = true; save(); toast(grp.length > 1 ? grp.length + ' rows named' : 'Named'); back();
@@ -5198,7 +5214,7 @@
     };
     var inp = q('#npQ');
     inp.addEventListener('input', function () { sp.nq = inp.value; q('#npRes').innerHTML = namePickResults(d); bindRes(); });
-    var all = q('#npAll'); if (all) all.onchange = function () { sp.nall = all.checked; };
+    o.querySelectorAll('[data-nmode]').forEach(function (b) { b.onclick = function () { sp.nmode = b.dataset.nmode; o.querySelectorAll('[data-nmode]').forEach(function (x) { x.classList.toggle('on', x === b); }); }; });
     q('#npBack').onclick = back;
     bindRes();
   }
@@ -5620,13 +5636,14 @@
   function teachPrompt() {
     return 'This photo is ONE page of a handwritten "Statement of Sales" from a liquor shop in Karnataka, India (Laxmi Wines). Read every filled row carefully.\n' +
       'Columns on the form: Type of Liquors (brand + size), Opening Balance, Stock Received, Total, Sales, Rate, Amount (Rs.), Closing Balance, Remarks.\n' +
-      'The printed sizes 750 ml, 375 ml, 180 ml, 90 ml are in the first column; the handwritten brand name appears on the first row of each group (often abbreviated, sometimes in Kannada script, sometimes with a price like 650 or 330 next to it). Repeat the brand on every size row of its group. Put any handwritten price next to the name into "remarks".\n' +
+      'Each numbered row (Sl. No.) on the form is ONE row in your answer: same order, never merge, split, skip or invent rows. The "Type of Liquor" column has a handwritten brand name and, at its right end, the bottle size in ml (60, 90, 180, 275, 330, 375, 500, 650, 750, 1000, 2000). Copy the size exactly as written: 60 is common, never change it to 90. Put the size in "size", never inside "item".\n' +
+      'A row with ONLY a size (no name) is the same brand as the nearest row above it that has a name: repeat that brand. A row with its OWN handwritten name is a NEW brand, however short or abbreviated (like "RC W", "R Stg", "BCD", "N.P."): write that name, never the brand from above. Names can also be in Kannada. A price like 650 or 330 written next to a beer can be its size; anything else goes in "remarks".\n' +
       'A dash "-" or "—" in a number column means 0. Skip rows with no numbers at all. Keep numbers exactly as written; do not correct the maths.\n' +
       'Return any list of expenses and written day totals too. Read the date written on the page (Indian day/month/year order) as "YYYY-MM-DD", or null if there is none.\n' +
       'If the photo is too blurry to read or is not a sales sheet, set "readable" to false.\n' +
       'In "notes" give up to 3 short, general observations about HOW this person writes (for example "a dash means 0", "½ next to a beer means 650 ml", "cases and bottles written as 2-6"), only if clearly seen on this page.\n' +
       shopHints() +
-      'Reply JSON: {"readable":true,"date":"YYYY-MM-DD"|null,"rows":[{"item":"brand","size":"750","open":number|null,"recv":number|null,"total":number|null,"sales":number|null,"rate":number|null,"amount":number|null,"close":number|null,"remarks":"text"}],"expenses":[{"name":"text","amount":number}],"written":{"sales":number|null,"expenses":number|null,"balance":number|null},"notes":["..."]}';
+      'Reply JSON: {"readable":true,"date":"YYYY-MM-DD"|null,"rows":[{"sl":1,"item":"brand","size":"750","open":number|null,"recv":number|null,"total":number|null,"sales":number|null,"rate":number|null,"amount":number|null,"close":number|null,"remarks":"text"}],"expenses":[{"name":"text","amount":number}],"written":{"sales":number|null,"expenses":number|null,"balance":number|null},"notes":["..."]}';
   }
   function teachWake(on) {
     if (on) { if (TT.lock || !('wakeLock' in navigator)) return; navigator.wakeLock.request('screen').then(function (w) { TT.lock = w; w.addEventListener('release', function () { TT.lock = null; }); }).catch(function () {}); }
@@ -5668,7 +5685,7 @@
     var gap = 4000;
     idbGet('shopimg-' + j.id).then(function (u) { if (!u) throw new Error('photo missing'); return geminiImages(teachPrompt(), [u], .1); }).then(function (r) {
       var nv2 = function (v) { return v == null || v === '' ? '' : String(v); };
-      j.rows = (r.rows || []).filter(function (x) { return x && (x.item || x.open != null || x.sales != null); }).map(function (x) { return [String(x.item || '').trim(), nv2(x.size), nv2(x.open), nv2(x.recv), nv2(x.total), nv2(x.sales), nv2(x.rate), nv2(x.amount), nv2(x.close), nv2(x.remarks)]; });
+      j.rows = (r.rows || []).filter(function (x) { return x && (x.item || x.open != null || x.sales != null); }).map(function (x) { var ss = splitSize(x.item, x.size); x.size = ss[1]; return [ss[0], nv2(x.size), nv2(x.open), nv2(x.recv), nv2(x.total), nv2(x.sales), nv2(x.rate), nv2(x.amount), nv2(x.close), nv2(x.remarks)]; });
       fillDownNames([SHCOLS].concat(j.rows));
       var dt = /^\d{4}-\d{2}-\d{2}$/.test(r.date || '') && r.date >= '2015-01-01' && r.date <= dkey(new Date()) ? r.date : null;
       j.date = dt; j.exp = (r.expenses || []).filter(function (e) { return e && (e.name || e.amount); }).map(function (e) { return { t: String(e.name || ''), v: num(e.amount) }; });
