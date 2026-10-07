@@ -1054,3 +1054,6 @@ code{font-family:var(--mono);font-size:12px;background:var(--sand2);padding:1px 
 .alc2 b{font-size:14px}.alc2>span:nth-child(2){font-size:13px;line-height:1.45;color:var(--bone2)}
 .alc2 button{border:0;background:var(--sand2);border-radius:999px;padding:6px 12px;font:inherit;font-size:12.5px;font-weight:700;color:var(--jungle);cursor:pointer}.alc2 button.g{color:var(--sub)}
 .hbar.wide{grid-template-columns:minmax(0,1fr) 90px auto}.hbar.wide span:last-child{white-space:nowrap;font-size:12px}
+.recost{font-size:13px;background:#fff;border-radius:12px;padding:8px 12px;line-height:1.4}.recost small{color:var(--sub)}.recost b.neg{color:#B3372B}
+.cardimg{width:100%;aspect-ratio:4/5;border-radius:18px;background:#0F4D40;display:block;box-shadow:0 10px 30px rgba(15,77,64,.2)}
+#cardOpts summary{cursor:pointer;list-style:none}#cardOpts summary::-webkit-details-marker{display:none}

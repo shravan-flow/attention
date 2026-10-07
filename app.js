@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '41';
+  var APP_VERSION = '43';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -3100,6 +3100,7 @@
       case 'shoplearn': return shopLearnSheet();
       case 'money': return moneySheet(arg);
       case 'shopshare': return shopShareSheet(arg);
+      case 'shopcard': return shopCardSheet(arg);
       case 'shoporder': return shopOrderSheet();
       case 'shopdash': return shopDashSheet(arg);
       case 'shopchecks': return shopChecksSheet();
@@ -4912,11 +4913,11 @@
     var best = null, bs = 0; PL.items.forEach(function (x) { if (size && x.ml !== String(size).replace(/[^0-9]/g, '')) return; var s3 = nameScore(name, x.name); if (s3 > bs) { bs = s3; best = x; } });
     return bs >= .85 ? best : null;
   }
-  function profitRows(d) {
-    var g = d.grid, rows = [];
+  function profitRows(d, k) {
+    var g = d.grid, rows = []; k = k || (sp && sp.k) || null;
     dataRows(g).forEach(function (r) {
       var nm = String(g[r][SC.item] || '').trim(); if (!nm) return;
-      var sold = num(cellVal(g, r, SC.sales)), rate = num(cellVal(g, r, SC.rate)), c = costFor(nm, g[r][SC.size]);
+      var sold = num(cellVal(g, r, SC.sales)), rate = num(cellVal(g, r, SC.rate)), c = costFor(nm, g[r][SC.size], k);
       rows.push({ r: r, name: nm, size: g[r][SC.size], sold: sold, rate: rate, cost: c ? c.c : null, src: c ? c.src : '', pct: c && rate ? (rate - c.c) / rate * 100 : null });
     });
     var sales = 0, prof = 0; rows.forEach(function (x) { if (x.pct != null && x.sold) { sales += x.sold * x.rate; prof += x.sold * (x.rate - x.cost); } });
@@ -4928,7 +4929,7 @@
       return '<tr><td style="text-align:left">' + esc(x.name) + (x.size ? ' ' + esc(x.size) : '') + '</td><td>' + (x.sold || '') + '</td><td>' + (x.rate || '') + '</td><td>' + (x.cost != null ? fmtCell(Math.round(x.cost * 100) / 100) : '<span class="muted">—</span>') + '</td><td class="' + (x.pct == null ? '' : x.pct < 0 ? 'neg' : 'plus') + '">' + (x.pct == null ? '' : (x.pct < 0 ? '−' : '') + Math.abs(x.pct).toFixed(1) + '%') + '</td></tr>';
     }).join('') + '</tbody><tfoot><tr><td>Average (by sales)</td><td></td><td></td><td></td><td>' + (pr.avg == null ? '—' : pr.avg.toFixed(1) + '%') + '</td></tr></tfoot></table></div>';
     var miss = pr.rows.filter(function (x) { return x.cost == null && x.sold; }).length;
-    h += '<p class="muted small">Profit % = (your rate − cost) ÷ your rate. Cost per bottle comes from your latest KSBCL bill or indent (rate per case ÷ bottles per case). The old price list isn’t used for prices. Red = selling below cost.' + (miss ? ' ' + miss + ' item' + (miss > 1 ? 's have' : ' has') + ' no cost yet: add a bill or the price list.' : '') + '</p>';
+    h += '<p class="muted small">Profit % = (your rate − cost) ÷ your rate. Cost per bottle = rate per case ÷ bottles per case, plus its share of the TCS, from the KSBCL bill or indent that applied on this day. The old price list isn’t used for prices. Red = selling below cost.' + (miss ? ' ' + miss + ' item' + (miss > 1 ? 's have' : ' has') + ' no cost yet: add a bill or the price list.' : '') + '</p>';
     h += '<div class="row" style="gap:10px"><button type="button" class="btn line" id="pfBack">‹ Sheet</button><button type="button" class="btn coral" style="flex:1" id="pfNext">Close the day →</button></div>';
     return h;
   }
@@ -5118,9 +5119,14 @@
   // --- row editor ---
   var REF = [['size', SC.size, 'Size ml'], ['open', SC.open, 'Opening'], ['recv', SC.recv, 'Received'], ['sales', SC.sales, 'Sold'], ['rate', SC.rate, 'Rate ₹'], ['amt', SC.amt, 'Amount ₹'], ['close', SC.close, 'Closing']];
   function openRowEd(r, f) { sp.step = 'row'; sp.row = r; sp.fld = f || 'open'; sp.fresh = true; var o = document.getElementById('overlay'); drawShopDay(); o.scrollTop = 0; }
+  function recostHtml(g, r) {
+    var nm = String(g[r][SC.item] || '').trim(), cst = nm ? costFor(nm, g[r][SC.size], sp.k) : null, rt0 = num(cellVal(g, r, SC.rate));
+    return cst ? 'Cost ' + inr(cst.c, 2) + ' a bottle <small>(' + cst.src + (cst.d ? ' ' + new Date(cst.d + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) : '') + (cst.tcs ? ', incl. TCS' : '') + ')</small>' + (rt0 ? ' · margin <b class="' + (rt0 < cst.c ? 'neg' : '') + '">' + ((rt0 - cst.c) / rt0 * 100).toFixed(1) + '%</b>' : '') : '<span class="muted">No cost yet: link this item to a KSBCL bill or indent</span>';
+  }
   function rowEdHtml(d) {
     var g = d.grid, r = sp.row, rows = dataRows(g), idx = rows.indexOf(r), nm = String(g[r][SC.item] || '').trim(), raw = d.ai && d.ai[r] ? String(d.ai[r][SC.item] || '').trim() : '';
     var h = '<div class="red"><button type="button" class="redname" id="reName"><b>' + (nm ? esc(nm) : '<span class="hw">pick a name</span>') + '</b><small>' + (g[r][SC.size] ? esc(g[r][SC.size]) + ' ml' : 'no size') + (raw && raw !== nm ? ' · <span class="hw">' + esc(raw) + '</span> on the sheet' : '') + ' · change ✎</small></button><span class="cap">row ' + (idx + 1) + ' of ' + rows.length + '</span></div>';
+    h += '<div class="recost" id="reCost">' + recostHtml(g, r) + '</div>';
     h += '<div class="refs">' + REF.map(function (f) { return '<button type="button" class="ref' + (sp.fld === f[0] ? ' on' : '') + '" data-ref="' + f[0] + '"><small>' + f[2] + '</small><b id="rev-' + f[0] + '"></b></button>'; }).join('') + '</div>';
     h += '<div class="rehint" id="reHint" hidden></div>';
     h += '<div class="rekp">' + ['1', '2', '3', '⌫', '4', '5', '6', 'C', '7', '8', '9', '‹', '.', '0', '00', '›'].map(function (k) { return '<button type="button" data-kp="' + k + '"' + (k === '›' || k === '‹' ? ' class="nx" aria-label="' + (k === '›' ? 'Next box' : 'Previous box') + '"' : k === '⌫' ? ' aria-label="Delete"' : k === 'C' ? ' aria-label="Clear"' : '') + '>' + k + '</button>'; }).join('') + '</div>';
@@ -5150,6 +5156,7 @@
       else if (o2 != null && sl != null && cl == null) hint = { t: 'Closing will be <b>' + fmtCell(o2 + rc - sl) + '</b>.', f: 'close', v: o2 + rc - sl };
       var dg = learnt ? Object.keys(learnt().digits || {}).filter(function (p) { return learnt().digits[p] >= 2; }) : [];
       if (hint && hint.f === 'close' && cl != null) { var sw = digitSwap(cl, hint.v); if (sw && dg.indexOf(sw) >= 0) { var a = sw.split('>'); hint.t += ' His ' + a[1] + ' can look like a ' + a[0] + '.'; } }
+      var rc2 = q('#reCost'); if (rc2) rc2.innerHTML = recostHtml(g, r);
       var hb = q('#reHint'); hb.hidden = !hint;
       if (hint) { hb.innerHTML = '<span>' + hint.t + '</span><button type="button" id="reUse">Use ' + fmtCell(hint.v) + '</button>'; q('#reUse').onclick = function () { set(hint.f, String(Math.round(hint.v * 100) / 100), true); sp.fld = hint.f; sp.fresh = true; paint(); }; }
     };
@@ -5408,16 +5415,13 @@
     o.querySelectorAll('[data-mgone]').forEach(function (b) { b.onclick = function () { d.gone = d.gone || {}; d.gone[b.dataset.mgone] = 1; save(); drawShopDay(); }; });
   }
   // cost per bottle: the latest KSBCL bill or indent for that item (old price lists are ignored)
-  function costFor(item, size) {
-    var key = regKey(item, size), best = null, s2 = shop(); bills();
-    // the same item under his other names (e.g. a bill added before the name was changed)
-    var keys = {}; keys[key] = 1; var me = s2.items[key]; if (me) Object.keys(me.alias || {}).forEach(function (a) { keys[regKey(a, me.size || size)] = 1; });
-    var per = function (x) { return num(x.per) || BPC[+String(x.ml || size || '').replace(/[^0-9]/g, '')] || null; };
-    Object.keys(s2.bills).forEach(function (id) { var b = s2.bills[id]; if (b.status !== 'added' && b.status !== 'pending') return; (b.items || []).forEach(function (it) { if (keys[resolveKey(it.key)] && it.rate && per(it) && (!best || b.date > best.d)) best = { c: it.rate / per(it), d: b.date, src: 'bill' }; }); });
-    var ind = s2.indents || {};
-    Object.keys(ind).forEach(function (id) { var n = ind[id]; (n.items || []).forEach(function (it) { var k2 = resolveKey((s2.map || {})[normName(it.name) + '|' + it.ml]); if (keys[k2] && it.rate && per(it) && (!best || (n.date || '') > best.d)) best = { c: it.rate / per(it), d: n.date || '', src: 'indent' }; }); });
-    return best;
+  // cost per bottle (TCS included) from the KSBCL bill or indent that applied on that date; the latest one if no date
+  function costFor(item, size, asOf) {
+    var hs = costHist(regKey(item, size)); if (!hs.length) return null;
+    var pick = null; if (asOf) hs.forEach(function (h) { if (h.d && h.d <= asOf) pick = h; });
+    return pick || (asOf ? hs[0] : hs[hs.length - 1]);
   }
+
   // ---------- expenses tab ----------
   function expHtml(d) {
     var exp = d.exp = d.exp || [], et = exp.reduce(function (a, e) { return a + num(e.v); }, 0), w = d.written && d.written.expenses;
@@ -5471,7 +5475,7 @@
     key = resolveKey(key); var c = costFor(x.item, x.size), rt = lastRate(key), st = regStock()[key];
     var h = '<label class="lab rng">Name on your sheets<input class="text" id="itName" value="' + esc(x.item) + '"></label>';
     h += '<div class="card stack" style="gap:8px"><b style="font-size:14px">He writes</b><div class="row" style="gap:6px;flex-wrap:wrap">' + (Object.keys(x.alias).length ? Object.keys(x.alias).map(function (a) { return '<span class="alc"><span class="hw">' + esc(a) + '</span><button type="button" data-ald="' + esc(a) + '" aria-label="Forget">×</button></span>'; }).join('') : '<span class="muted small">nothing learnt yet</span>') + '</div></div>';
-    h += '<div class="list">' + row({ t: 'KSBCL name', sub: x.full ? esc(x.full) : 'not linked yet: it links when a bill or indent with this item comes in' }) + row({ t: 'Size', v: x.size ? x.size + ' ml' : '—' }) + row({ t: 'Stock now', v: st ? fmtN(st.qty) : '—' }) + row({ t: 'Cost per bottle', sub: c ? 'from your ' + c.src + (c.d ? ' of ' + new Date(c.d + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) : '') : 'no bill or indent yet', v: c ? inr(c.c, 2) : '—' }) + row({ t: 'His selling rate', v: rt ? inr(rt) : '—' }) + row({ t: 'Profit margin', v: c && rt ? ((rt - c.c) / rt * 100).toFixed(1) + '%' : '—' }) + '</div>';
+    h += '<div class="list">' + row({ t: 'KSBCL name', sub: x.full ? esc(x.full) : 'not linked yet: it links when a bill or indent with this item comes in' }) + row({ t: 'Size', v: x.size ? x.size + ' ml' : '—' }) + row({ t: 'Stock now', v: st ? fmtN(st.qty) : '—' }) + row({ t: 'Cost per bottle', sub: c ? 'from your ' + c.src + (c.d ? ' of ' + new Date(c.d + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) : '') + (c.tcs ? ' · incl. ' + inr(c.c - c.base, 2) + ' TCS' : '') : 'no bill or indent yet', v: c ? inr(c.c, 2) : '—' }) + row({ t: 'His selling rate', v: rt ? inr(rt) : '—' }) + row({ t: 'Profit margin', v: c && rt ? ((rt - c.c) / rt * 100).toFixed(1) + '%' : '—' }) + '</div>';
     var same = regAll().filter(function (y) { return y.key !== key && (!x.size || y.size === x.size); }).sort(function (a, b) { return a.item.localeCompare(b.item); });
     h += '<label class="lab rng">Same as another item? Merge into<select class="text" id="itMerge"><option value="">— pick an item —</option>' + same.map(function (y) { return '<option value="' + esc(y.key) + '">' + esc(y.item) + ' ' + esc(y.size || '') + '</option>'; }).join('') + '</select></label>';
     h += '<button type="button" class="btn jungle" id="itSave">Save</button>';
@@ -5522,11 +5526,12 @@
   }
   function importIndents(files) {
     var s2 = shop(); s2.indents = s2.indents || {}; indJob = { stage: 'Opening…', n: 0 }; drawSheet();
-    var P = 'This is from the KSBCL (Karnataka State Beverages Corporation) stock indent / invoice history of one liquor shop. Extract every indent or invoice in it, with its number, date and items. For each item: the full product name as printed (without pack codes in brackets), size in ml, bottles per case (from text like "180MLx48Btls"), cases, loose bottles, the rate per case (issue price) and the amount. Skip totals and headers.\nReply JSON: {"indents":[{"no":"text","date":"YYYY-MM-DD","items":[{"name":"text","ml":180,"perCase":48,"cases":2,"loose":0,"rate":5869.6,"amount":11739.2}]}]}';
+    var P = 'This is from the KSBCL (Karnataka State Beverages Corporation) stock indent / invoice history of one liquor shop. Extract every indent or invoice in it, with its number, date and items. For each item: the full product name as printed (without pack codes in brackets), size in ml, bottles per case (from text like "180MLx48Btls"), cases, loose bottles, the rate per case (issue price) and the amount. Skip totals and headers.\nAlso give each indent’s item total, its TCS amount (tax collected at source, sometimes written TDS) and the final invoice value, if shown.\nReply JSON: {"indents":[{"no":"text","date":"YYYY-MM-DD","itemTotal":number|null,"tcs":number|null,"invoiceValue":number|null,"items":[{"name":"text","ml":180,"perCase":48,"cases":2,"loose":0,"rate":5869.6,"amount":11739.2}]}]}';
     var take = function (r) {
       (r.indents || []).forEach(function (x, i) {
         var dt = /^\d{4}-\d{2}-\d{2}$/.test(x.date || '') ? x.date : '', id = String(x.no || '').trim() || (dt + '#' + i + '#' + (x.items || []).length);
         var cur = s2.indents[id] = s2.indents[id] || { no: String(x.no || ''), date: dt, items: [] };
+        ['itemTotal', 'tcs', 'invoiceValue'].forEach(function (f) { if (num(x[f])) cur[f] = num(x[f]); });
         (x.items || []).forEach(function (it) {
           var ml = String(it.ml || '').replace(/[^0-9]/g, ''), nm = String(it.name || '').trim(); if (!nm || !ml) return;
           if (cur.items.some(function (y) { return y.name === nm && y.ml === ml && y.cases === num(it.cases); })) return;
@@ -5563,7 +5568,7 @@
     if ((s2.askq || []).length) h += '<button type="button" class="btn coral" data-sheet="shopsame">Confirm ' + s2.askq.length + ' name' + (s2.askq.length > 1 ? 's' : '') + ' →</button>';
     h += '<input type="file" id="indFile" accept=".pdf,.xlsx,.xls,.csv,image/*,application/pdf" multiple hidden><button type="button" class="btn jungle" id="indUp"' + (indJob && !indJob.err ? ' disabled' : '') + '>⤒ Upload indent file' + (ids.length ? 's (adds to these)' : '') + '</button>';
     if (!hasAI()) h += '<div class="notice">Reading indents needs your free Gemini key (Settings → Visualization).</div>';
-    if (ids.length) h += '<div class="list">' + ids.map(function (id) { return ind[id]; }).sort(function (a, b) { return (b.date || '') < (a.date || '') ? -1 : 1; }).slice(0, 12).map(function (n) { var c = n.items.reduce(function (a, it) { return a + it.cases; }, 0); return '<div class="r"><span class="t">' + esc(n.no || 'Indent') + '<small>' + (n.date ? new Date(n.date + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short', year: 'numeric' }) + ' · ' : '') + n.items.length + ' items · ' + c + ' cases</small></span></div>'; }).join('') + '</div>';
+    if (ids.length) h += '<div class="list">' + ids.map(function (id) { return ind[id]; }).sort(function (a, b) { return (b.date || '') < (a.date || '') ? -1 : 1; }).slice(0, 12).map(function (n) { var c = n.items.reduce(function (a, it) { return a + it.cases; }, 0); var f = tcsFactor(n); return '<div class="r"><span class="t">' + esc(n.no || 'Indent') + '<small>' + (n.date ? new Date(n.date + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short', year: 'numeric' }) + ' · ' : '') + n.items.length + ' items · ' + c + ' cases' + (f > 1 ? ' · TCS ' + ((f - 1) * 100).toFixed(2) + '% shared over the items' : ' · no TCS found') + '</small></span></div>'; }).join('') + '</div>';
     return { title: 'Past indents', cap: ids.length ? ids.length + ' indents' : '', html: '<div class="stack" style="gap:12px">' + h + '</div>', bind: function (r) {
       var f = r.querySelector('#indFile'); r.querySelector('#indUp').onclick = function () { if (!hasAI()) { toast('Add your Gemini key first'); return; } f.click(); };
       f.onchange = function () { var fs = [].slice.call(f.files); f.value = ''; if (fs.length) importIndents(fs); };
@@ -5611,7 +5616,7 @@
       else h += '<div class="notice ok">✓ Every row adds up.</div>';
       if (PL && PL.items.length) { var ncn = nameChecks(d).filter(function (x) { return x.conf !== 'same' && x.conf !== 'none'; }).length; if (ncn) h += '<button type="button" class="shiss ncnudge" id="spNames2">✓ ' + ncn + ' name' + (ncn > 1 ? 's' : '') + ' can be matched to the exact price-list names → Check</button>'; }
     }
-    h += '<div class="row" style="gap:10px;margin-top:4px">' + (hasAI() && d.photos.length ? '<button type="button" class="btn line small" id="spRead">↻ Read again</button>' : '') + '<button type="button" class="btn coral" style="flex:1" id="spNext"' + (d.grid ? '' : ' disabled') + '>' + (d.status === 'closed' ? 'Day summary →' : 'Close the day →') + '</button></div>';
+    h += '<div class="row" style="gap:10px;margin-top:4px">' + (hasAI() && d.photos.length ? '<button type="button" class="btn line small" id="spRead">↻ Read again</button>' : '') + '<button type="button" class="btn coral" style="flex:1" id="spNext"' + (d.grid ? '' : ' disabled') + '>' + 'Close the day →' + '</button></div>';
     o.innerHTML = h + '</div>';
     o.scrollTop = keepY;
     var gb = o.querySelector('.shgrid'); if (gb) { gb.scrollLeft = keepGX; gb.scrollTop = keepGY; }
@@ -5789,6 +5794,7 @@
     var s2 = shop(), sales = d.salesOverride != null ? d.salesOverride : daySales(d), pct = d.pct != null ? d.pct : auto != null ? auto : s2.pct, profit = pct != null && pct !== '' ? sales * num(pct) / 100 : null;
     var exp = d.exp || [], et = exp.reduce(function (a, e) { return a + num(e.v); }, 0), net = profit != null ? profit - et : null;
     var h = '<h1 class="display" style="font-size:30px;margin:0">Close the day</h1>';
+    if (d.pct != null && auto != null && Math.abs(d.pct - auto) >= .1) h += '<div class="notice"><b>The KSBCL costs give ' + auto + '%</b> (this day was saved with ' + d.pct + '%). <button type="button" class="link" id="scAuto">Use ' + auto + '%</button></div>';
     h += '<div class="shf"><div><span class="lab">Total sales</span><small>' + (d.salesOverride != null ? 'typed by you' : 'sum of the Amount column') + (d.written && d.written.sales && Math.abs(d.written.sales - daySales(d)) > .5 ? ' · sheet says ' + inr(d.written.sales) : '') + '</small></div><label class="shmoney">₹<input id="scSales" inputmode="decimal" value="' + Math.round(sales * 100) / 100 + '"></label></div>';
     h += '<div class="shf hi"><div><span class="lab">Profit percentage</span><small>' + (d.pct == null && auto != null ? 'worked out from each item · tap to type your own' : s2.pct != null ? 'your usual: ' + s2.pct + '%' : 'type your margin') + '</small></div><label class="shmoney"><input id="scPct" inputmode="decimal" value="' + (pct == null ? '' : pct) + '" placeholder="20">%</label></div>';
     h += '<div class="shf"><div><span class="lab">Profit</span><small>' + (profit != null ? fmtCell(sales) + ' × ' + pct + '%' : 'appears when you type the %') + '</small></div><b class="shv" id="scProfit">' + (profit != null ? inr(profit) : '—') + '</b></div>';
@@ -5798,7 +5804,7 @@
     h += '<div class="shnet"><div><span class="cap">Net income</span><small>profit − expenses</small></div><b class="display" id="scNet">' + (net != null ? inr(net) : '—') + '</b></div>';
     h += '<p class="muted small" id="scCash">Cash in hand (sales − expenses): <b>' + inr(sales - et) + '</b>' + (d.written && d.written.balance ? ' · sheet says ' + inr(d.written.balance) : '') + '</p>';
     var mn = new Date(sp.k + 'T00:00:00').toLocaleDateString('en', { month: 'long' });
-    if (d.status === 'closed') h += '<button type="button" class="btn wa" id="scWa">Send the day summary on WhatsApp</button>';
+    if (d.status === 'closed') h += '<div class="row" style="gap:8px"><button type="button" class="btn jungle" style="flex:1" id="scCard">🖼 Daily card</button><button type="button" class="btn wa" style="flex:1" id="scWa">Text summary</button></div>';
     h += '<div class="row" style="gap:10px"><button type="button" class="btn line" id="scBack">‹ Sheet</button><button type="button" class="btn coral" style="flex:1" id="scSave">' + (d.status === 'closed' ? 'Update ' + mn + ' file' : 'Save to ' + mn + ' file') + '</button></div>';
     return h;
   }
@@ -5818,6 +5824,8 @@
     o.querySelectorAll('[data-edel]').forEach(function (b) { b.onclick = function () { d.exp.splice(+b.dataset.edel, 1); save(); drawShopDay(); }; });
     q('#scAddExp').onclick = function () { (d.exp = d.exp || []).push({ t: '', v: 0 }); save(); drawShopDay(); var ins = o.querySelectorAll('[data-ek="t"]'); if (ins.length) ins[ins.length - 1].focus(); };
     q('#scBack').onclick = function () { sp.step = 'sheet'; drawShopDay(); };
+    var au = q('#scAuto'); if (au) au.onclick = function () { d.pct = null; save(); drawShopDay(); };
+    var cdb = q('#scCard'); if (cdb) cdb.onclick = function () { var k3 = sp.k; closeShopDay(); openSheet('shopcard:' + k3); };
     var wa = q('#scWa'); if (wa) wa.onclick = function () { waShare(daySummaryText(sp.k)); };
     q('#scSave').onclick = function () {
       var c = calc(); if (c.pct == null) { toast('Type the profit percentage first'); q('#scPct').focus(); return; }
@@ -5838,12 +5846,18 @@
     if (!ks.length) h = '<p class="muted">No days in this month yet.</p>';
     h += '<span class="cap">Inside the Excel file</span><div class="optrow"><span class="opt sm">📊 Month summary</span>' + ks.filter(function (k) { return s2.days[k].grid; }).map(function (k) { return '<span class="opt sm">📄 ' + new Date(k + 'T00:00:00').getDate() + ' ' + md.toLocaleDateString('en', { month: 'short' }) + '</span>'; }).join('') + '</div>';
     h += '<div class="row" style="gap:10px"><button type="button" class="btn jungle" style="flex:1" id="smXls"' + (ks.length ? '' : ' disabled') + '>Share Excel</button><button type="button" class="btn line" style="flex:1" id="smPdf"' + (ks.length ? '' : ' disabled') + '>Save as PDF</button></div>';
+    if (ks.length) h += '<button type="button" class="btn line" id="smRe">↻ Recalculate profit with KSBCL costs</button>';
     if (ks.length) h += '<button type="button" class="btn wa" id="smWa">Share the month on WhatsApp</button>';
     h += '<p class="muted small">Each closed day adds its own sheet and a row to the summary. Days still open are left out of the totals.</p>';
     return { title: md.toLocaleDateString('en', { month: 'long', year: 'numeric' }), cap: esc(s2.name), html: h, bind: function (r) {
       r.querySelectorAll('[data-shday]').forEach(function (tr) { tr.onclick = function () { openShopDay(tr.dataset.shday); }; });
       var x = r.querySelector('#smXls'); if (x) x.onclick = function () { shopExcel(m); };
       var p = r.querySelector('#smPdf'); if (p) p.onclick = function () { shopPdf(m); };
+      var re = r.querySelector('#smRe'); if (re) re.onclick = function () {
+        var n = 0, skip = 0;
+        ks.forEach(function (k) { var d = s2.days[k]; if (d.status !== 'closed' || !d.grid) return; var pr = profitRows(d, k); if (pr.avg == null) { skip++; return; } var pct = Math.round(pr.avg * 10) / 10; if (pct === d.pct) return; d.pct = pct; d.profit = d.sales * pct / 100; d.net = d.profit - (d.expTotal || 0); n++; });
+        save(); drawSheet(); toast(n ? n + ' day' + (n > 1 ? 's' : '') + ' updated' + (skip ? ' · ' + skip + ' without costs left as they were' : '') : skip ? 'No costs for those days yet: link items to your bills or indents' : 'Already up to date');
+      };
       var wm = r.querySelector('#smWa'); if (wm) wm.onclick = function () { waShare(monthSummaryText(m)); };
     } };
   }
@@ -6157,7 +6171,7 @@
       var g = withTotalRow([SHCOLS.slice()].concat(D.rows.map(function (r) { return r.slice(0, 10); })));
       var d = s2.days[k] = { photos: D.ids.slice(), grid: g, ai: g.map(function (rw) { return rw.slice(); }), exp: D.exp.slice(), written: D.written, status: 'draft', at: new Date().toISOString(), src: 'teach' };
       added++;
-      var pr = profitRows(d), pct = pr.avg != null ? Math.round(pr.avg * 10) / 10 : s2.pct;
+      var pr = profitRows(d, k), pct = pr.avg != null ? Math.round(pr.avg * 10) / 10 : s2.pct;
       if (pct != null && pct !== '') { var sales = daySales(d), et = d.exp.reduce(function (a, e) { return a + num(e.v); }, 0); d.pct = pct; d.sales = sales; d.profit = sales * pct / 100; d.expTotal = et; d.net = d.profit - et; d.cash = sales - et; d.status = 'closed'; d.closedAt = new Date().toISOString(); closed++; }
     });
     // his short names go onto your items
@@ -6763,7 +6777,8 @@
   function shopShareSheet(k) {
     var s2 = shop(), t = daySummaryText(k);
     var h = '<div class="wabox"><div class="wab">' + esc(t).replace(/\*([^*]+)\*/g, '<b>$1</b>').replace(/\n/g, '<br>') + '</div></div>';
-    h += '<button type="button" class="btn wa" id="waGo">Send on WhatsApp</button>';
+    h = '<button type="button" class="btn jungle" data-sheet="shopcard:' + k + '">🖼 Daily card for stakeholders</button>' + h;
+    h += '<button type="button" class="btn wa" id="waGo">Send the text on WhatsApp</button>';
     h += '<label class="ttsw"><span><b>Ask every time I close a day</b><small>you pick the chat in WhatsApp</small></span><input type="checkbox" id="waAsk"' + (s2.waAsk !== false ? ' checked' : '') + '><i></i></label>';
     return { title: 'Day summary', cap: new Date(k + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }), html: '<div class="stack" style="gap:12px">' + h + '</div>', bind: function (r) {
       r.querySelector('#waGo').onclick = function () { waShare(t); };
@@ -6776,12 +6791,18 @@
     Object.keys(s2.days).forEach(function (k) { if (k < cut) return; var g = s2.days[k].grid; if (!g) return; n++; dataRows(g).forEach(function (r) { var nm = String(g[r][SC.item] || '').trim(); if (!nm) return; var key = regKey(nm, g[r][SC.size]), sl = cellVal(g, r, SC.sales); if (isNum(sl)) by[key] = (by[key] || 0) + num(sl); }); });
     return { by: by, days: n };
   }
+  // the TCS on a bill or indent is shared out over its items in proportion to their amounts
+  function tcsFactor(x) {
+    var items = x.items || [], tot = num(x.itemTotal) || items.reduce(function (a, it) { return a + num(it.amount); }, 0);
+    var inv = num(x.invoiceValue) || (num(x.tcs) ? tot + num(x.tcs) : 0);
+    return tot && inv > tot && inv / tot < 1.2 ? inv / tot : 1;
+  }
   function costHist(key) {
-    var s2 = shop(), out = [], me = s2.items[key], keys = {}; keys[key] = 1;
+    var s2 = shop(), out = []; key = resolveKey(key); var me = s2.items[key], keys = {}; keys[key] = 1;
     if (me) Object.keys(me.alias || {}).forEach(function (a) { keys[regKey(a, me.size)] = 1; });
     var per = function (x) { return num(x.per) || BPC[+String(x.ml || (me && me.size) || '').replace(/[^0-9]/g, '')] || null; };
-    Object.keys(bills()).forEach(function (id) { var b = s2.bills[id]; if (b.status !== 'added' && b.status !== 'pending') return; (b.items || []).forEach(function (it) { if (keys[resolveKey(it.key)] && it.rate && per(it)) out.push({ d: b.date, c: it.rate / per(it), src: 'bill' }); }); });
-    Object.keys(s2.indents || {}).forEach(function (id) { var n = s2.indents[id]; (n.items || []).forEach(function (it) { if (keys[resolveKey((s2.map || {})[normName(it.name) + '|' + it.ml])] && it.rate && per(it)) out.push({ d: n.date || '', c: it.rate / per(it), src: 'indent' }); }); });
+    Object.keys(bills()).forEach(function (id) { var b = s2.bills[id]; if (b.status !== 'added' && b.status !== 'pending') return; var f = tcsFactor(b); (b.items || []).forEach(function (it) { if (keys[resolveKey(it.key)] && it.rate && per(it)) out.push({ d: b.date, c: it.rate / per(it) * f, base: it.rate / per(it), tcs: f > 1, src: 'bill' }); }); });
+    Object.keys(s2.indents || {}).forEach(function (id) { var n = s2.indents[id], f = tcsFactor(n); (n.items || []).forEach(function (it) { if (keys[resolveKey((s2.map || {})[normName(it.name) + '|' + it.ml])] && it.rate && per(it)) out.push({ d: n.date || '', c: it.rate / per(it) * f, base: it.rate / per(it), tcs: f > 1, src: 'indent' }); }); });
     return out.sort(function (a, b) { return a.d < b.d ? -1 : 1; });
   }
   function perCase(key) { var x = regItem(key), best = null; Object.keys(bills()).forEach(function (id) { (shop().bills[id].items || []).forEach(function (it) { if (resolveKey(it.key) === key && it.per) best = it.per; }); }); return best || (x && BPC[+x.size]) || 12; }
@@ -6831,7 +6852,7 @@
     if (vals.length) h += '<div class="card stack" style="gap:8px"><b style="font-size:14px">Daily sales</b><div class="dbars">' + vals.map(function (x) { return '<i title="' + x.k + ' ' + inr(x.v) + '" style="height:' + Math.max(3, Math.round(x.v / mx * 100)) + '%' + (best && x.k === best.k ? ';background:#FFB23F' : '') + '"></i>'; }).join('') + '</div><span class="muted small">Best day: ' + new Date(best.k + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + ' · ' + inr(best.v) + '</span></div>';
     // per item: bottles sold and profit
     var it = {};
-    ks.forEach(function (k) { var g = s2.days[k].grid; dataRows(g).forEach(function (r) { var nm = String(g[r][SC.item] || '').trim(); if (!nm) return; var key = regKey(nm, g[r][SC.size]), sl = num(cellVal(g, r, SC.sales)), rt = num(cellVal(g, r, SC.rate)); if (!sl) return; var e = it[key] = it[key] || { n: nm + ' ' + (g[r][SC.size] || ''), sold: 0, rev: 0, prof: null }; e.sold += sl; e.rev += sl * rt; var c = costFor(nm, g[r][SC.size]); if (c && rt) e.prof = (e.prof || 0) + sl * (rt - c.c); }); });
+    ks.forEach(function (k) { var g = s2.days[k].grid; dataRows(g).forEach(function (r) { var nm = String(g[r][SC.item] || '').trim(); if (!nm) return; var key = regKey(nm, g[r][SC.size]), sl = num(cellVal(g, r, SC.sales)), rt = num(cellVal(g, r, SC.rate)); if (!sl) return; var e = it[key] = it[key] || { n: nm + ' ' + (g[r][SC.size] || ''), sold: 0, rev: 0, prof: null }; e.sold += sl; e.rev += sl * rt; var c = costFor(nm, g[r][SC.size], k); if (c && rt) e.prof = (e.prof || 0) + sl * (rt - c.c); }); });
     var arr = Object.keys(it).map(function (k) { return it[k]; });
     var bs = arr.slice().sort(function (a, b) { return b.sold - a.sold; }).slice(0, 6), bmx = bs.length ? bs[0].sold : 1;
     if (bs.length) h += '<div class="card stack" style="gap:8px"><b style="font-size:14px">Best sellers</b>' + bs.map(function (x) { return '<div class="hbar"><span>' + esc(x.n) + '</span><span class="b"><i style="background:#12A39A;width:' + Math.round(x.sold / bmx * 100) + '%"></i></span><span style="text-align:right">' + fmtN(x.sold) + '</span></div>'; }).join('') + '</div>';
@@ -6876,6 +6897,113 @@
     } };
   }
   function markShopTab() { var t = document.querySelector('.tab[data-tab="shop"]'); if (t) t.classList.toggle('dot', newAlerts() > 0); }
+
+  // ---------- daily card: one picture for stakeholders on WhatsApp ----------
+  function cardCfg() {
+    var s2 = shop(), c = s2.card = s2.card || {};
+    var def = { sales: true, profit: true, exp: false, trend: true, top: true, stock: true, month: true, aftertax: true, tax: 30, fixed: 0, theme: 'green' };
+    Object.keys(def).forEach(function (k) { if (c[k] == null) c[k] = def[k]; });
+    return c;
+  }
+  function daySalesOf(d) { return !d ? null : d.status === 'closed' ? d.sales : d.grid ? daySales(d) : null; }
+  // this month's net up to a day, minus fixed monthly costs (pro rata) and tax
+  function monthAfterTax(k) {
+    var s2 = shop(), c = cardCfg(), m = k.slice(0, 7), net = 0, sales = 0, n = 0;
+    Object.keys(s2.days).forEach(function (x) { if (x.slice(0, 7) !== m || x > k) return; var d = s2.days[x]; var sv = daySalesOf(d); if (sv) sales += sv; if (d.status === 'closed') { net += d.net || 0; n++; } });
+    var dim = new Date(+m.slice(0, 4), +m.slice(5, 7), 0).getDate(), day = +k.slice(8, 10);
+    var fixed = num(c.fixed) * Math.min(1, day / dim), pre = net - fixed, tax = pre > 0 ? pre * num(c.tax) / 100 : 0;
+    return { sales: sales, net: net, fixed: fixed, pre: pre, tax: tax, after: pre - tax, n: n };
+  }
+  function cardData(k) {
+    var s2 = shop(), d = s2.days[k], sales = daySalesOf(d) || 0;
+    var wk = dkey(new Date(new Date(k + 'T00:00:00').getTime() - 7 * 864e5)), prev = daySalesOf(s2.days[wk]);
+    var trend = []; for (var i = 6; i >= 0; i--) { var dk = dkey(new Date(new Date(k + 'T00:00:00').getTime() - i * 864e5)); trend.push({ k: dk, v: daySalesOf(s2.days[dk]) || 0 }); }
+    var sold = daySold(d), top = Object.keys(sold).sort(function (a, b) { return sold[b] - sold[a]; }).slice(0, 3).map(function (x) { return { n: x, q: sold[x] }; });
+    var bl = Object.keys(bills()).map(function (id) { return s2.bills[id]; }).filter(function (b) { return b.applied === k; });
+    var cases = 0, first = ''; bl.forEach(function (b) { b.items.forEach(function (it) { cases += it.cases; if (!first) first = shortBillName(it.name) + ' ' + it.ml; }); });
+    var et = (d.exp || []).reduce(function (a, e) { return a + num(e.v); }, 0);
+    return { k: k, name: s2.name, sales: sales, chg: prev ? (sales - prev) / prev * 100 : null, closed: d.status === 'closed', net: d.net, pct: d.pct, exp: et, cash: sales - et, trend: trend, top: top, cases: cases, first: first, mon: monthAfterTax(k) };
+  }
+  function drawCard(k) {
+    var c = cardCfg(), D = cardData(k), W = 1080, H = 1350, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    var x = cv.getContext('2d'), F = '"Space Grotesk", system-ui, sans-serif', M = '"Space Mono", monospace';
+    var blue = c.theme === 'blue', g = x.createLinearGradient(0, 0, W * .6, H);
+    g.addColorStop(0, blue ? '#1B2F5A' : '#0F4D40'); g.addColorStop(.65, blue ? '#24407A' : '#12665A'); g.addColorStop(1, blue ? '#2E5296' : '#12A39A');
+    x.fillStyle = g; x.fillRect(0, 0, W, H);
+    x.fillStyle = 'rgba(255,178,63,.92)'; x.beginPath(); x.arc(W - 40, 40, 230, 0, Math.PI * 2); x.fill();
+    var rr = function (X, Y, w, h, r, fill) { x.beginPath(); x.moveTo(X + r, Y); x.arcTo(X + w, Y, X + w, Y + h, r); x.arcTo(X + w, Y + h, X, Y + h, r); x.arcTo(X, Y + h, X, Y, r); x.arcTo(X, Y, X + w, Y, r); x.closePath(); x.fillStyle = fill; x.fill(); };
+    var txt = function (t, X, Y, size, opt) { opt = opt || {}; x.font = (opt.w || 400) + ' ' + size + 'px ' + (opt.mono ? M : F); x.fillStyle = opt.c || '#fff'; x.textAlign = opt.a || 'left'; x.textBaseline = 'alphabetic'; var mw = opt.max; if (mw) { var s = size; while (x.measureText(t).width > mw && s > 12) { s -= 2; x.font = (opt.w || 400) + ' ' + s + 'px ' + (opt.mono ? M : F); } } x.fillText(t, X, Y); };
+    var P = 72, y = 110;
+    txt('DAILY REPORT', P, y, 26, { mono: true, c: 'rgba(255,255,255,.8)' }); y += 66;
+    txt(D.name, P, y, 66, { w: 700, max: 760 }); y += 50;
+    var dd0 = new Date(k + 'T00:00:00'); txt(dd0.toLocaleDateString('en', { weekday: 'long' }) + ', ' + dd0.getDate() + ' ' + dd0.toLocaleDateString('en', { month: 'long' }) + ' ' + dd0.getFullYear(), P, y, 34, { c: 'rgba(255,255,255,.85)' }); y += 50;
+    var showNet = c.profit && D.closed, tw = showNet ? 560 : W - 2 * P;
+    if (c.sales) {
+      rr(P, y, tw, 250, 34, 'rgba(255,255,255,.13)');
+      txt('Sales', P + 34, y + 58, 30, { c: 'rgba(255,255,255,.8)' });
+      txt(inr(D.sales), P + 34, y + 160, 96, { w: 700, max: tw - 68 });
+      if (D.chg != null) txt((D.chg >= 0 ? '▲ ' : '▼ ') + Math.abs(D.chg).toFixed(0) + '% vs last ' + new Date(k + 'T00:00:00').toLocaleDateString('en', { weekday: 'short' }), P + 34, y + 214, 28, { c: D.chg >= 0 ? '#9FF0D9' : '#FFC2B8' });
+      if (showNet) {
+        var nx = P + tw + 24, nw = W - P - nx; rr(nx, y, nw, 250, 34, '#FFB23F');
+        txt('Net', nx + 30, y + 58, 30, { c: '#0F4D40' }); txt(inr(D.net), nx + 30, y + 150, 70, { w: 700, c: '#0F4D40', max: nw - 60 }); txt('margin ' + D.pct + '%', nx + 30, y + 214, 28, { c: '#0F4D40' });
+      }
+      y += 280;
+    }
+    if (c.trend) {
+      rr(P, y, W - 2 * P, 210, 30, 'rgba(255,255,255,.09)'); txt('Last 7 days', P + 30, y + 48, 26, { c: 'rgba(255,255,255,.8)' });
+      var mx = Math.max.apply(null, D.trend.map(function (t) { return t.v; }).concat([1])), bw = (W - 2 * P - 60 - 6 * 14) / 7;
+      D.trend.forEach(function (t, i) { var h = Math.max(6, t.v / mx * 120), bx = P + 30 + i * (bw + 14); rr(bx, y + 186 - h, bw, h, 8, i === 6 ? '#FFB23F' : 'rgba(255,255,255,.45)'); });
+      y += 240;
+    }
+    var rows = [];
+    if (c.exp) { rows.push(['Expenses', inr(D.exp)]); rows.push(['Cash in hand', inr(D.cash)]); }
+    if (c.stock && D.cases) rows.push(['Stock in', D.cases + ' case' + (D.cases > 1 ? 's' : '') + (D.first ? ' · ' + D.first : '')]);
+    rows.forEach(function (r) { txt(r[0], P, y + 38, 32, { c: 'rgba(255,255,255,.8)' }); txt(r[1], W - P, y + 38, 32, { w: 700, a: 'right', max: 600 }); x.fillStyle = 'rgba(255,255,255,.16)'; x.fillRect(P, y + 60, W - 2 * P, 2); y += 76; });
+    if (c.top && D.top.length) { y += 10; txt('Top sellers', P, y + 30, 28, { c: 'rgba(255,255,255,.75)' }); txt(D.top.map(function (t) { return t.n + ' · ' + t.q; }).join('    '), P, y + 76, 32, { w: 600, max: W - 2 * P }); y += 110; }
+    var by = H - 90;
+    if (c.aftertax && D.mon.n) {
+      var bh = 150, bt = by - bh - 20; rr(P, bt, W - 2 * P, bh, 30, 'rgba(255,255,255,.15)');
+      var mname = new Date(k + 'T00:00:00').toLocaleDateString('en', { month: 'long' });
+      txt(mname + ' so far · profit after tax', P + 32, bt + 60, 30, { c: 'rgba(255,255,255,.85)' });
+      txt(inrK(D.mon.net) + ' net' + (D.mon.fixed ? ' − ' + inrK(D.mon.fixed) + ' fixed' : '') + ' − ' + num(c.tax) + '% tax', P + 32, bt + 106, 26, { c: 'rgba(255,255,255,.65)', max: 560 });
+      txt(inr(D.mon.after), W - P - 32, bt + 100, 64, { w: 700, a: 'right', c: '#FFD27A', max: 380 });
+    }
+    txt(c.month ? new Date(k + 'T00:00:00').toLocaleDateString('en', { month: 'long' }) + ' so far: ' + inrK(D.mon.sales) + ' sales' : '', P, H - 50, 28, { c: 'rgba(255,255,255,.85)' });
+    txt('◎ Attention', W - P, H - 50, 28, { c: 'rgba(255,255,255,.85)', a: 'right' });
+    return cv;
+  }
+  function cardFonts() { try { return Promise.all(['700 40px "Space Grotesk"', '400 40px "Space Grotesk"', '400 20px "Space Mono"'].map(function (f) { return document.fonts.load(f); })).catch(function () {}); } catch (e) { return Promise.resolve(); } }
+  function shareCard(k) {
+    cardFonts().then(function () {
+      var cv = drawCard(k), name = shop().name.replace(/[^a-z0-9]+/gi, '-') + '-' + k + '.png';
+      cv.toBlob(function (blob) {
+        var file = new File([blob], name, { type: 'image/png' });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) navigator.share({ files: [file], title: shop().name + ' ' + k }).catch(function () {});
+        else { var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); toast('Saved the picture: attach it in WhatsApp'); }
+      }, 'image/png');
+    });
+  }
+  function shopCardSheet(k) {
+    var c = cardCfg(), s2 = shop();
+    var tg = function (key, lab, sub) { return '<label class="ttsw"><span><b>' + lab + '</b>' + (sub ? '<small>' + sub + '</small>' : '') + '</span><input type="checkbox" data-cc="' + key + '"' + (c[key] ? ' checked' : '') + '><i></i></label>'; };
+    var h = '<img id="cardImg" class="cardimg" alt="Daily card preview">';
+    h += '<button type="button" class="btn wa" id="cardGo">Share the card on WhatsApp</button>';
+    h += '<details class="card"' + (s2.cardOpen ? ' open' : '') + ' id="cardOpts"><summary><b>What to show</b></summary><div class="stack" style="gap:8px;margin-top:10px">' +
+      tg('sales', 'Sales', 'with the change vs the same day last week') + tg('profit', 'Profit and net', 'margin %, net after expenses (closed days)') + tg('exp', 'Expenses and cash in hand', '') + tg('trend', '7-day trend', '') + tg('top', 'Top sellers', 'top 3 items') + tg('stock', 'Stock in', 'KSBCL bills that arrived') + tg('month', 'Month so far', 'sales this month') + tg('aftertax', 'Month profit after tax', 'this month’s net − fixed costs − tax') +
+      '<label class="brf"><span>Tax rate</span><input inputmode="decimal" data-cn="tax" value="' + c.tax + '"><small>% of profit</small></label>' +
+      '<label class="brf"><span>Fixed monthly costs</span><input inputmode="decimal" data-cn="fixed" value="' + (c.fixed || 0) + '"><small>₹ a month</small></label>' +
+      '<div class="row" style="gap:6px">' + [['green', 'Green'], ['blue', 'Blue']].map(function (t) { return '<button type="button" class="mschip sm' + (c.theme === t[0] ? ' on' : '') + '" data-cth="' + t[0] + '">' + t[1] + '</button>'; }).join('') + '</div></div></details>';
+    h += '<p class="muted small">Fixed monthly costs (licence fee, rent…) are spread over the days. Tax is taken off this month’s profit when it’s above zero. The TCS is already inside the bottle costs.</p>';
+    return { title: 'Daily card', cap: new Date(k + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }), html: '<div class="stack" style="gap:12px">' + h + '</div>', bind: function (r) {
+      var paint = function () { cardFonts().then(function () { var im = r.querySelector('#cardImg'); if (im) im.src = drawCard(k).toDataURL('image/png'); }); };
+      paint();
+      r.querySelector('#cardGo').onclick = function () { shareCard(k); };
+      r.querySelector('#cardOpts').addEventListener('toggle', function (e) { s2.cardOpen = e.target.open; });
+      r.querySelectorAll('[data-cc]').forEach(function (cb) { cb.onchange = function () { c[cb.dataset.cc] = cb.checked; save(); paint(); }; });
+      r.querySelectorAll('[data-cn]').forEach(function (inp) { inp.onchange = function () { c[inp.dataset.cn] = Math.max(0, num(inp.value)); save(); paint(); }; });
+      r.querySelectorAll('[data-cth]').forEach(function (b) { b.onclick = function () { c.theme = b.dataset.cth; save(); r.querySelectorAll('[data-cth]').forEach(function (x) { x.classList.toggle('on', x === b); }); paint(); }; });
+    } };
+  }
 
   // ---------- shell ----------
   function render() {
