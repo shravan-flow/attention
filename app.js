@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '38';
+  var APP_VERSION = '39';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -3094,6 +3094,10 @@
       case 'shopmonth': return shopMonthSheet(arg || dkey(new Date()).slice(0, 7));
       case 'shoplearn': return shopLearnSheet();
       case 'shopteach': return shopTeachSheet();
+      case 'shopitems': return shopItemsSheet();
+      case 'shopitem': return shopItemSheet(arg);
+      case 'shopsame': return shopSameSheet();
+      case 'shopindent': return shopIndentSheet();
       case 'shopreset': return shopResetSheet();
       case 'breath': return breathSheet();
       case 'shopset': return shopSetSheet();
@@ -4387,7 +4391,7 @@
     g.push(t); return g;
   }
   function dataRows(g) { var out = []; for (var r = 1; r < g.length; r++) if (g[r][0] !== 'TOTAL') out.push(r); return out; }
-  function rowKey(g, r) { return (String(g[r][SC.item] || '').trim().toLowerCase().replace(/[^a-z0-9ಀ-೿]+/g, '') + '|' + String(g[r][SC.size] || '').replace(/[^0-9]/g, '')); }
+  function rowKey(g, r) { return regKey(g[r][SC.item], g[r][SC.size]); }
   function daySales(d) { if (!d || !d.grid) return 0; var g = d.grid, t = 0; dataRows(g).forEach(function (r) { t += num(cellVal(g, r, SC.amt)); }); return t; }
   function prevDayKey(k) { var ks = Object.keys(shop().days).filter(function (x) { return x < k && shop().days[x].grid; }).sort(); return ks.pop(); }
   // checks: anything that doesn't add up turns red
@@ -4437,7 +4441,7 @@
       var d = s2.days[k], st = d.status === 'closed' ? ['closed', '#CDEFEA'] : d.status === 'reading' ? ['reading…', '#FFE6B8'] : d.grid ? ['to check', '#FFE0D9'] : ['photos only', '#F1E6D6'];
       return '<button type="button" class="r" data-shday="' + k + '"><span class="t">' + new Date(k + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + '<small>' + (d.status === 'closed' ? 'sales ' + inr(d.sales) + ' · net ' + inr(d.net) : d.grid ? 'sales ' + inr(daySales(d)) + ' so far' : d.photos.length + ' photo' + (d.photos.length === 1 ? '' : 's')) + '</small></span><span class="tkpill" style="background:' + st[1] + '">' + st[0] + '</span>' + CHEV + '</button>';
     }).join('') + '</div>';
-    h += '<div class="list">' + row({ t: '📋 KSBCL price list', sub: PL && PL.asOf ? fmtN(PL.items.length) + ' items · as on ' + new Date(PL.asOf + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short', year: 'numeric' }) : 'add the PDF or Excel list: exact names, MRP, cost', sheet: 'shopprices' }) + row({ t: '📊 Month file', sub: 'share ' + md.toLocaleDateString('en', { month: 'long' }) + ' as Excel or PDF', sheet: 'shopmonth:' + m }) + row({ t: '📚 Teach from old sheets', sub: teachSub(), sheet: 'shopteach' }) + row({ t: '🧠 Learning your handwriting', sub: Object.keys(s2.gloss).length + ' words learnt · ' + s2.fixes + ' corrections', sheet: 'shoplearn' }) + row({ t: 'Shop settings', sub: 'name, usual profit %', sheet: 'shopset' }) + '</div>';
+    h += '<div class="list">' + row({ t: '🏷 Your items', sub: regAll().length + ' items' + ((s2.askq || []).length ? ' · <b>' + s2.askq.length + ' to confirm</b>' : ' · his short names, stock, margins'), sheet: 'shopitems' }) + row({ t: '📦 Past KSBCL indents', sub: Object.keys(s2.indents || {}).length ? Object.keys(s2.indents).length + ' indents · used for costs' : 'upload them: your real stock and latest costs', sheet: 'shopindent' }) + row({ t: '📋 KSBCL name list', sub: PL && PL.asOf ? fmtN(PL.items.length) + ' names · as on ' + new Date(PL.asOf + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short', year: 'numeric' }) : 'the supplier-wise list: used only for exact names', sheet: 'shopprices' }) + row({ t: '📊 Month file', sub: 'share ' + md.toLocaleDateString('en', { month: 'long' }) + ' as Excel or PDF', sheet: 'shopmonth:' + m }) + row({ t: '📚 Teach from old sheets', sub: teachSub(), sheet: 'shopteach' }) + row({ t: '🧠 Learning your handwriting', sub: Object.keys(s2.gloss).length + ' words learnt · ' + s2.fixes + ' corrections', sheet: 'shoplearn' }) + row({ t: 'Shop settings', sub: 'name, usual profit %', sheet: 'shopset' }) + '</div>';
     if (!hasAI()) h += '<div class="notice">Reading photos needs your free Gemini key (Settings → Visualization). Without it you can still type the sheet in.</div>';
     return h + '</div>';
   }
@@ -4492,7 +4496,7 @@
       fillDownNames(g);
       d.grid = withTotalRow(g); d.ai = withTotalRow(aiRows);
       dataRows(d.grid).forEach(function (rr) { var gk = String(d.grid[rr][SC.item] || '').trim().toLowerCase(); if (gk && s2.gloss[gk]) { d.grid[rr][SC.item] = s2.gloss[gk].to; fixed++; } });
-      var cy = carryNames(key);
+      var cy = regAssign(key);
       d.exp = (r.expenses || []).filter(function (e) { return e && (e.name || e.amount); }).map(function (e) { return { t: String(e.name || ''), v: num(e.amount) }; });
       d.written = r.written || {}; d.status = 'draft'; save();
       applyPendingBills(key);
@@ -4516,22 +4520,23 @@
   function shopItems() {
     var s2 = shop(), out = {}; bills();
     Object.keys(s2.items).forEach(function (k) { out[k] = s2.items[k]; });
-    Object.keys(s2.days).sort().forEach(function (k) { var g = s2.days[k].grid; if (g) dataRows(g).forEach(function (r) { var it = String(g[r][SC.item] || '').trim(); if (!it) return; var key = itemKey(it, g[r][SC.size]); if (!out[key]) out[key] = { item: it, size: String(g[r][SC.size] || '').replace(/[^0-9]/g, '') }; }); });
+    Object.keys(s2.days).sort().forEach(function (k) { var g = s2.days[k].grid; if (g) dataRows(g).forEach(function (r) { var it = String(g[r][SC.item] || '').trim(); if (!it) return; var key = regKey(it, g[r][SC.size]); if (!out[key]) out[key] = { item: it, size: String(g[r][SC.size] || '').replace(/[^0-9]/g, '') }; }); });
     return out;
   }
   // stock now = closing on the latest sheet + bills that haven't reached a sheet yet
   function stockNow() {
-    var s2 = shop(), st = {}, items = shopItems(), last = null;
+    regSync(); var s2 = shop(), st = {}, items = shopItems(), last = null;
     Object.keys(s2.days).sort().forEach(function (k) { if (s2.days[k].grid) last = k; });
     Object.keys(items).forEach(function (key) { st[key] = { item: items[key].item, size: items[key].size, qty: 0, inToday: 0, known: false }; });
-    if (last) { var g = s2.days[last].grid; dataRows(g).forEach(function (r) { var key = itemKey(g[r][SC.item], g[r][SC.size]); if (!st[key]) return; var cv = cellVal(g, r, SC.close), o2 = cellVal(g, r, SC.open);
+    Object.keys(s2.days).sort().forEach(function (dk) { if (dk === last) return; var g0 = s2.days[dk].grid; if (!g0) return; dataRows(g0).forEach(function (r) { var n = String(g0[r][SC.item] || '').trim(); if (!n) return; var key = regKey(n, g0[r][SC.size]); if (!st[key]) return; var cv = cellVal(g0, r, SC.close); if (isNum(cv) && String(g0[r][SC.close]).trim() !== '') { st[key].qty = num(cv); st[key].known = true; } }); });
+    if (last) { var g = s2.days[last].grid; dataRows(g).forEach(function (r) { var key = regKey(g[r][SC.item], g[r][SC.size]); if (!st[key]) return; var cv = cellVal(g, r, SC.close), o2 = cellVal(g, r, SC.open);
         if (isNum(cv) && String(g[r][SC.close]).trim() !== '') { st[key].qty = num(cv); st[key].known = true; }
         else if (isNum(o2)) { st[key].qty = num(o2) + num(cellVal(g, r, SC.recv)) - num(cellVal(g, r, SC.sales)); st[key].known = true; } }); }
     var tk = dkey(new Date());
     Object.keys(bills()).forEach(function (no) {
       var b = s2.bills[no]; if (b.status !== 'pending' && b.status !== 'added') return;
       (b.items || []).forEach(function (it) {
-        var key = it.key; if (!key || !st[key]) return;
+        var key = resolveKey(it.key); if (!key || !st[key]) return;
         if (b.status === 'pending' || (b.applied && b.applied > (last || ''))) st[key].qty += it.bottles;
         if (b.date === tk) st[key].inToday += it.bottles;
       });
@@ -4568,9 +4573,9 @@
       .catch(function (e) { toast('Couldn’t save the photos: ' + (e.message || e)); });
   }
   function billRead(id) {
-    var b = bills()[id], s2 = shop(), items = shopItems();
+    var b = bills()[id], s2 = shop(); regSync(); var items = shopItems();
     b.status = 'reading'; save(); if (bp && bp.id === id) drawBill();
-    var names = Object.keys(items).map(function (k) { return items[k].item + (items[k].size ? ' ' + items[k].size : ''); });
+    var names = regAll().map(function (x) { return x.item + (x.size ? ' ' + x.size : ''); });
     var prompt = 'These photos are the pages of one computer-printed KSBCL (Karnataka State Beverages Corporation) "Bill Of Invoice" for a liquor shop. Read it exactly.\n' +
       'For each line item return: the full item name as printed (without the pack code in brackets), size in ml, the pack text (like "180MLx48Btls"), bottles per case (the number before "Btls" in the pack text, e.g. 48), CBs (cases), Btls (loose bottles), rate per case, amount.\n' +
       'Also return the invoice number, the invoice date (YYYY-MM-DD), the item total (the "Total" amount), the invoice value, and the total number of cases.\n' +
@@ -4587,10 +4592,16 @@
         var ml = String(x.ml || '').replace(/[^0-9]/g, ''), per = num(x.perCase) || num((/x\s*(\d+)\s*b/i.exec(x.pack || '') || [])[1]) || 0;
         var it = { name: String(x.name || '').trim(), ml: ml, per: per, cases: num(x.cases), loose: num(x.loose), rate: num(x.rate), amount: num(x.amount) };
         it.bottles = it.cases * it.per + it.loose;
-        var mapped = s2.map[normName(it.name) + '|' + ml];
-        if (mapped && items[mapped]) it.key = mapped;
-        else if (x.match && byName[String(x.match).toLowerCase()]) it.key = byName[String(x.match).toLowerCase()];
-        else it.key = null; // a new item: its bill name joins the list
+        var mapped = resolveKey(s2.map[normName(it.name) + '|' + ml]), short = shortBillName(it.name);
+        var exact = regAll().filter(function (y) { return y.size === ml && (normName(y.item) === normName(short) || (y.full && normName(y.full) === normName(it.name))); })[0];
+        if (mapped && regItem(mapped)) it.key = mapped;
+        else if (exact) it.key = exact.key;
+        else {
+          // not sure: ask before making a new item
+          var c = regCands(short, ml, 3).map(function (y) { return y.key; }), ai = x.match ? regAll().filter(function (y) { return normName(y.item + ' ' + y.size) === normName(x.match) || (normName(y.item) === normName(String(x.match).replace(/\s*\d+\s*(ml)?$/i, '')) && y.size === ml); })[0] : null;
+          if (ai && c.indexOf(ai.key) < 0) c.unshift(ai.key); else if (ai) { c.splice(c.indexOf(ai.key), 1); c.unshift(ai.key); }
+          it.key = null; it.ask = c.length ? c.slice(0, 3) : null; it.ans = null;
+        }
         return it;
       });
       b.status = dup ? 'dup' : 'draft'; b.dupOf = dup || null; save();
@@ -4600,6 +4611,7 @@
   }
   // "Original Choice Deluxe Whisky-Aseptic Brick Pack (40%)" → "Original Choice Deluxe Whisky"
   function shortBillName(t) { return String(t || '').replace(/\(.*?\)/g, ' ').replace(/\s*[-–]\s*(aseptic|tetra|brick|pet|can|glass|pack)\b.*$/i, '').replace(/\s+(aseptic|tetra)\s.*$/i, '').replace(/\s+/g, ' ').trim() || t; }
+  function billAsks(b) { return (b.items || []).filter(function (it) { return it.ask && it.ans == null; }).length; }
   function billBottles(b) { return (b.items || []).reduce(function (a, it) { return a + (it.bottles || 0); }, 0); }
   function openBill(id) { resetOverlay(); closeSheet(); bp = { id: id, view: 'items', step: 1, ph: 0, zoom: 1 }; drawBill(); showOverlay('spo'); }
   function closeBill() { bp = null; closeOverlayEl(); if (ui.tab === 'shop') render(); }
@@ -4616,33 +4628,37 @@
       h += '<div class="seg2 shseg" role="tablist">' + [['photo', 'Photo'], ['both', 'Both'], ['items', 'Items']].map(function (v) { return '<button type="button" role="tab" data-bpv="' + v[0] + '" aria-selected="' + (bp.view === v[0]) + '">' + v[1] + '</button>'; }).join('') + '</div>';
       if (bp.view !== 'items') h += '<div class="shphoto' + (bp.view === 'photo' ? ' big' : '') + '"><img id="bpImg" alt="Bill photo" style="width:' + bp.zoom * 100 + '%"></div><div class="row between shphbar"><span class="row" style="gap:4px">' + (b.photos.length > 1 ? '<button type="button" class="nib" data-bph="-1">‹</button><span class="cap">' + (bp.ph + 1) + ' / ' + b.photos.length + '</span><button type="button" class="nib" data-bph="1">›</button>' : '') + '</span><span class="row" style="gap:4px"><button type="button" class="nib" id="bpZo">−</button><button type="button" class="nib" id="bpZi">+</button></span></div>';
       if (bp.view !== 'photo') {
-        var opts = Object.keys(items).sort(function (a, c) { return items[a].item.localeCompare(items[c].item); });
+        var regs = regAll(), opts = regs.map(function (x) { return x.key; }).sort(function (a, c) { return regItem(a).item.localeCompare(regItem(c).item); });
         h += '<div class="stack" style="gap:8px">' + b.items.map(function (it, i) {
-          var nw = !it.key;
+          var nw = !it.key, q2 = it.ask && it.ans == null;
+          if (q2) {
+            var st0 = regStock();
+            return '<div class="bitem ask"><span class="cap">On the KSBCL bill</span><b>' + esc(it.name) + ' <span class="muted">' + it.ml + ' ml</span></b><span class="muted small">' + it.cases + ' case' + (it.cases === 1 ? '' : 's') + ' · ' + it.bottles + ' bottles</span><span class="cap" style="margin-top:6px">Is it this item from your sheet?</span><div class="askb">' + it.ask.map(function (k) { var x = regItem(k); if (!x) return ''; var al = Object.keys(x.alias || {}).slice(0, 2), sk = st0[resolveKey(k)]; return '<button type="button" data-bq="' + i + '" data-bk2="' + esc(k) + '"><b>' + esc(x.item) + ' ' + esc(x.size) + '</b><small>' + (al.length ? 'he writes ' + al.map(esc).join(', ') + ' · ' : '') + (sk ? sk.qty + ' in stock' : 'on your sheets') + '</small></button>'; }).join('') + '<button type="button" data-bq="' + i + '" data-bk2="__new"><b>No, it’s new</b><small>add it to your items under the bill name</small></button></div></div>';
+          }
           return '<div class="bitem' + (nw ? ' new' : '') + '"><div class="row between" style="align-items:flex-start;gap:8px"><b>' + esc(it.name) + ' <span class="muted">' + it.ml + ' ml</span></b><span class="muted small" style="white-space:nowrap">' + inr(it.amount, 2) + '</span></div>' +
             '<div class="row bmath"><input data-bi="' + i + '" data-bk="cases" inputmode="numeric" value="' + it.cases + '"><span>case' + (it.cases === 1 ? '' : 's') + ' ×</span><input data-bi="' + i + '" data-bk="per" inputmode="numeric" value="' + it.per + '"><span>+</span><input data-bi="' + i + '" data-bk="loose" inputmode="numeric" value="' + it.loose + '"><span>=</span><b class="bbt" id="bbt' + i + '">' + it.bottles + ' bottles</b></div>' +
-            '<label class="bmatch">→ <select data-bm="' + i + '"><option value="">➕ New item: ' + esc(it.name) + ' ' + it.ml + '</option>' + opts.map(function (k) { return '<option value="' + esc(k) + '"' + (k === it.key ? ' selected' : '') + '>' + esc(items[k].item) + (items[k].size ? ' ' + items[k].size : '') + '</option>'; }).join('') + '</select></label>' +
-            (nw ? '<span class="small" style="color:#B3372B">New item: it will be added to your list under this name</span>' : '') + '</div>';
+            '<label class="bmatch">→ <select data-bm="' + i + '"><option value="">➕ New item: ' + esc(shortBillName(it.name)) + ' ' + it.ml + '</option>' + opts.map(function (k) { var x = regItem(k); return '<option value="' + esc(k) + '"' + (k === resolveKey(it.key) ? ' selected' : '') + '>' + esc(x.item) + (x.size ? ' ' + x.size : '') + '</option>'; }).join('') + '</select></label>' +
+            (nw ? '<span class="small" style="color:#B3372B">New item: it will be added to your items under this name</span>' : it.ans === 'y' && regItem(it.key) && normName(regItem(it.key).item) !== normName(shortBillName(it.name)) ? '<span class="small" style="color:#0F7A6E">From tomorrow “' + esc(regItem(it.key).item) + '” shows as “' + esc(shortBillName(it.name)) + '”; his short name stays linked</span>' : '') + '</div>';
         }).join('') + '</div>';
         var cases = b.items.reduce(function (a, it) { return a + it.cases; }, 0), amt = b.items.reduce(function (a, it) { return a + it.amount; }, 0);
         if (b.items.length) h += '<div class="notice' + (b.itemTotal && Math.abs(amt - b.itemTotal) < 1 ? ' ok' : '') + '">' + b.items.length + ' items · <b>' + cases + ' cases · ' + billBottles(b) + ' bottles</b> · items add up to ' + inr(amt, 2) + (b.itemTotal ? (Math.abs(amt - b.itemTotal) < 1 ? ' ✓ same as the bill' : ' ⚠ the bill says ' + inr(b.itemTotal, 2)) : '') + (b.invoiceValue ? ' (' + inr(b.invoiceValue, 2) + ' with TCS)' : '') + (b.totalCases && b.totalCases !== cases ? ' · ⚠ bill says ' + b.totalCases + ' cases' : '') + '</div>';
       }
-      h += '<div class="row" style="gap:10px">' + (hasAI() ? '<button type="button" class="btn line small" id="bpRead">↻ Read again</button>' : '') + '<button type="button" class="btn coral" style="flex:1" id="bpNext"' + (b.items.length && b.status !== 'dup' && b.status !== 'reading' ? '' : ' disabled') + '>' + (b.status === 'added' ? 'See where it went →' : 'Next →') + '</button></div>';
+      h += '<div class="row" style="gap:10px">' + (hasAI() ? '<button type="button" class="btn line small" id="bpRead">↻ Read again</button>' : '') + '<button type="button" class="btn coral" style="flex:1" id="bpNext"' + (b.items.length && b.status !== 'dup' && b.status !== 'reading' && !billAsks(b) ? '' : ' disabled') + '>' + (b.status === 'added' ? 'See where it went →' : billAsks(b) ? 'Answer ' + billAsks(b) + ' question' + (billAsks(b) > 1 ? 's' : '') + ' first' : 'Next →') + '</button></div>';
     } else h += billStep2Html(b, items);
     o.innerHTML = h + '</div>'; o.scrollTop = keep;
     bindBill(o, b);
   }
   function billStep2Html(b, items) {
     var tgt = bp.target || b.date, d = shopDay(tgt), g = d && d.grid, rowsByKey = {};
-    if (g) dataRows(g).forEach(function (r) { rowsByKey[itemKey(g[r][SC.item], g[r][SC.size])] = r; });
+    if (g) dataRows(g).forEach(function (r) { rowsByKey[regKey(g[r][SC.item], g[r][SC.size])] = r; });
     var h = '<div class="shf"><div><span class="lab">Goes into the <b>Received</b> column of</span><small>' + (g ? 'that day’s sales sheet' : 'no sheet for that day yet: it waits for it') + '</small></div><input type="date" class="tkdate" id="bpDate" value="' + tgt + '"' + (b.status === 'added' ? ' disabled' : '') + '></div>';
     h += '<div class="shmtab"><table><thead><tr><th>Item</th><th>Size</th><th>Open</th><th>Recv</th><th>Total</th></tr></thead><tbody>' + b.items.map(function (it) {
-      var key = it.key || itemKey(it.name, it.ml), nm = it.key && items[it.key] ? items[it.key].item : it.name, r = g ? rowsByKey[key] : null;
+      var key = it.key ? resolveKey(it.key) : regKey(shortBillName(it.name), it.ml), nm = it.key && regItem(it.key) ? regItem(it.key).item : shortBillName(it.name), r = g ? rowsByKey[key] : null;
       var op = r != null ? num(cellVal(g, r, SC.open)) : 0, rc = r != null ? num(cellVal(g, r, SC.recv)) : 0;
       if (b.status === 'added') rc -= it.bottles;
       return '<tr><td style="text-align:left">' + esc(nm) + (it.key ? '' : ' <span class="tkpill open">new</span>') + '</td><td>' + it.ml + '</td><td>' + op + '</td><td class="plus">+' + it.bottles + '</td><td class="plus">' + (op + rc + it.bottles) + '</td></tr>';
     }).join('') + '</tbody></table></div>';
-    var learnt = b.items.filter(function (it) { return it.key && items[it.key] && normName(items[it.key].item) !== normName(it.name); }).map(function (it) { return '“' + esc(items[it.key].item) + '” = ' + esc(it.name); });
+    var learnt = b.items.filter(function (it) { return it.key && regItem(it.key) && normName(regItem(it.key).item) !== normName(shortBillName(it.name)); }).map(function (it) { return '“' + esc(regItem(it.key).item) + '” = ' + esc(shortBillName(it.name)); });
     var nw = b.items.filter(function (it) { return !it.key; });
     if (learnt.length || nw.length) h += '<div class="card stack" style="gap:6px"><span class="cap">Learnt from this bill</span><span style="font-size:13px;line-height:1.5">' + learnt.slice(0, 8).join(' · ') + (nw.length ? (learnt.length ? '<br>' : '') + 'New on your list: ' + nw.map(function (it) { return esc(it.name) + ' ' + it.ml; }).join(', ') : '') + '. The handwriting reader now knows these names.</span></div>';
     h += '<p class="muted small">Each bill number is saved once, so the same bill can’t be added twice.</p>';
@@ -4669,7 +4685,8 @@
       });
       el.addEventListener('change', function () { if (b.status === 'added') toast('Already in stock: delete and add again to change it'); setTimeout(function () { if (bp) drawBill(); }, 0); });
     });
-    o.querySelectorAll('[data-bm]').forEach(function (sel) { sel.onchange = function () { b.items[+sel.dataset.bm].key = sel.value || null; save(); drawBill(); }; });
+    o.querySelectorAll('[data-bm]').forEach(function (sel) { sel.onchange = function () { var it = b.items[+sel.dataset.bm]; it.key = sel.value || null; it.ans = sel.value ? 'y' : 'n'; save(); drawBill(); }; });
+    o.querySelectorAll('[data-bq]').forEach(function (bt) { bt.onclick = function () { var it = b.items[+bt.dataset.bq], v = bt.dataset.bk2; if (v === '__new') { it.key = null; it.ans = 'n'; } else { it.key = v; it.ans = 'y'; } save(); drawBill(); }; });
     var rd = q('#bpRead'); if (rd) rd.onclick = function () { billRead(b.id); };
     var nx = q('#bpNext'); if (nx) nx.onclick = function () { bp.step = 2; bp.target = b.status === 'added' ? b.applied : b.date; drawBill(); o.scrollTop = 0; };
     var bk = q('#bpBack2'); if (bk) bk.onclick = function () { bp.step = 1; drawBill(); };
@@ -4678,11 +4695,17 @@
     var ad = q('#bpAdd'); if (ad) ad.onclick = function () {
       var s2 = shop(), tgt = bp.target || b.date;
       // learn: bill name → sheet name, and add brand-new items to the list
+      if (billAsks(b)) { toast('Answer the questions first'); return; }
       b.items.forEach(function (it) {
-        if (!it.key) { var short = shortBillName(it.name), key = itemKey(short, it.ml); s2.items[key] = { item: short, size: it.ml, src: 'bill', full: it.name }; it.key = key; }
-        else if (!s2.items[it.key]) { var known = shopItems()[it.key]; if (known) s2.items[it.key] = { item: known.item, size: known.size, src: 'sheet' }; }
+        var short = shortBillName(it.name);
+        if (!it.key) it.key = regAdd(short, it.ml, 'bill', { full: it.name });
+        else {
+          it.key = resolveKey(it.key); if (!regItem(it.key)) it.key = regAdd(short, it.ml, 'bill', { full: it.name });
+          // confirmed the same: the KSBCL name is used from the next sheet, his short name stays linked
+          var x = regItem(it.key); if (normName(x.item) !== normName(short)) it.key = regRename(it.key, short);
+          regItem(it.key).full = it.name;
+        }
         s2.map[normName(it.name) + '|' + it.ml] = it.key;
-        var sheetName = s2.items[it.key].item; if (normName(sheetName) !== normName(it.name)) s2.alias[sheetName] = it.name;
       });
       b.target = tgt;
       var d = shopDay(tgt);
@@ -4696,15 +4719,15 @@
     var d = shopDay(k, true), s2 = shop();
     if (!d.grid) d.grid = blankGrid();
     var g = d.grid.filter(function (r) { return r[0] !== 'TOTAL'; }), byKey = {};
-    for (var r = 1; r < g.length; r++) byKey[itemKey(g[r][SC.item], g[r][SC.size])] = r;
+    for (var r = 1; r < g.length; r++) if (String(g[r][SC.item] || '').trim()) byKey[regKey(g[r][SC.item], g[r][SC.size])] = r;
     b.items.forEach(function (it) {
-      var r2 = byKey[it.key];
+      var r2 = byKey[resolveKey(it.key)];
       if (r2 == null) {
         // reuse an empty row if there is one, else add a row
         for (var e = 1; e < g.length; e++) if (g[e].every(function (v) { return v === '' || v == null; })) { r2 = e; break; }
         if (r2 == null) { g.push(SHCOLS.map(function () { return ''; })); r2 = g.length - 1; if (d.ai) d.ai.push(SHCOLS.map(function () { return ''; })); }
-        g[r2][SC.item] = s2.items[it.key] ? s2.items[it.key].item : it.name; g[r2][SC.size] = String(it.ml); g[r2][SC.open] = g[r2][SC.open] || '0';
-        byKey[it.key] = r2;
+        g[r2][SC.item] = regItem(it.key) ? regItem(it.key).item : shortBillName(it.name); g[r2][SC.size] = String(it.ml); g[r2][SC.open] = g[r2][SC.open] || '0';
+        byKey[resolveKey(it.key)] = r2;
       }
       var cur = g[r2][SC.recv], cl = g[r2][SC.close];
       // a written closing that matched before the delivery gets the bottles too, so the row still adds up
@@ -4716,7 +4739,7 @@
   }
   function billUnapply(b) {
     var d = shopDay(b.applied); if (!d || !d.grid) return; var g = d.grid;
-    b.items.forEach(function (it) { dataRows(g).forEach(function (r) { if (itemKey(g[r][SC.item], g[r][SC.size]) === it.key && isNum(g[r][SC.recv])) { var v = num(g[r][SC.recv]) - it.bottles; g[r][SC.recv] = v ? String(v) : ''; ['close', 'total'].forEach(function (c) { var x = g[r][SC[c]]; if (isNum(x) && String(x).trim() !== '') g[r][SC[c]] = String(num(x) - it.bottles); }); } }); });
+    b.items.forEach(function (it) { dataRows(g).forEach(function (r) { if (regKey(g[r][SC.item], g[r][SC.size]) === resolveKey(it.key) && isNum(g[r][SC.recv])) { var v = num(g[r][SC.recv]) - it.bottles; g[r][SC.recv] = v ? String(v) : ''; ['close', 'total'].forEach(function (c) { var x = g[r][SC[c]]; if (isNum(x) && String(x).trim() !== '') g[r][SC[c]] = String(num(x) - it.bottles); }); } }); });
     d.bills = (d.bills || []).filter(function (x) { return x !== b.id; }); save();
   }
   // when a day's sheet is read, bills waiting for it are added
@@ -4868,13 +4891,6 @@
     var best = null, bs = 0; PL.items.forEach(function (x) { if (size && x.ml !== String(size).replace(/[^0-9]/g, '')) return; var s3 = nameScore(name, x.name); if (s3 > bs) { bs = s3; best = x; } });
     return bs >= .85 ? best : null;
   }
-  // cost per bottle: latest KSBCL bill first, then the price list
-  function costFor(item, size) {
-    var key = itemKey(item, size), best = null; bills();
-    Object.keys(shop().bills).forEach(function (id) { var b = shop().bills[id]; if (b.status !== 'added' && b.status !== 'pending') return; (b.items || []).forEach(function (it) { if (it.key === key && it.per && it.rate && (!best || b.date > best.d)) best = { c: it.rate / it.per, d: b.date, src: 'bill' }; }); });
-    if (best) return best;
-    var p = plFind(item, size); return p && p.cost ? { c: p.cost, src: 'list' } : null;
-  }
   function profitRows(d) {
     var g = d.grid, rows = [];
     dataRows(g).forEach(function (r) {
@@ -4891,7 +4907,7 @@
       return '<tr><td style="text-align:left">' + esc(x.name) + (x.size ? ' ' + esc(x.size) : '') + '</td><td>' + (x.sold || '') + '</td><td>' + (x.rate || '') + '</td><td>' + (x.cost != null ? fmtCell(Math.round(x.cost * 100) / 100) : '<span class="muted">—</span>') + '</td><td class="' + (x.pct == null ? '' : x.pct < 0 ? 'neg' : 'plus') + '">' + (x.pct == null ? '' : (x.pct < 0 ? '−' : '') + Math.abs(x.pct).toFixed(1) + '%') + '</td></tr>';
     }).join('') + '</tbody><tfoot><tr><td>Average (by sales)</td><td></td><td></td><td></td><td>' + (pr.avg == null ? '—' : pr.avg.toFixed(1) + '%') + '</td></tr></tfoot></table></div>';
     var miss = pr.rows.filter(function (x) { return x.cost == null && x.sold; }).length;
-    h += '<p class="muted small">Profit % = (your rate − cost) ÷ your rate. Cost per bottle comes from your latest KSBCL bill (rate per case ÷ bottles per case), or the price list. Red = selling below cost.' + (miss ? ' ' + miss + ' item' + (miss > 1 ? 's have' : ' has') + ' no cost yet: add a bill or the price list.' : '') + '</p>';
+    h += '<p class="muted small">Profit % = (your rate − cost) ÷ your rate. Cost per bottle comes from your latest KSBCL bill or indent (rate per case ÷ bottles per case). The old price list isn’t used for prices. Red = selling below cost.' + (miss ? ' ' + miss + ' item' + (miss > 1 ? 's have' : ' has') + ' no cost yet: add a bill or the price list.' : '') + '</p>';
     h += '<div class="row" style="gap:10px"><button type="button" class="btn line" id="pfBack">‹ Sheet</button><button type="button" class="btn coral" style="flex:1" id="pfNext">Close the day →</button></div>';
     return h;
   }
@@ -4951,6 +4967,7 @@
         var x = sp.nc.filter(function (y) { return y.r === +sel.dataset.nc; })[0]; if (!x || sel.value === '') return;
         var c = x.cands[+sel.value], g = d.grid;
         s2.gloss[x.hw.toLowerCase()] = { to: c.it.name, n: ((s2.gloss[x.hw.toLowerCase()] || {}).n || 0) + 1 };
+        var nk2 = regAdd(c.it.name, c.it.ml || x.size, 'sheet'); if (nk2) regAlias(nk2, x.hw, 2);
         g[x.r][SC.item] = c.it.name; if (c.it.ml && !g[x.r][SC.size]) g[x.r][SC.size] = c.it.ml; n++;
       });
       save(); toast(n + ' names updated'); sp.step = 'sheet'; drawShopDay();
@@ -4970,7 +4987,7 @@
           var it = res[+b.dataset.sug].it, g = d.grid, r = sp.sel[0]; spSnap(d);
           var was = d.ai && d.ai[r] ? d.ai[r][SC.item] : null;
           g[r][SC.item] = it.name; if (it.ml) g[r][SC.size] = String(it.ml);
-          if (it.mrp && !String(g[r][SC.rate] || '').trim()) g[r][SC.rate] = String(it.mrp);
+          regAdd(it.name, it.ml || g[r][SC.size], 'sheet');
           if (was && String(was).trim() && String(was).trim() !== it.name) { s2g(was, it.name); }
           save(); sp.sel = [r, SC.open]; sp.anchor = sp.sel; drawShopDay();
           var f = document.getElementById('spFx'); if (f) try { f.focus(); } catch (e) {}
@@ -5034,7 +5051,8 @@
   // the list
   function shopListHtml(d) {
     var g = d.grid, ck = shopChecks(sp.k), h = '';
-    if (d.carried && d.carried.n) h += '<div class="lsban"><span>↺</span><p><b>Names from ' + new Date(d.carried.k + 'T00:00:00').toLocaleDateString('en', { weekday: 'long' }) + '’s sheet</b><br>' + d.carried.n + ' of ' + d.carried.of + ' rows matched: same size, and today’s opening = that day’s closing</p></div>';
+    if (d.carried && d.carried.n) h += '<div class="lsban"><span>↺</span><p>' + (d.carried.reg ? '<b>' + d.carried.n + ' of ' + d.carried.of + ' rows matched to your items</b><br>by his short name, size and yesterday’s closing; the order on the page doesn’t matter' : '<b>Names from ' + new Date(d.carried.k + 'T00:00:00').toLocaleDateString('en', { weekday: 'long' }) + '’s sheet</b><br>' + d.carried.n + ' of ' + d.carried.of + ' rows matched') + '</p></div>';
+    h += asksHtml(d) + missingHtml(d);
     var bad = Object.keys(ck.bad).length;
     h += '<div class="row between"><button type="button" class="nib sm' + (sp.lph ? ' on' : '') + '" id="lsPh">📷 ' + (sp.lph ? 'Hide photo' : 'Show photo') + '</button><span class="cap">' + (bad ? '<span style="color:#B3372B">' + ck.msgs.filter(function (m) { return m.r != null; }).length + ' to check</span>' : '✓ adds up') + '</span></div>';
     if (sp.lph && d.photos.length) h += '<div class="shphoto" id="spPh"><img id="spImg" alt="Sheet photo" style="width:' + (sp.zoom * 100) + '%"></div>';
@@ -5067,6 +5085,7 @@
   function bindShopList(o, d) {
     var q = function (x) { return o.querySelector(x); };
     q('#lsPh').onclick = function () { sp.lph = !sp.lph; drawShopDay(); };
+    bindAsks(o, d);
     o.querySelectorAll('[data-lsrow]').forEach(function (b) { b.onclick = function () { openRowEd(+b.dataset.lsrow); }; });
     o.querySelectorAll('[data-lsname]').forEach(function (b) { b.onclick = function () { openNamePick(+b.dataset.lsname, 'sheet'); }; });
     q('#lsAdd').onclick = function () {
@@ -5206,7 +5225,8 @@
         b.onclick = function () {
           var it = sp.nlist[+b.dataset.npk]; if (!it) return; spSnap(d);
           var gr = groupRows(g, r), grp = sp.nmode === 'all' ? gr : sp.nmode === 'down' ? gr.slice(gr.indexOf(r)) : [r], raw = d.ai && d.ai[r] ? String(d.ai[r][SC.item] || '').trim() : String(g[r][SC.item] || '').trim();
-          grp.forEach(function (x) { g[x][SC.item] = it.name; if (it.mrp && !String(g[x][SC.rate] || '').trim() && x === r) g[x][SC.rate] = String(it.mrp); });
+          grp.forEach(function (x) { g[x][SC.item] = it.name; var rk = regAdd(it.name, g[x][SC.size], 'sheet'), rw = d.ai && d.ai[x] ? String(d.ai[x][SC.item] || '').trim() : ''; if (rk && rw) regAlias(rk, rw, 2); d.rid = d.rid || {}; d.rid[x] = rk; });
+          d.ask = (d.ask || []).filter(function (a) { return grp.indexOf(a.r) < 0; });
           if (raw && raw.toLowerCase() !== it.name.toLowerCase()) { var s2 = shop(), k = raw.toLowerCase(); s2.gloss[k] = { to: it.name, n: ((s2.gloss[k] || {}).n || 0) + 1 }; s2.fixes++; }
           d.edited = true; save(); toast(grp.length > 1 ? grp.length + ' rows named' : 'Named'); back();
         };
@@ -5217,6 +5237,316 @@
     o.querySelectorAll('[data-nmode]').forEach(function (b) { b.onclick = function () { sp.nmode = b.dataset.nmode; o.querySelectorAll('[data-nmode]').forEach(function (x) { x.classList.toggle('on', x === b); }); }; });
     q('#npBack').onclick = back;
     bindRes();
+  }
+
+  // ---------- Your items: one permanent list (shop.items), his short names, KSBCL names, costs ----------
+  var BPC = { 2000: 6, 1750: 6, 1500: 6, 1000: 9, 750: 12, 700: 12, 650: 12, 500: 24, 375: 24, 330: 24, 275: 24, 200: 48, 180: 48, 90: 96, 60: 150 };
+  function resolveKey(k) { var m = shop().rekey || {}, n = 0; while (k && m[k] && n++ < 20) k = m[k]; return k; }
+  function regKey(name, size) { return resolveKey(itemKey(name, size)); }
+  function regItem(key) { bills(); return shop().items[resolveKey(key)] || null; }
+  function regAll() { bills(); var it = shop().items; return Object.keys(it).map(function (k) { var x = it[k]; x.key = k; x.alias = x.alias || {}; return x; }); }
+  function regAdd(name, size, src, extra) {
+    bills(); var s2 = shop(), sz = String(size || '').replace(/[^0-9]/g, ''), key = regKey(name, sz);
+    if (!String(name || '').trim()) return null;
+    if (!s2.items[key]) s2.items[key] = { item: String(name).trim(), size: sz, src: src || 'sheet', alias: {}, at: dkey(new Date()) };
+    var x = s2.items[key]; x.alias = x.alias || {}; if (extra) Object.keys(extra).forEach(function (f) { if (extra[f] != null) x[f] = extra[f]; });
+    return key;
+  }
+  function regAlias(key, raw, n) {
+    var x = regItem(key); raw = String(raw || '').trim(); if (!x || !raw) return;
+    if (normName(raw) === normName(x.item)) return;
+    x.alias = x.alias || {}; var k = raw.toLowerCase(); x.alias[k] = (x.alias[k] || 0) + (n || 1);
+  }
+  function repoint(from, to) {
+    var s2 = shop(); s2.rekey = s2.rekey || {}; if (from !== to) s2.rekey[from] = to;
+    Object.keys(s2.map || {}).forEach(function (m) { if (s2.map[m] === from) s2.map[m] = to; });
+    Object.keys(s2.bills || {}).forEach(function (id) { (s2.bills[id].items || []).forEach(function (it) { if (it.key === from) it.key = to; }); });
+  }
+  function regRename(key, name) {
+    var s2 = shop(); key = resolveKey(key); var x = s2.items[key]; name = String(name || '').trim(); if (!x || !name) return key;
+    var nk = itemKey(name, x.size); if (nk === key) { x.item = name; return key; }
+    if (s2.items[nk]) return regMerge(key, nk);
+    x.alias = x.alias || {}; var ol = x.item.toLowerCase(); x.alias[ol] = (x.alias[ol] || 0) + 2; x.item = name; s2.items[nk] = x; delete s2.items[key]; repoint(key, nk); return nk;
+  }
+  function regMerge(from, to) {
+    var s2 = shop(); from = resolveKey(from); to = resolveKey(to); if (from === to) return to;
+    var a = s2.items[from], b = s2.items[to]; if (!a || !b) return to;
+    b.alias = b.alias || {}; Object.keys(a.alias || {}).forEach(function (k) { b.alias[k] = (b.alias[k] || 0) + a.alias[k]; });
+    regAlias(to, a.item, 2); if (!b.full && a.full) b.full = a.full;
+    delete s2.items[from]; repoint(from, to); return to;
+  }
+  // every name on a sheet becomes an item, and what was learnt before carries over
+  function regSync(skip) {
+    var s2 = shop(); bills();
+    // names from the sheets, except rows still waiting for an answer and the sheet being read right now
+    Object.keys(s2.days).forEach(function (k) { var d = s2.days[k], g = d.grid; if (!g || k === skip || d.status === 'reading') return; var pend = {}; (d.ask || []).forEach(function (a) { pend[a.r] = 1; }); dataRows(g).forEach(function (r) { if (pend[r]) return; var n = String(g[r][SC.item] || '').trim(), sz = String(g[r][SC.size] || '').replace(/[^0-9]/g, ''); if (n && sz && !s2.items[regKey(n, sz)]) regAdd(n, sz, 'sheet'); }); });
+    if (!s2.regv) {
+      s2.regv = 1;
+      Object.keys(s2.gloss || {}).forEach(function (raw) { var to = s2.gloss[raw].to; regAll().forEach(function (x) { if (normName(x.item) === normName(to)) regAlias(x.key, raw, s2.gloss[raw].n); }); });
+      Object.keys(s2.alias || {}).forEach(function (sheetName) { regAll().forEach(function (x) { if (x.item === sheetName && !x.full) x.full = s2.alias[sheetName]; }); });
+    }
+  }
+  // how well a written name fits an item: 3 = certain (a learnt short name or the same name)
+  function brandAliases() { var m = {}; regAll().forEach(function (x) { Object.keys(x.alias).forEach(function (a) { (m[a] = m[a] || {})[normName(x.item)] = 1; }); }); return m; }
+  function fitScore(raw, x, BA) {
+    raw = String(raw || '').trim(); if (!raw) return 0; var lr = raw.toLowerCase(), s = 0;
+    if (normName(raw) === normName(x.item) || (x.full && normName(raw) === normName(shortBillName(x.full)))) return 3;
+    if (x.alias[lr]) return 3 + Math.min(.5, x.alias[lr] / 20);
+    if (BA && BA[lr] && BA[lr][normName(x.item)]) return 2.8;
+    var g = shop().gloss[lr]; if (g && normName(g.to) === normName(x.item)) return 2.8;
+    s = Math.max(nameScore(raw, x.item), nameScore(x.item, raw) * .95, x.full ? nameScore(raw, shortBillName(x.full)) : 0);
+    Object.keys(x.alias).forEach(function (a) { s = Math.max(s, nameScore(raw, a) * .9); });
+    return s * 1.6;
+  }
+  function regCands(raw, size, max) {
+    var sz = String(size || '').replace(/[^0-9]/g, ''), BA = brandAliases();
+    return regAll().filter(function (x) { return !sz || !x.size || x.size === sz; }).map(function (x) { return { key: x.key, x: x, s: fitScore(raw, x, BA) }; })
+      .filter(function (c) { return c.s > .5; }).sort(function (a, b) { return b.s - a.s; }).slice(0, max || 4);
+  }
+  // match every row of a day to your items: his short name, size, yesterday's closing, place on the page
+  function regAssign(k) {
+    var d = shopDay(k), g = d && d.grid; if (!g) return null;
+    regSync(k); var BA = brandAliases(), all = regAll(), pk = prevDayKey(k), pc = {}, pp = {};
+    if (pk) { var pg = shop().days[pk].grid, pi = 0; dataRows(pg).forEach(function (r) { var n = String(pg[r][SC.item] || '').trim(); if (!n) return; var kk = regKey(n, pg[r][SC.size]); if (isNum(cellVal(pg, r, SC.close))) pc[kk] = num(cellVal(pg, r, SC.close)); pp[kk] = pi++; }); }
+    var rows = dataRows(g).filter(function (r) { return String(g[r][SC.size] || '').trim() || String(g[r][SC.item] || '').trim(); });
+    var used = {}, n = 0; d.rid = {}; d.ask = [];
+    rows.forEach(function (r, i) {
+      var raw = d.ai && d.ai[r] ? String(d.ai[r][SC.item] || '').trim() : '', filled = String(g[r][SC.item] || '').trim(), q = raw || filled;
+      var sz = String(g[r][SC.size] || '').replace(/[^0-9]/g, ''), o = isNum(g[r][SC.open]) && String(g[r][SC.open]).trim() !== '' ? num(g[r][SC.open]) : null;
+      var sc = all.filter(function (x) { return !sz || !x.size || x.size === sz; }).map(function (x) {
+        var s = fitScore(q, x, BA); if (o != null && pc[x.key] === o) s += 1.5; if (pp[x.key] != null && Math.abs(pp[x.key] - i) <= 3) s += .3; if (used[x.key]) s -= 1.2; return { key: x.key, x: x, s: s };
+      }).sort(function (a, b) { return b.s - a.s; });
+      var b1 = sc[0], b2 = sc[1];
+      if (b1 && b1.s >= 2.6 && (!b2 || b1.s - b2.s >= .4)) { g[r][SC.item] = b1.x.item; d.rid[r] = b1.key; used[b1.key] = 1; n++; if (raw) regAlias(b1.key, raw); return; }
+      var top = sc.filter(function (c) { return c.s >= .9; }).slice(0, 3).map(function (c) { return c.key; });
+      if (b1 && b1.s >= 1.6) { g[r][SC.item] = b1.x.item; d.rid[r] = b1.key; used[b1.key] = 1; }
+      if (raw || top.length) d.ask.push({ r: r, raw: q, size: sz, cands: top, guess: b1 && b1.s >= 1.6 ? b1.key : null, child: !raw });
+    });
+    // a brand's size rows wait for the answer on the brand row
+    var heads = {}; d.ask.forEach(function (a) { if (!a.child) heads[a.raw.toLowerCase()] = 1; });
+    d.ask = d.ask.filter(function (a) { return !a.child || !heads[a.raw.toLowerCase()]; });
+    d.carried = { n: n, of: rows.length, k: pk, reg: true };
+    return d.carried;
+  }
+  // answer "is this one of your items?"
+  function answerAsk(d, a, key, mode) {
+    var g = d.grid, s2 = shop(), raw = a.raw;
+    var rowsOf = [a.r]; // the size rows under a brand row follow it
+    if (!a.child) { var rs = dataRows(g), i = rs.indexOf(a.r) + 1; while (i < rs.length && !(d.ai && d.ai[rs[i]] && String(d.ai[rs[i]][SC.item] || '').trim()) && String(g[rs[i]][SC.item] || '').trim().toLowerCase() === String(g[a.r][SC.item] || '').trim().toLowerCase()) rowsOf.push(rs[i++]); }
+    var brand = null;
+    if (mode === 'new') brand = raw;
+    else { var x = regItem(key); if (!x) return; brand = x.item; }
+    rowsOf.forEach(function (r) {
+      var sz = String(g[r][SC.size] || '').replace(/[^0-9]/g, ''), k2 = r === a.r && mode !== 'new' ? resolveKey(key) : null;
+      if (!k2) { var same = regAll().filter(function (y) { return normName(y.item) === normName(brand) && y.size === sz; })[0]; k2 = same ? same.key : regAdd(brand, sz, 'sheet'); }
+      g[r][SC.item] = regItem(k2).item; d.rid = d.rid || {}; d.rid[r] = k2;
+      if (raw && mode !== 'new') regAlias(k2, raw, 2);
+    });
+    if (raw && mode !== 'new') { var gk = raw.toLowerCase(); s2.gloss[gk] = { to: brand, n: ((s2.gloss[gk] || {}).n || 0) + 1 }; }
+    d.ask = (d.ask || []).filter(function (y) { return y !== a && rowsOf.indexOf(y.r) < 0; });
+    d.edited = true; save();
+  }
+  // items on yesterday's sheet that are missing today
+  function missingToday(k, d) {
+    var pk = prevDayKey(k), out = { miss: [], zero: 0 }; if (!pk || !d.grid) return out;
+    var pg = shop().days[pk].grid, here = {}; dataRows(d.grid).forEach(function (r) { var n = String(d.grid[r][SC.item] || '').trim(); if (n) here[regKey(n, d.grid[r][SC.size])] = 1; });
+    dataRows(pg).forEach(function (r) {
+      var n = String(pg[r][SC.item] || '').trim(); if (!n) return; var kk = regKey(n, pg[r][SC.size]); if (here[kk] || (d.gone && d.gone[kk])) return;
+      var c = isNum(cellVal(pg, r, SC.close)) ? num(cellVal(pg, r, SC.close)) : null;
+      if (c === 0) out.zero++; else out.miss.push({ key: kk, name: n, size: String(pg[r][SC.size] || ''), close: c });
+    });
+    return out;
+  }
+  function asksHtml(d) {
+    var h = '';
+    (d.ask || []).slice(0, 6).forEach(function (a, i) {
+      h += '<div class="askc"><span class="cap">On the sheet</span><b><span class="hw">' + esc(a.raw || '?') + '</span> ' + esc(a.size || '') + ' is…</b><div class="askb">' + a.cands.map(function (key) { var x = regItem(key); if (!x) return ''; var al = Object.keys(x.alias || {}).slice(0, 2); return '<button type="button" data-ask="' + i + '" data-ak="' + esc(key) + '" class="' + (a.guess === key ? 'on' : '') + '"><b>' + esc(x.item) + ' ' + esc(x.size || '') + '</b>' + (al.length ? '<small>he writes ' + al.map(esc).join(', ') + '</small>' : x.src !== 'sheet' ? '<small>from your ' + x.src + 's</small>' : '') + '</button>'; }).join('') +
+        '<button type="button" data-ask="' + i + '" data-ak="__new"><b>A new item</b><small>add “' + esc(a.raw) + ' ' + esc(a.size) + '” to your items</small></button><button type="button" data-ask="' + i + '" data-ak="__pick"><b>Something else…</b><small>search your items and the name list</small></button></div></div>';
+    });
+    if ((d.ask || []).length > 6) h += '<span class="muted small">+ ' + (d.ask.length - 6) + ' more after these</span>';
+    return h;
+  }
+  function missingHtml(d) {
+    var m = missingToday(sp.k, d); if (!m.miss.length && !m.zero) return '';
+    var h = '<div class="misc"><b>Not on today’s sheet</b>';
+    if (m.zero) h += '<span class="muted small">' + m.zero + ' item' + (m.zero > 1 ? 's' : '') + ' closed at 0 yesterday: sold out ✓ (kept in your items)</span>';
+    h += m.miss.slice(0, 8).map(function (x) { return '<div class="misr"><span>' + esc(x.name) + ' ' + esc(x.size) + '<small> · ' + (x.close != null ? 'had ' + x.close + ' yesterday' : 'on yesterday’s sheet') + '</small></span><button type="button" data-madd="' + esc(x.key) + '">Add row</button><button type="button" data-mgone="' + esc(x.key) + '" class="g">Not now</button></div>'; }).join('');
+    return h + '</div>';
+  }
+  function bindAsks(o, d) {
+    o.querySelectorAll('[data-ask]').forEach(function (b) { b.onclick = function () {
+      var a = d.ask[+b.dataset.ask], k = b.dataset.ak; if (!a) return; spSnap(d);
+      if (k === '__pick') { openNamePick(a.r, 'sheet', a.child ? 'one' : 'all'); return; }
+      answerAsk(d, a, k === '__new' ? null : k, k === '__new' ? 'new' : 'same'); drawShopDay();
+    }; });
+    o.querySelectorAll('[data-madd]').forEach(function (b) { b.onclick = function () {
+      var m = missingToday(sp.k, d).miss.filter(function (x) { return x.key === b.dataset.madd; })[0]; if (!m) return; spSnap(d);
+      var g = d.grid, nr = SHCOLS.map(function () { return ''; }); nr[SC.item] = m.name; nr[SC.size] = m.size; if (m.close != null) nr[SC.open] = String(m.close);
+      g.splice(g.length - 1, 0, nr); if (d.ai) d.ai.splice(d.ai.length - 1, 0, SHCOLS.map(function () { return ''; })); d.grid = withTotalRow(g); save(); openRowEd(g.length - 2, 'sales');
+    }; });
+    o.querySelectorAll('[data-mgone]').forEach(function (b) { b.onclick = function () { d.gone = d.gone || {}; d.gone[b.dataset.mgone] = 1; save(); drawShopDay(); }; });
+  }
+  // cost per bottle: the latest KSBCL bill or indent for that item (old price lists are ignored)
+  function costFor(item, size) {
+    var key = regKey(item, size), best = null, s2 = shop(); bills();
+    // the same item under his other names (e.g. a bill added before the name was changed)
+    var keys = {}; keys[key] = 1; var me = s2.items[key]; if (me) Object.keys(me.alias || {}).forEach(function (a) { keys[regKey(a, me.size || size)] = 1; });
+    var per = function (x) { return num(x.per) || BPC[+String(x.ml || size || '').replace(/[^0-9]/g, '')] || null; };
+    Object.keys(s2.bills).forEach(function (id) { var b = s2.bills[id]; if (b.status !== 'added' && b.status !== 'pending') return; (b.items || []).forEach(function (it) { if (keys[resolveKey(it.key)] && it.rate && per(it) && (!best || b.date > best.d)) best = { c: it.rate / per(it), d: b.date, src: 'bill' }; }); });
+    var ind = s2.indents || {};
+    Object.keys(ind).forEach(function (id) { var n = ind[id]; (n.items || []).forEach(function (it) { var k2 = resolveKey((s2.map || {})[normName(it.name) + '|' + it.ml]); if (keys[k2] && it.rate && per(it) && (!best || (n.date || '') > best.d)) best = { c: it.rate / per(it), d: n.date || '', src: 'indent' }; }); });
+    return best;
+  }
+  // ---------- expenses tab ----------
+  function expHtml(d) {
+    var exp = d.exp = d.exp || [], et = exp.reduce(function (a, e) { return a + num(e.v); }, 0), w = d.written && d.written.expenses;
+    var h = '<div class="shtiles ttq"><div><b class="display">' + inr(et) + '</b><small>expenses today</small></div><div><b class="display">' + (w ? inr(w) : '—') + '</b><small>' + (w ? (Math.abs(w - et) < .5 ? '✓ sheet’s written total' : '⚠ sheet’s written total') : 'no total on the sheet') + '</small></div></div>';
+    var names = {}; Object.keys(shop().days).forEach(function (k) { (shop().days[k].exp || []).forEach(function (e) { if (e.t) names[e.t] = 1; }); });
+    h += '<datalist id="expNames">' + Object.keys(names).slice(0, 60).map(function (n) { return '<option value="' + esc(n) + '">'; }).join('') + '</datalist>';
+    h += '<div class="stack" style="gap:8px">' + exp.map(function (e, i) { return '<div class="exr' + (sp.ei === i ? ' on' : '') + '"><input class="exn" data-exn="' + i + '" value="' + esc(e.t || '') + '" placeholder="what was it?" list="expNames" autocomplete="off"><button type="button" class="exv" data-exv="' + i + '">' + (e.v ? inr(e.v) : '₹ —') + '</button><button type="button" class="tkx" data-exd="' + i + '" aria-label="Remove">✕</button></div>'; }).join('') + '</div>';
+    if (!exp.length) h += '<p class="muted small">No expenses read from the sheet.</p>';
+    h += '<button type="button" class="btn line" id="exAdd">+ Add expense</button>';
+    if (sp.ei != null && exp[sp.ei]) h += '<div class="rekp" id="exKp">' + ['1', '2', '3', '⌫', '4', '5', '6', 'C', '7', '8', '9', '✓', '.', '0', '00', '›'].map(function (k) { return '<button type="button" data-ekp="' + k + '"' + (k === '›' || k === '✓' ? ' class="nx"' : '') + '>' + k + '</button>'; }).join('') + '</div>';
+    h += '<p class="muted small">Tap an amount to change it on the number pad, or tap the name to rename it.</p>';
+    return h;
+  }
+  function bindExp(o, d) {
+    var exp = d.exp, q = function (x) { return o.querySelector(x); };
+    o.querySelectorAll('[data-exn]').forEach(function (el) { el.addEventListener('input', function () { exp[+el.dataset.exn].t = el.value; clearTimeout(sp.saveT); sp.saveT = setTimeout(save, 400); }); el.addEventListener('focus', function () { if (sp.ei != null) { sp.ei = null; var kp = q('#exKp'); if (kp) kp.remove(); o.querySelectorAll('.exr').forEach(function (r) { r.classList.remove('on'); }); } }); });
+    o.querySelectorAll('[data-exv]').forEach(function (b) { b.onclick = function () { sp.ei = +b.dataset.exv; sp.efresh = true; drawShopDay(); }; });
+    o.querySelectorAll('[data-exd]').forEach(function (b) { b.onclick = function () { exp.splice(+b.dataset.exd, 1); sp.ei = null; save(); drawShopDay(); }; });
+    q('#exAdd').onclick = function () { exp.push({ t: '', v: 0 }); sp.ei = null; save(); drawShopDay(); var ins = o.querySelectorAll('[data-exn]'); if (ins.length) ins[ins.length - 1].focus(); };
+    o.querySelectorAll('[data-ekp]').forEach(function (b) {
+      b.addEventListener('pointerdown', function (e) { e.preventDefault(); });
+      b.onclick = function () {
+        var k = b.dataset.ekp, e = exp[sp.ei]; if (!e) return; var cur = e.v ? String(e.v) : '';
+        if (k === '✓') { sp.ei = null; save(); drawShopDay(); return; }
+        if (k === '›') { sp.ei = sp.ei + 1 < exp.length ? sp.ei + 1 : null; sp.efresh = true; save(); drawShopDay(); return; }
+        if (k === '⌫') cur = sp.efresh ? '' : cur.slice(0, -1); else if (k === 'C') cur = ''; else cur = (sp.efresh ? '' : cur) + k;
+        sp.efresh = false; e.v = num(cur); var bt = o.querySelector('[data-exv="' + sp.ei + '"]'); if (bt) bt.textContent = cur ? '₹' + cur : '₹ —';
+        clearTimeout(sp.saveT); sp.saveT = setTimeout(save, 400);
+      };
+    });
+  }
+  // ---------- Your items screen ----------
+  function regStock() { var sn = stockNow(), m = {}; sn.list.forEach(function (x) { m[resolveKey(x.key)] = x; }); return m; }
+  function lastRate(key) { var s2 = shop(), ks = Object.keys(s2.days).sort().reverse(); for (var i = 0; i < ks.length; i++) { var g = s2.days[ks[i]].grid; if (!g) continue; var rs = dataRows(g); for (var j = 0; j < rs.length; j++) { var r = rs[j]; if (String(g[r][SC.item] || '').trim() && regKey(g[r][SC.item], g[r][SC.size]) === key && isNum(cellVal(g, r, SC.rate)) && num(cellVal(g, r, SC.rate))) return num(cellVal(g, r, SC.rate)); } } return null; }
+  function shopItemsSheet() {
+    regSync(); var s2 = shop(), st = regStock(), q = (shopUi.iq || '').toLowerCase(), all = regAll(), aq = s2.askq || [];
+    var list = all.filter(function (x) { return !q || x.item.toLowerCase().indexOf(q) >= 0 || Object.keys(x.alias).some(function (a) { return a.indexOf(q) >= 0; }); }).sort(function (a, b) { return a.item.localeCompare(b.item) || (+b.size - +a.size); });
+    var h = '';
+    if (aq.length) h += '<button type="button" class="r askban" data-sheet="shopsame"><span class="t">' + aq.length + ' name' + (aq.length > 1 ? 's' : '') + ' to confirm<small>from your KSBCL indents: are they items you already have?</small></span>' + CHEV + '</button>';
+    h += '<input class="text" id="iiq" placeholder="Search your ' + all.length + ' items" value="' + esc(shopUi.iq || '') + '">';
+    h += '<div class="stack" style="gap:8px">' + list.slice(0, 150).map(function (x) {
+      var sk = st[x.key], qty = sk ? sk.qty : null, al = Object.keys(x.alias).sort(function (a, b) { return x.alias[b] - x.alias[a]; }).slice(0, 4), c = costFor(x.item, x.size), rt = c ? lastRate(x.key) : null, pc = c && rt ? (rt - c.c) / rt * 100 : null;
+      return '<button type="button" class="itc' + (qty === 0 ? ' zero' : '') + '" data-sheet="shopitem:' + esc(x.key) + '"><span class="itt"><b>' + esc(x.item) + ' <span class="muted">' + esc(x.size || '') + '</span></b><b class="q">' + (qty == null ? '—' : fmtN(qty)) + '</b></span><span class="itm">' + (al.length ? '<small>he writes</small>' + al.map(function (a) { return '<span class="hw">' + esc(a) + '</span>'; }).join('') : '') + '<i></i>' + (pc != null ? '<span class="tkpill">' + pc.toFixed(1) + '%</span>' : '') + '<span class="tkpill src ' + x.src + '">' + (qty === 0 ? 'sold out · kept' : x.src) + '</span></span></button>';
+    }).join('') + '</div>';
+    if (list.length > 150) h += '<p class="muted small">Showing 150 of ' + list.length + '. Search to find the rest.</p>';
+    h += '<p class="muted small">Every item keeps its place here, even at 0. His short names are learnt from each sheet you check; KSBCL names come from your bills and indents. % = profit margin from his selling rate and the latest cost.</p>';
+    return { title: 'Your items', cap: all.length + ' items', html: '<div class="stack" style="gap:10px">' + h + '</div>', bind: function (r) { var i = r.querySelector('#iiq'); i.addEventListener('input', function () { shopUi.iq = i.value; var pos = i.selectionStart; drawSheet(); var j = document.getElementById('iiq'); if (j) { j.focus(); j.setSelectionRange(pos, pos); } }); } };
+  }
+  function shopItemSheet(key) {
+    var x = regItem(key); if (!x) return { title: 'Item', cap: '', html: '<p class="muted">This item was merged or removed.</p>', bind: function () {} };
+    key = resolveKey(key); var c = costFor(x.item, x.size), rt = lastRate(key), st = regStock()[key];
+    var h = '<label class="lab rng">Name on your sheets<input class="text" id="itName" value="' + esc(x.item) + '"></label>';
+    h += '<div class="card stack" style="gap:8px"><b style="font-size:14px">He writes</b><div class="row" style="gap:6px;flex-wrap:wrap">' + (Object.keys(x.alias).length ? Object.keys(x.alias).map(function (a) { return '<span class="alc"><span class="hw">' + esc(a) + '</span><button type="button" data-ald="' + esc(a) + '" aria-label="Forget">×</button></span>'; }).join('') : '<span class="muted small">nothing learnt yet</span>') + '</div></div>';
+    h += '<div class="list">' + row({ t: 'KSBCL name', sub: x.full ? esc(x.full) : 'not linked yet: it links when a bill or indent with this item comes in' }) + row({ t: 'Size', v: x.size ? x.size + ' ml' : '—' }) + row({ t: 'Stock now', v: st ? fmtN(st.qty) : '—' }) + row({ t: 'Cost per bottle', sub: c ? 'from your ' + c.src + (c.d ? ' of ' + new Date(c.d + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) : '') : 'no bill or indent yet', v: c ? inr(c.c, 2) : '—' }) + row({ t: 'His selling rate', v: rt ? inr(rt) : '—' }) + row({ t: 'Profit margin', v: c && rt ? ((rt - c.c) / rt * 100).toFixed(1) + '%' : '—' }) + '</div>';
+    var same = regAll().filter(function (y) { return y.key !== key && (!x.size || y.size === x.size); }).sort(function (a, b) { return a.item.localeCompare(b.item); });
+    h += '<label class="lab rng">Same as another item? Merge into<select class="text" id="itMerge"><option value="">— pick an item —</option>' + same.map(function (y) { return '<option value="' + esc(y.key) + '">' + esc(y.item) + ' ' + esc(y.size || '') + '</option>'; }).join('') + '</select></label>';
+    h += '<button type="button" class="btn jungle" id="itSave">Save</button>';
+    return { title: esc(x.item), cap: x.size ? x.size + ' ml' : '', html: '<div class="stack" style="gap:12px">' + h + '</div>', bind: function (r) {
+      r.querySelectorAll('[data-ald]').forEach(function (b) { b.onclick = function () { delete x.alias[b.dataset.ald]; save(); drawSheet(); }; });
+      r.querySelector('#itSave').onclick = function () {
+        var nk = key, nm = r.querySelector('#itName').value.trim(), mg = r.querySelector('#itMerge').value;
+        if (nm && nm !== x.item) nk = regRename(key, nm);
+        if (mg) { if (!confirm('Merge “' + x.item + '” into “' + regItem(mg).item + '”? His short names move over too.')) return; nk = regMerge(nk, mg); }
+        save(); toast('Saved · used from the next sheet'); openSheet('shopitems');
+      };
+    } };
+  }
+  // the queue of "same item?" questions from indents
+  function shopSameSheet() {
+    var s2 = shop(), aq = s2.askq = (s2.askq || []).filter(function (a) { return a && a.name; }), a = aq[0];
+    if (!a) return { title: 'All confirmed', cap: '', html: '<div class="notice ok">✓ Nothing left to confirm.</div><button type="button" class="btn jungle" data-sheet="shopitems">Your items</button>', bind: function () {} };
+    var cands = (a.cands || []).map(regItem).filter(Boolean);
+    var h = '<div class="card stack" style="gap:8px"><span class="cap">On your KSBCL ' + (a.src || 'indent') + 's</span><b style="font-size:16px">' + esc(a.name) + ' ' + esc(a.ml) + '</b>' + (a.n ? '<span class="muted small">' + a.n + ' time' + (a.n > 1 ? 's' : '') + (a.last ? ' · last ' + new Date(a.last + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) : '') + '</span>' : '') + '</div>';
+    h += '<span class="cap">Is it this item from your sheets?</span><div class="askb">' + cands.map(function (x, i) { var al = Object.keys(x.alias || {}).slice(0, 2); return '<button type="button" data-sq="' + i + '"' + (i === 0 ? ' class="on"' : '') + '><b>' + esc(x.item) + ' ' + esc(x.size) + '</b><small>' + (al.length ? 'he writes ' + al.map(esc).join(', ') : x.src) + '</small></button>'; }).join('') + '<button type="button" data-sq="new"><b>No, it’s new</b><small>add it to your items under the KSBCL name</small></button></div>';
+    h += '<p class="muted small">If yes, your sheets show the KSBCL name from the next day, and his short name stays linked to it. ' + aq.length + ' to go.</p>';
+    return { title: 'Same item?', cap: aq.length + ' to confirm', html: '<div class="stack" style="gap:12px">' + h + '</div>', bind: function (r) {
+      r.querySelectorAll('[data-sq]').forEach(function (b) { b.onclick = function () {
+        var v = b.dataset.sq, short = shortBillName(a.name), mk = normName(a.name) + '|' + a.ml;
+        if (v === 'new') { s2.map[mk] = regAdd(short, a.ml, a.src || 'indent', { full: a.name }); }
+        else { var x = cands[+v], nk = regRename(x.key, short); regItem(nk).full = a.name; s2.map[mk] = nk; }
+        aq.shift(); save(); drawSheet();
+      }; });
+    } };
+  }
+  // ---------- past KSBCL indents (PDF / Excel / photos): which items the shop stocks, and their latest cost ----------
+  var indJob = null;
+  function indentLinkAll() {
+    var s2 = shop(), ind = s2.indents || {}, seen = {}; s2.askq = s2.askq || []; regSync();
+    Object.keys(ind).forEach(function (id) { var n = ind[id]; (n.items || []).forEach(function (it) { var mk = normName(it.name) + '|' + it.ml; var e = seen[mk] = seen[mk] || { name: it.name, ml: it.ml, n: 0, last: '' }; e.n++; if ((n.date || '') > e.last) e.last = n.date || ''; }); });
+    var asked = {}; s2.askq.forEach(function (a) { asked[normName(a.name) + '|' + a.ml] = 1; });
+    var added = 0, linked = 0, ask = 0;
+    Object.keys(seen).forEach(function (mk) {
+      if (s2.map[mk] && regItem(s2.map[mk])) return; if (asked[mk]) return;
+      var e = seen[mk], short = shortBillName(e.name);
+      var exact = regAll().filter(function (x) { return x.size === e.ml && (normName(x.item) === normName(short) || (x.full && normName(x.full) === normName(e.name))); })[0];
+      if (exact) { s2.map[mk] = exact.key; if (!exact.full) exact.full = e.name; linked++; return; }
+      var c = regCands(short, e.ml, 3).filter(function (y) { return y.x.src === 'sheet' || Object.keys(y.x.alias).length; });
+      if (c.length && c[0].s >= 1.2) { s2.askq.push({ name: e.name, ml: e.ml, cands: c.map(function (y) { return y.key; }), src: 'indent', n: e.n, last: e.last }); ask++; return; }
+      s2.map[mk] = regAdd(short, e.ml, 'indent', { full: e.name }); added++;
+    });
+    return { added: added, linked: linked, ask: ask };
+  }
+  function importIndents(files) {
+    var s2 = shop(); s2.indents = s2.indents || {}; indJob = { stage: 'Opening…', n: 0 }; drawSheet();
+    var P = 'This is from the KSBCL (Karnataka State Beverages Corporation) stock indent / invoice history of one liquor shop. Extract every indent or invoice in it, with its number, date and items. For each item: the full product name as printed (without pack codes in brackets), size in ml, bottles per case (from text like "180MLx48Btls"), cases, loose bottles, the rate per case (issue price) and the amount. Skip totals and headers.\nReply JSON: {"indents":[{"no":"text","date":"YYYY-MM-DD","items":[{"name":"text","ml":180,"perCase":48,"cases":2,"loose":0,"rate":5869.6,"amount":11739.2}]}]}';
+    var take = function (r) {
+      (r.indents || []).forEach(function (x, i) {
+        var dt = /^\d{4}-\d{2}-\d{2}$/.test(x.date || '') ? x.date : '', id = String(x.no || '').trim() || (dt + '#' + i + '#' + (x.items || []).length);
+        var cur = s2.indents[id] = s2.indents[id] || { no: String(x.no || ''), date: dt, items: [] };
+        (x.items || []).forEach(function (it) {
+          var ml = String(it.ml || '').replace(/[^0-9]/g, ''), nm = String(it.name || '').trim(); if (!nm || !ml) return;
+          if (cur.items.some(function (y) { return y.name === nm && y.ml === ml && y.cases === num(it.cases); })) return;
+          cur.items.push({ name: nm, ml: ml, per: num(it.perCase) || BPC[+ml] || 0, cases: num(it.cases), loose: num(it.loose), rate: num(it.rate), amount: num(it.amount) });
+        });
+      });
+      save();
+    };
+    var chain = Promise.resolve(), fi = 0;
+    files.forEach(function (f) {
+      chain = chain.then(function () {
+        fi++; indJob.stage = 'Reading file ' + fi + ' of ' + files.length; drawSheet();
+        if (/^image\//.test(f.type)) return blobToDataURL(f).then(function (u) { return geminiImages(P, [u], .1); }).then(take);
+        return f.arrayBuffer().then(function (buf) { return /pdf$/i.test(f.type) || /\.pdf$/i.test(f.name) ? pdfLines(buf) : xlsxLines(buf); }).then(function (lines) {
+          var chunks = []; for (var i = 0; i < lines.length; i += 160) chunks.push(lines.slice(i, i + 160));
+          var c2 = Promise.resolve();
+          chunks.forEach(function (ch, ci) { c2 = c2.then(function () { indJob.stage = 'File ' + fi + ': part ' + (ci + 1) + ' of ' + chunks.length; drawSheet(); return geminiCall({ contents: [{ parts: [{ text: P + '\n\nLINES:\n' + ch.join('\n') }] }], generationConfig: { responseMimeType: 'application/json', temperature: 0 } }).then(function (t) { take(JSON.parse(t.replace(/^\s*```(json)?/, '').replace(/```\s*$/, ''))); }).catch(function () { indJob.miss = (indJob.miss || 0) + 1; }); }); });
+          return c2;
+        });
+      });
+    });
+    chain.then(function () { var res = indentLinkAll(); save(); indJob = null; indRes = res; drawSheet(); toast('Indents read' + (res.ask ? ' · ' + res.ask + ' names to confirm' : '')); })
+      .catch(function (e) { indJob = { stage: 'Couldn’t read it: ' + (e.message || e), err: true }; drawSheet(); });
+  }
+  var indRes = null;
+  function shopIndentSheet() {
+    var s2 = shop(), ind = s2.indents || {}, ids = Object.keys(ind), items = {}, dates = [];
+    ids.forEach(function (id) { if (ind[id].date) dates.push(ind[id].date); (ind[id].items || []).forEach(function (it) { items[normName(it.name) + '|' + it.ml] = 1; }); });
+    dates.sort(); var fmt = function (k) { return new Date(k + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }); };
+    var h = '<p class="muted" style="margin:0">Your previous KSBCL stock indents (PDF, Excel or photos). The app learns which items your shop actually stocks, and the latest cost of each for the profit margins.</p>';
+    h += '<div class="shtiles ttq"><div><b class="display">' + ids.length + '</b><small>indents</small></div><div><b class="display">' + Object.keys(items).length + '</b><small>items</small></div><div><b class="display" style="font-size:16px">' + (dates.length ? fmt(dates[0]) + '–' + fmt(dates[dates.length - 1]) : '—') + '</b><small>dates</small></div></div>';
+    if (indJob) h += '<div class="' + (indJob.err ? 'notice' : 'shreading') + '">' + (indJob.err ? '' : '<span class="wpulse"></span>') + '<b>' + esc(indJob.stage) + '</b></div>';
+    if (indRes && !indJob) h += '<div class="notice ok">✓ ' + indRes.linked + ' linked to your items · ' + indRes.added + ' added as new' + (indRes.ask ? ' · <b>' + indRes.ask + ' to confirm</b>' : '') + '</div>';
+    if ((s2.askq || []).length) h += '<button type="button" class="btn coral" data-sheet="shopsame">Confirm ' + s2.askq.length + ' name' + (s2.askq.length > 1 ? 's' : '') + ' →</button>';
+    h += '<input type="file" id="indFile" accept=".pdf,.xlsx,.xls,.csv,image/*,application/pdf" multiple hidden><button type="button" class="btn jungle" id="indUp"' + (indJob && !indJob.err ? ' disabled' : '') + '>⤒ Upload indent file' + (ids.length ? 's (adds to these)' : '') + '</button>';
+    if (!hasAI()) h += '<div class="notice">Reading indents needs your free Gemini key (Settings → Visualization).</div>';
+    if (ids.length) h += '<div class="list">' + ids.map(function (id) { return ind[id]; }).sort(function (a, b) { return (b.date || '') < (a.date || '') ? -1 : 1; }).slice(0, 12).map(function (n) { var c = n.items.reduce(function (a, it) { return a + it.cases; }, 0); return '<div class="r"><span class="t">' + esc(n.no || 'Indent') + '<small>' + (n.date ? new Date(n.date + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short', year: 'numeric' }) + ' · ' : '') + n.items.length + ' items · ' + c + ' cases</small></span></div>'; }).join('') + '</div>';
+    return { title: 'Past indents', cap: ids.length ? ids.length + ' indents' : '', html: '<div class="stack" style="gap:12px">' + h + '</div>', bind: function (r) {
+      var f = r.querySelector('#indFile'); r.querySelector('#indUp').onclick = function () { if (!hasAI()) { toast('Add your Gemini key first'); return; } f.click(); };
+      f.onchange = function () { var fs = [].slice.call(f.files); f.value = ''; if (fs.length) importIndents(fs); };
+    } };
   }
 
   // --- the day screen: photos + sheet + close the day ---
@@ -5241,7 +5571,7 @@
     if (sp.step === 'names') { o.innerHTML = h + namesHtml(d) + '</div>'; head(); bindNames(o, d); o.scrollTop = 0; return; }
     if (sp.step === 'profit') { o.innerHTML = h + profitHtml(d) + '</div>'; head(); o.querySelector('#pfBack').onclick = function () { sp.step = 'sheet'; drawShopDay(); }; o.querySelector('#pfNext').onclick = function () { sp.step = 'close'; drawShopDay(); }; o.scrollTop = 0; return; }
     if (d.status === 'reading') h += '<div class="shreading"><span class="wpulse"></span><b>Reading your sheet…</b><span class="muted small">' + d.photos.length + ' photo' + (d.photos.length === 1 ? '' : 's') + ' · usually 20–60 seconds</span></div>';
-    h += '<div class="seg2 shseg" role="tablist">' + [['photo', 'Photo'], ['list', 'List'], ['sheet', 'Grid']].map(function (v) { return '<button type="button" role="tab" data-spv="' + v[0] + '" aria-selected="' + (sp.view === v[0]) + '">' + v[1] + '</button>'; }).join('') + '</div>';
+    h += '<div class="seg2 shseg" role="tablist">' + [['photo', 'Photo'], ['list', 'List'], ['exp', 'Expenses'], ['sheet', 'Grid']].map(function (v) { return '<button type="button" role="tab" data-spv="' + v[0] + '" aria-selected="' + (sp.view === v[0]) + '">' + v[1] + '</button>'; }).join('') + '</div>';
     if (sp.view === 'both') sp.view = 'list';
     if (sp.view === 'photo') {
       h += '<div class="shphoto' + (sp.view === 'photo' ? ' big' : '') + '" id="spPh">' + (d.photos.length ? '<img id="spImg" alt="Sheet photo" style="width:' + (sp.zoom * 100) + '%">' : '<span class="muted small" style="padding:30px;display:block;text-align:center">No photo yet</span>') + '</div>';
@@ -5249,9 +5579,10 @@
         '<span class="row" style="gap:4px"><button type="button" class="nib" id="spZo" aria-label="Zoom out">−</button><span class="cap">' + Math.round(sp.zoom * 100) + '%</span><button type="button" class="nib" id="spZi" aria-label="Zoom in">+</button></span></div>';
       h += '<input type="file" id="spFile" accept="image/*" multiple hidden>';
     }
-    if (sp.view === 'list' && d.grid) h += shopListHtml(d);
+    if (sp.view === 'exp') h += expHtml(d);
+    else if (sp.view === 'list' && d.grid) h += shopListHtml(d);
     else if (sp.view === 'sheet' && d.grid) h += shopGridHtml(d);
-    else if (sp.view !== 'photo' && !d.grid) h += '<p class="muted small">The sheet appears here once the photos are read.</p>';
+    else if (sp.view !== 'photo' && sp.view !== 'exp' && !d.grid) h += '<p class="muted small">The sheet appears here once the photos are read.</p>';
     if (d.grid && sp.view === 'sheet') {
       var ck = shopChecks(sp.k);
       if (ck.msgs.length) h += '<div class="shissues">' + ck.msgs.slice(0, 12).map(function (m) { return '<button type="button" class="shiss"' + (m.r != null ? ' data-goto="' + m.r + ',' + m.c + '"' : '') + '>⚠ ' + m.t + '</button>'; }).join('') + (ck.msgs.length > 12 ? '<span class="muted small">+ ' + (ck.msgs.length - 12) + ' more</span>' : '') + '</div>';
@@ -5340,6 +5671,7 @@
     var nb2 = q('#spNames2'); if (nb2) nb2.onclick = function () { sp.step = 'names'; drawShopDay(); };
     var nb = q('#spNames'); if (nb) nb.onclick = function () { sp.step = 'names'; drawShopDay(); };
     itemSuggest(o, d);
+    if (sp.view === 'exp') { bindExp(o, d); return; }
     if (!d.grid || sp.view === 'photo') return;
     if (sp.view === 'list') { bindShopList(o, d); return; }
     // grid
@@ -5465,7 +5797,7 @@
     q('#scBack').onclick = function () { sp.step = 'sheet'; drawShopDay(); };
     q('#scSave').onclick = function () {
       var c = calc(); if (c.pct == null) { toast('Type the profit percentage first'); q('#scPct').focus(); return; }
-      d.sales = c.sales; d.pct = c.pct; d.profit = c.profit; d.expTotal = c.et; d.net = c.profit - c.et; d.cash = c.sales - c.et; d.status = 'closed'; d.closedAt = new Date().toISOString();
+      d.sales = c.sales; d.pct = c.pct; d.profit = c.profit; d.expTotal = c.et; d.net = c.profit - c.et; d.cash = c.sales - c.et; d.status = 'closed'; d.closedAt = new Date().toISOString(); d.ask = []; regSync();
       s2.pct = c.pct; save();
       closeShopDay(); toast('Saved · net ' + inr(d.net));
     };
@@ -5601,10 +5933,14 @@
   function shopHints() {
     var s2 = shop(), known = {}; bills();
     Object.keys(s2.days).forEach(function (k) { var g = s2.days[k].grid; if (g) dataRows(g).forEach(function (r) { if (g[r][0]) known[g[r][0]] = 1; }); });
-    Object.keys(s2.items).forEach(function (k) { known[s2.items[k].item] = 1; });
+    Object.keys(s2.items).forEach(function (k) { known[s2.items[k].item + (s2.items[k].size ? ' ' + s2.items[k].size : '')] = 1; });
+    var mine = []; Object.keys(s2.items).forEach(function (k) { var x = s2.items[k]; Object.keys(x.alias || {}).forEach(function (a) { mine.push({ a: a, t: x.item + ' ' + (x.size || ''), n: x.alias[a] }); }); });
+    mine.sort(function (a, b) { return b.n - a.n; });
+    var al0 = mine.slice(0, 150).map(function (m) { return '"' + m.a + '" = ' + m.t.trim(); });
     var al = Object.keys(s2.alias).map(function (k) { return '"' + k + '" = ' + s2.alias[k]; });
     var gl = Object.keys(s2.gloss).sort(function (a, b) { return s2.gloss[b].n - s2.gloss[a].n; }).slice(0, 120).map(function (k) { return '"' + k + '" → "' + s2.gloss[k].to + '"'; });
-    return (Object.keys(known).length ? 'Brand names used in earlier days (prefer these spellings): ' + Object.keys(known).slice(0, 150).join(', ') + '.\n' : '') +
+    return (Object.keys(known).length ? 'Items this shop stocks (from its sheets, bills and indents): ' + Object.keys(known).slice(0, 250).join(', ') + '.\n' : '') +
+      (al0.length ? 'How this writer writes them (his short name = the item): ' + al0.join('; ') + '. Write the name as he wrote it on the page.\n' : '') +
       (al.length ? 'Short names this shop uses and the full brand they stand for (from KSBCL bills): ' + al.slice(0, 120).join('; ') + '. Write the short name the shop uses.\n' : '') +
       (gl.length ? 'This writer’s short names and what they mean (read these the corrected way): ' + gl.join('; ') + '.\n' : '') + learnHints();
   }
@@ -5797,6 +6133,8 @@
       var pr = profitRows(d), pct = pr.avg != null ? Math.round(pr.avg * 10) / 10 : s2.pct;
       if (pct != null && pct !== '') { var sales = daySales(d), et = d.exp.reduce(function (a, e) { return a + num(e.v); }, 0); d.pct = pct; d.sales = sales; d.profit = sales * pct / 100; d.expTotal = et; d.net = d.profit - et; d.cash = sales - et; d.status = 'closed'; d.closedAt = new Date().toISOString(); closed++; }
     });
+    // his short names go onto your items
+    regSync(); names.forEach(function (x) { var p = t.pick[x.k], to = p === 'k' ? x.known : p != null && p !== '' && x.cands[+p] ? x.cands[+p].it.name : null; if (!to) return; regAll().forEach(function (y) { if (normName(y.item) === normName(to)) regAlias(y.key, x.hw, x.n); }); });
     L.sheets = (L.sheets || 0) + t.jobs.filter(function (j) { return j.st === 'read'; }).length; L.at = new Date().toISOString();
     t.result = { sheets: t.jobs.filter(function (j) { return j.st === 'read'; }).length, named: named, fixes: res.fixes.length, added: added, closed: closed, skipped: skipped, first: ks[0] || null };
     t.stage = 'done'; t.running = false; teachWake(false); save(); teachDraw();
@@ -5882,7 +6220,7 @@
       var R = t.result || {};
       cap = R.sheets ? 'from ' + R.sheets + ' sheets' : '';
       h += learnedHtml();
-      if (R.added) h += '<div class="list"><button type="button" class="r" id="ttMonth"><span class="t">' + R.added + ' day' + (R.added > 1 ? 's' : '') + ' added to accounts<small>' + (R.closed < R.added ? (R.added - R.closed) + ' still open: add the price list or your usual profit % to close them' : 'sales, profit and stock filled in') + (R.skipped ? ' · ' + R.skipped + ' already there, left as they were' : '') + '</small></span>' + CHEV + '</button></div>';
+      if (R.added) h += '<div class="list"><button type="button" class="r" id="ttMonth"><span class="t">' + R.added + ' day' + (R.added > 1 ? 's' : '') + ' added to accounts<small>' + (R.closed < R.added ? (R.added - R.closed) + ' still open: add a KSBCL bill or indent for costs, or your usual profit % (Shop settings), to close them' : 'sales, profit and stock filled in') + (R.skipped ? ' · ' + R.skipped + ' already there, left as they were' : '') + '</small></span>' + CHEV + '</button></div>';
       h += '<p class="muted small">Each new day’s photo is read with all of this. Every fix you make still teaches it more.</p>';
       h += '<div class="row" style="gap:10px"><button type="button" class="btn line" style="flex:1" id="ttMore">Teach more</button><button type="button" class="btn jungle" style="flex:1" id="ttDone">Done</button></div>';
       bind.push(function (r) {
