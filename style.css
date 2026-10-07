@@ -949,3 +949,43 @@ code{font-family:var(--mono);font-size:12px;background:var(--sand2);padding:1px 
 .brdays i{aspect-ratio:1;border-radius:6px;background:var(--sand2)}
 .brdays i.on{background:#12A39A}.brdays i.today{box-shadow:0 0 0 2px var(--mango)}
 @media (prefers-reduced-motion:reduce){.brorb{transition:none}}
+/* sheet as a list of brands */
+.lsban{display:flex;gap:10px;align-items:center;background:#CDEFEA;border-radius:16px;padding:10px 12px;color:var(--jungle)}
+.lsban span{font-size:18px}.lsban p{margin:0;font-size:12.5px;line-height:1.4}
+.lsg{background:#fff;border-radius:18px;padding:6px 10px 8px;display:flex;flex-direction:column}
+.lshead{display:flex;align-items:center;gap:8px;border:0;background:none;font:inherit;color:inherit;text-align:left;padding:6px 2px;cursor:pointer;min-height:40px}
+.lshead b{flex:1;font-size:14.5px;line-height:1.25}.lshead .hw{flex:1;font-size:15px}
+.lstag{font-size:10.5px;font-weight:600;color:#12A39A;white-space:nowrap}.lstag.bad{color:#B3372B}.lstag.warn{color:#B07A12}
+.lsed{color:#9AA69F;font-size:14px}
+.lsrow{display:flex;align-items:center;gap:5px;border:0;border-top:1px solid var(--line);background:none;font:inherit;color:inherit;padding:7px 0;width:100%;cursor:pointer;text-align:center}
+.lssz{width:36px;flex-shrink:0;font-size:13px;font-weight:700;color:var(--jungle);text-align:left}
+.lsc{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:1px;padding:5px 1px;border-radius:10px;background:var(--sand)}
+.lsc b{font-size:13.5px;line-height:1.1;min-height:15px;font-variant-numeric:tabular-nums;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.lsc small{font-size:9px;color:var(--sub);text-transform:uppercase;letter-spacing:.04em}
+.lsc.em b{color:#C8D3CC}.lsc.bad{background:#FFD9D3}.lsc.bad b{color:#B3372B}
+.lsmsg{font-size:11.5px;color:#B3372B;padding:0 2px 6px;line-height:1.35}
+.lstot{display:flex;justify-content:space-between;align-items:center;background:#fff;border-radius:16px;padding:12px 14px;font-size:14px}.lstot b{font-size:17px}
+/* row editor */
+.red{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.redname{border:0;background:none;font:inherit;color:inherit;text-align:left;padding:0;display:flex;flex-direction:column;gap:3px;cursor:pointer;min-width:0}
+.redname b{font-size:20px;line-height:1.2}.redname small{font-size:12.5px;color:var(--sub)}.redname .hw{font-size:14px}
+.refs{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.ref{border:0;background:#fff;border-radius:14px;padding:8px 12px 10px;font:inherit;color:inherit;text-align:left;display:flex;flex-direction:column;gap:2px;cursor:pointer;min-height:64px}
+.ref small{font-size:11px;color:var(--sub);font-weight:600}.ref b{font-size:22px;font-variant-numeric:tabular-nums;min-height:26px}
+.ref:first-child{grid-column:1/-1;flex-direction:row;align-items:baseline;gap:10px;min-height:0;padding:8px 12px}.ref:first-child b{font-size:17px}
+.ref.on{box-shadow:inset 0 0 0 2px var(--mango)}
+.ref.on b:after{content:'';display:inline-block;width:2px;height:20px;background:var(--jungle);margin-left:2px;vertical-align:-3px;animation:blink 1s steps(2) infinite}
+.ref.fresh b{background:#FFE6B8;border-radius:4px}
+.ref.bad{background:#FFF3F1;box-shadow:inset 0 0 0 2px #FF8A78}.ref.bad.on{box-shadow:inset 0 0 0 2px var(--mango)}
+@keyframes blink{50%{opacity:0}}
+.rehint{display:flex;gap:10px;align-items:center;background:#FFE6B8;border-radius:14px;padding:10px 12px;font-size:13px;line-height:1.35}
+.rehint[hidden]{display:none}.rehint span{flex:1}
+.rehint button{border:0;background:var(--jungle);color:#fff;border-radius:999px;padding:8px 14px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap}
+.rekp{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;background:#E3D5C0;border-radius:18px;padding:8px;touch-action:manipulation;user-select:none;-webkit-user-select:none}
+.rekp button{border:0;background:#fff;border-radius:11px;min-height:50px;font:inherit;font-size:20px;font-weight:600;color:var(--ink);cursor:pointer}
+.rekp button:active{background:var(--sand2)}
+.rekp button.nx{background:var(--jungle);color:#fff}
+/* name picker */
+.npk{display:flex;flex-direction:column;gap:2px}.npk small{font-size:12px;color:var(--sub)}.npk .hw{font-size:22px}
+.npcap{font-size:11px;color:var(--sub);margin-top:4px}
+.r.npbest{box-shadow:inset 0 0 0 2px #12A39A;border-radius:16px}.r.npbest small{color:#12A39A}

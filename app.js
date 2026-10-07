@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '36';
+  var APP_VERSION = '37';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -4481,20 +4481,22 @@
     }).then(function (r) {
       var g = [SHCOLS.slice()], fixed = 0;
       (r.rows || []).forEach(function (x) {
-        var item = String(x.item || '').trim(), gk = item.toLowerCase();
-        if (s2.gloss[gk]) { item = s2.gloss[gk].to; fixed++; }
+        var item = String(x.item || '').trim();
         var nv2 = function (v) { return v == null || v === '' ? '' : String(v); };
         var row2 = [item, nv2(x.size), nv2(x.open), nv2(x.recv), nv2(x.total), nv2(x.sales), nv2(x.rate), nv2(x.amount), nv2(x.close), nv2(x.remarks)];
         g.push(row2);
       });
       if (g.length < 2) g.push(SHCOLS.map(function () { return ''; }));
+      fillDownNames(g);
       d.grid = withTotalRow(g); d.ai = d.grid.map(function (rw) { return rw.slice(); });
+      dataRows(d.grid).forEach(function (rr) { var gk = String(d.grid[rr][SC.item] || '').trim().toLowerCase(); if (gk && s2.gloss[gk]) { d.grid[rr][SC.item] = s2.gloss[gk].to; fixed++; } });
+      var cy = carryNames(key);
       d.exp = (r.expenses || []).filter(function (e) { return e && (e.name || e.amount); }).map(function (e) { return { t: String(e.name || ''), v: num(e.amount) }; });
       d.written = r.written || {}; d.status = 'draft'; save();
       applyPendingBills(key);
-      if (sp && sp.k === key) { sp.view = 'both'; drawShopDay(); }
+      if (sp && sp.k === key) { sp.view = 'list'; sp.step = 'sheet'; drawShopDay(); }
       var ck = shopChecks(key);
-      toast('Read ' + (d.grid.length - 2) + ' rows' + (ck.msgs.length ? ' · ' + ck.msgs.length + ' to check' : '') + (fixed ? ' · ' + fixed + ' names auto-fixed' : ''));
+      toast('Read ' + (d.grid.length - 2) + ' rows' + (ck.msgs.length ? ' · ' + ck.msgs.length + ' to check' : '') + (cy && cy.n ? ' · ' + cy.n + ' names from yesterday' : fixed ? ' · ' + fixed + ' names auto-fixed' : ''));
       if (ui.tab === 'shop') render();
     }).catch(function (e) {
       d.status = d.grid ? 'draft' : 'new'; if (!d.grid) d.grid = blankGrid(); save();
@@ -4979,12 +4981,234 @@
     fx.addEventListener('blur', function () { setTimeout(function () { box.hidden = true; }, 150); });
   }
 
+  // ---------- phone-friendly editing: the sheet as brand cards, a row editor with a number pad, a name picker ----------
+  // a row with only a size under a brand belongs to that brand
+  function fillDownNames(g) {
+    var last = '', n = 0;
+    dataRows(g).forEach(function (r) {
+      var it = String(g[r][SC.item] || '').trim(), hasNum = [SC.open, SC.recv, SC.sales, SC.close, SC.amt].some(function (c) { return isNum(g[r][c]); });
+      if (it) { last = it; return; }
+      if (last && String(g[r][SC.size] || '').trim() && hasNum) { g[r][SC.item] = last; n++; }
+    });
+    return n;
+  }
+  // yesterday's rows (same size, closing = today's opening, near the same place) give today's names
+  function yRows(k) {
+    var pk = prevDayKey(k); if (!pk) return null; var pg = shop().days[pk].grid; if (!pg) return null;
+    var rows = dataRows(pg).filter(function (r) { return String(pg[r][SC.item] || '').trim(); });
+    return { k: pk, rows: rows.map(function (r, i) { return { i: i, r: r, name: String(pg[r][SC.item]).trim(), size: String(pg[r][SC.size] || '').replace(/[^0-9]/g, ''), close: isNum(cellVal(pg, r, SC.close)) ? num(cellVal(pg, r, SC.close)) : null }; }) };
+  }
+  function yMatch(Y, g, r, pos) {
+    if (!Y) return null;
+    var size = String(g[r][SC.size] || '').replace(/[^0-9]/g, ''), o = isNum(g[r][SC.open]) ? num(g[r][SC.open]) : null, raw = String(g[r][SC.item] || '').trim();
+    var same = Y.rows.filter(function (y) { return !size || y.size === size; });
+    var hit = o != null ? same.filter(function (y) { return y.close === o; }) : [];
+    var near = function (a) { return a.slice().sort(function (x, y) { return Math.abs(x.i - pos) - Math.abs(y.i - pos); })[0]; };
+    if (hit.length === 1 || (hit.length > 1 && Math.abs(near(hit).i - pos) <= 4)) return { y: near(hit), how: 'close' };
+    // same place on the page and a similar name
+    var at = same.filter(function (y) { return Math.abs(y.i - pos) <= 1 && raw && (normName(y.name) === normName(raw) || nameScore(raw, y.name) >= .6); });
+    if (at.length) return { y: near(at), how: 'place' };
+    return null;
+  }
+  function carryNames(k) {
+    var d = shopDay(k), g = d && d.grid; if (!g) return null;
+    var Y = yRows(k); if (!Y) return null;
+    var rows = dataRows(g).filter(function (r) { return String(g[r][SC.size] || '').trim() || String(g[r][SC.item] || '').trim(); }), n = 0;
+    d.from = {};
+    rows.forEach(function (r, i) {
+      var m = yMatch(Y, g, r, i); if (!m) return;
+      if (String(g[r][SC.item] || '').trim() !== m.y.name) g[r][SC.item] = m.y.name;
+      d.from[r] = 1; n++;
+    });
+    d.carried = { n: n, of: rows.length, k: Y.k };
+    return d.carried;
+  }
+  // the list
+  function shopListHtml(d) {
+    var g = d.grid, ck = shopChecks(sp.k), h = '';
+    if (d.carried && d.carried.n) h += '<div class="lsban"><span>↺</span><p><b>Names from ' + new Date(d.carried.k + 'T00:00:00').toLocaleDateString('en', { weekday: 'long' }) + '’s sheet</b><br>' + d.carried.n + ' of ' + d.carried.of + ' rows matched: same size, and today’s opening = that day’s closing</p></div>';
+    var bad = Object.keys(ck.bad).length;
+    h += '<div class="row between"><button type="button" class="nib sm' + (sp.lph ? ' on' : '') + '" id="lsPh">📷 ' + (sp.lph ? 'Hide photo' : 'Show photo') + '</button><span class="cap">' + (bad ? '<span style="color:#B3372B">' + ck.msgs.filter(function (m) { return m.r != null; }).length + ' to check</span>' : '✓ adds up') + '</span></div>';
+    if (sp.lph && d.photos.length) h += '<div class="shphoto" id="spPh"><img id="spImg" alt="Sheet photo" style="width:' + (sp.zoom * 100) + '%"></div>';
+    var groups = [], cur = null;
+    dataRows(g).forEach(function (r) {
+      var it = String(g[r][SC.item] || '').trim(), any = it || String(g[r][SC.size] || '').trim() || [SC.open, SC.sales, SC.close].some(function (c) { return isNum(g[r][c]); });
+      if (!any) return;
+      if (!cur || it !== cur.name || !it) { cur = { name: it, rows: [] }; groups.push(cur); }
+      cur.rows.push(r);
+    });
+    var labs = [[SC.open, 'open'], [SC.recv, 'in'], [SC.sales, 'sold'], [SC.rate, 'rate'], [SC.amt, 'amt'], [SC.close, 'close']];
+    h += groups.map(function (G) {
+      var r0 = G.rows[0], inPL = !PL || !PL.items.length || !G.name || plFind(G.name, g[r0][SC.size]), raw = d.ai && d.ai[r0] ? String(d.ai[r0][SC.item] || '').trim() : '';
+      var tag = !G.name ? '<span class="lstag bad">pick a name</span>' : d.from && d.from[r0] ? '<span class="lstag">from yesterday</span>' : !inPL ? '<span class="lstag warn">not in price list</span>' : '';
+      var hh = '<div class="lsg"><button type="button" class="lshead" data-lsname="' + r0 + '">' + (G.name ? '<b>' + esc(G.name) + '</b>' : '<span class="hw">' + esc(raw || '?') + '</span>') + tag + '<span class="lsed" aria-hidden="true">✎</span></button>';
+      G.rows.forEach(function (r) {
+        hh += '<button type="button" class="lsrow" data-lsrow="' + r + '" aria-label="Edit ' + esc((G.name || 'row') + ' ' + (g[r][SC.size] || '')) + '"><span class="lssz">' + esc(g[r][SC.size] || '—') + '</span>' + labs.map(function (l) {
+          var v = g[r][l[0]], show = v === '' || v == null ? '' : fmtCell(cellVal(g, r, l[0]));
+          return '<span class="lsc' + (ck.bad[r + ',' + l[0]] ? ' bad' : '') + (show === '' ? ' em' : '') + '"><b>' + esc(show) + '</b><small>' + l[1] + '</small></span>';
+        }).join('') + '</button>';
+        ck.msgs.filter(function (m) { return m.r === r; }).forEach(function (m) { hh += '<span class="lsmsg">' + m.t.replace(/<b>[^<]*<\/b>: /, '') + '</span>'; });
+      });
+      return hh + '</div>';
+    }).join('');
+    if (!groups.length) h += '<p class="muted small">No rows yet.</p>';
+    h += '<button type="button" class="btn line small" id="lsAdd">+ Add a row</button>';
+    h += '<div class="lstot"><span>Total sales</span><b>' + inr(daySales(d)) + '</b></div>';
+    return h;
+  }
+  function bindShopList(o, d) {
+    var q = function (x) { return o.querySelector(x); };
+    q('#lsPh').onclick = function () { sp.lph = !sp.lph; drawShopDay(); };
+    o.querySelectorAll('[data-lsrow]').forEach(function (b) { b.onclick = function () { openRowEd(+b.dataset.lsrow); }; });
+    o.querySelectorAll('[data-lsname]').forEach(function (b) { b.onclick = function () { openNamePick(+b.dataset.lsname, 'sheet'); }; });
+    q('#lsAdd').onclick = function () {
+      var g = d.grid; spSnap(d); var at = g.length - 1; var nr = SHCOLS.map(function () { return ''; });
+      var lastR = dataRows(g).filter(function (r) { return String(g[r][SC.item] || '').trim(); }).pop(); if (lastR) nr[SC.item] = g[lastR][SC.item];
+      g.splice(at, 0, nr); if (d.ai) d.ai.splice(at, 0, SHCOLS.map(function () { return ''; })); d.grid = withTotalRow(g); save(); openRowEd(at, 'size');
+    };
+  }
+  // --- row editor ---
+  var REF = [['size', SC.size, 'Size ml'], ['open', SC.open, 'Opening'], ['recv', SC.recv, 'Received'], ['sales', SC.sales, 'Sold'], ['rate', SC.rate, 'Rate ₹'], ['amt', SC.amt, 'Amount ₹'], ['close', SC.close, 'Closing']];
+  function openRowEd(r, f) { sp.step = 'row'; sp.row = r; sp.fld = f || 'open'; sp.fresh = true; var o = document.getElementById('overlay'); drawShopDay(); o.scrollTop = 0; }
+  function rowEdHtml(d) {
+    var g = d.grid, r = sp.row, rows = dataRows(g), idx = rows.indexOf(r), nm = String(g[r][SC.item] || '').trim(), raw = d.ai && d.ai[r] ? String(d.ai[r][SC.item] || '').trim() : '';
+    var h = '<div class="red"><button type="button" class="redname" id="reName"><b>' + (nm ? esc(nm) : '<span class="hw">pick a name</span>') + '</b><small>' + (g[r][SC.size] ? esc(g[r][SC.size]) + ' ml' : 'no size') + (raw && raw !== nm ? ' · <span class="hw">' + esc(raw) + '</span> on the sheet' : '') + ' · change ✎</small></button><span class="cap">row ' + (idx + 1) + ' of ' + rows.length + '</span></div>';
+    h += '<div class="refs">' + REF.map(function (f) { return '<button type="button" class="ref' + (sp.fld === f[0] ? ' on' : '') + '" data-ref="' + f[0] + '"><small>' + f[2] + '</small><b id="rev-' + f[0] + '"></b></button>'; }).join('') + '</div>';
+    h += '<div class="rehint" id="reHint" hidden></div>';
+    h += '<div class="rekp">' + ['1', '2', '3', '⌫', '4', '5', '6', 'C', '7', '8', '9', '‹', '.', '0', '00', '›'].map(function (k) { return '<button type="button" data-kp="' + k + '"' + (k === '›' || k === '‹' ? ' class="nx" aria-label="' + (k === '›' ? 'Next box' : 'Previous box') + '"' : k === '⌫' ? ' aria-label="Delete"' : k === 'C' ? ' aria-label="Clear"' : '') + '>' + k + '</button>'; }).join('') + '</div>';
+    h += '<div class="row" style="gap:10px"><button type="button" class="btn line" style="flex:1" id="rePrev"' + (idx > 0 ? '' : ' disabled') + '>‹ Prev row</button><button type="button" class="btn jungle" style="flex:1" id="reNext">' + (idx < rows.length - 1 ? 'Next row ›' : 'Done ✓') + '</button></div>';
+    h += '<div class="row" style="gap:10px"><button type="button" class="btn ghost small" id="reList">‹ Back to the list</button><button type="button" class="btn ghost small" id="reDel">Delete row</button></div>';
+    return h;
+  }
+  function bindRowEd(o, d) {
+    var g = d.grid, r = sp.row, q = function (x) { return o.querySelector(x); };
+    var col = function (f) { return REF.filter(function (x) { return x[0] === f; })[0][1]; };
+    var autoAmt = function () { var s = cellVal(g, r, SC.sales), rt = cellVal(g, r, SC.rate); return isNum(s) && isNum(rt) && String(g[r][SC.sales]).trim() !== '' && String(g[r][SC.rate]).trim() !== '' ? Math.round(num(s) * num(rt) * 100) / 100 : null; };
+    var paint = function () {
+      var ck = shopChecks(sp.k);
+      REF.forEach(function (f) {
+        var el = q('#rev-' + f[0]), v = g[r][f[1]], show = v === '' || v == null ? '' : typeof v === 'string' && v.charAt(0) === '=' ? fmtCell(cellVal(g, r, f[1])) : String(v);
+        el.textContent = show === '' ? (f[0] === 'recv' ? '—' : '') : show;
+        var b = el.parentNode; b.classList.toggle('on', sp.fld === f[0]); b.classList.toggle('bad', !!ck.bad[r + ',' + f[1]]); b.classList.toggle('fresh', sp.fld === f[0] && sp.fresh && show !== '');
+      });
+      // a hint when the row doesn't add up
+      var v = function (c) { return isNum(cellVal(g, r, c)) && String(g[r][c]).trim() !== '' ? num(cellVal(g, r, c)) : null; };
+      var o2 = v(SC.open), rc = v(SC.recv) || 0, sl = v(SC.sales), cl = v(SC.close), hint = null;
+      var pk = prevDayKey(sp.k), pc = null;
+      if (pk) { var pg = shop().days[pk].grid, key = rowKey(g, r); dataRows(pg).forEach(function (x) { if (rowKey(pg, x) === key && isNum(cellVal(pg, x, SC.close))) pc = num(cellVal(pg, x, SC.close)); }); }
+      if (o2 != null && sl != null && cl != null && Math.abs(o2 + rc - sl - cl) > .01) hint = { t: 'Closing should be <b>' + fmtCell(o2 + rc - sl) + '</b> (' + o2 + (rc ? ' + ' + rc : '') + ' − ' + sl + ').', f: 'close', v: o2 + rc - sl };
+      else if (pc != null && o2 != null && pc !== o2) hint = { t: 'Yesterday closed at <b>' + fmtCell(pc) + '</b>, but opening says ' + o2 + '.', f: 'open', v: pc };
+      else if (o2 != null && sl != null && cl == null) hint = { t: 'Closing will be <b>' + fmtCell(o2 + rc - sl) + '</b>.', f: 'close', v: o2 + rc - sl };
+      var dg = learnt ? Object.keys(learnt().digits || {}).filter(function (p) { return learnt().digits[p] >= 2; }) : [];
+      if (hint && hint.f === 'close' && cl != null) { var sw = digitSwap(cl, hint.v); if (sw && dg.indexOf(sw) >= 0) { var a = sw.split('>'); hint.t += ' His ' + a[1] + ' can look like a ' + a[0] + '.'; } }
+      var hb = q('#reHint'); hb.hidden = !hint;
+      if (hint) { hb.innerHTML = '<span>' + hint.t + '</span><button type="button" id="reUse">Use ' + fmtCell(hint.v) + '</button>'; q('#reUse').onclick = function () { set(hint.f, String(Math.round(hint.v * 100) / 100), true); sp.fld = hint.f; sp.fresh = true; paint(); }; }
+    };
+    var set = function (f, val, commit) {
+      var c = col(f), was = g[r][c]; if (String(was) === String(val)) return;
+      if (!sp.snapRow) { spSnap(d); sp.snapRow = true; }
+      var amtWasAuto = String(g[r][SC.amt] || '').trim() === '' || (autoAmt() != null && num(g[r][SC.amt]) === autoAmt());
+      g[r][c] = val; d.edited = true;
+      if ((f === 'sales' || f === 'rate') && amtWasAuto) { var a = autoAmt(); if (a != null) g[r][SC.amt] = String(a); }
+      if (commit) learnFix(d, r, c, val);
+      clearTimeout(sp.saveT); sp.saveT = setTimeout(save, 400);
+    };
+    var commitField = function () { var c = col(sp.fld); learnFix(d, r, c, g[r][c]); save(); };
+    var move = function (dir) {
+      commitField();
+      var all = REF.map(function (x) { return x[0]; }), i = all.indexOf(sp.fld) + dir;
+      if (i >= all.length) return goRow(1);
+      if (i < 0) i = 0;
+      sp.fld = all[i]; sp.fresh = true; paint();
+    };
+    var goRow = function (dir) {
+      commitField(); var rows = dataRows(g), i = rows.indexOf(r) + dir;
+      if (i < 0) return; if (i >= rows.length) { sp.step = 'sheet'; sp.view = 'list'; drawShopDay(); return; }
+      sp.row = rows[i]; sp.fld = 'open'; sp.fresh = true; sp.snapRow = false; drawShopDay();
+    };
+    o.querySelectorAll('[data-ref]').forEach(function (b) { b.onclick = function () { commitField(); sp.fld = b.dataset.ref; sp.fresh = true; paint(); }; });
+    o.querySelectorAll('[data-kp]').forEach(function (b) {
+      b.addEventListener('pointerdown', function (e) { e.preventDefault(); });
+      b.onclick = function () {
+        var k = b.dataset.kp, c = col(sp.fld), cur = String(g[r][c] == null ? '' : g[r][c]);
+        if (/^=/.test(cur)) cur = String(fmtCell(cellVal(g, r, c))).replace(/,/g, '');
+        if (k === '›') return move(1); if (k === '‹') return move(-1);
+        if (k === '⌫') { set(sp.fld, sp.fresh ? '' : cur.slice(0, -1)); }
+        else if (k === 'C') set(sp.fld, '');
+        else { if (k === '.' && !sp.fresh && cur.indexOf('.') >= 0) return; set(sp.fld, (sp.fresh ? '' : cur) + k); }
+        sp.fresh = false; paint();
+        if (navigator.vibrate) try { navigator.vibrate(8); } catch (e) {}
+      };
+    });
+    q('#rePrev').onclick = function () { goRow(-1); };
+    q('#reNext').onclick = function () { goRow(1); };
+    q('#reList').onclick = function () { commitField(); sp.step = 'sheet'; sp.view = 'list'; drawShopDay(); var el = document.querySelector('[data-lsrow="' + r + '"]'); if (el) el.scrollIntoView({ block: 'center' }); };
+    q('#reName').onclick = function () { commitField(); openNamePick(r, 'row'); };
+    q('#reDel').onclick = function () { if (!confirm('Delete this row?')) return; spSnap(d); g.splice(r, 1); if (d.ai) d.ai.splice(r, 1); d.from = null; d.grid = withTotalRow(g); save(); sp.step = 'sheet'; sp.view = 'list'; drawShopDay(); };
+    paint();
+  }
+  // --- name picker: yesterday's sheet first, then the price list ---
+  function openNamePick(r, back) { sp.step = 'name'; sp.nrow = r; sp.nback = back; sp.nq = ''; sp.nall = true; drawShopDay(); document.getElementById('overlay').scrollTop = 0; }
+  function namePickHtml(d) {
+    var g = d.grid, r = sp.nrow, raw = d.ai && d.ai[r] ? String(d.ai[r][SC.item] || '').trim() : '', nm = String(g[r][SC.item] || '').trim();
+    var grp = groupRows(g, r);
+    var h = '<div class="npk"><small>On the sheet</small><span class="hw">' + esc(raw || nm || '—') + ' ' + esc(g[r][SC.size] || '') + '</span>' + (nm && nm !== raw ? '<small>now: <b>' + esc(nm) + '</b></small>' : '') + '</div>';
+    h += '<input class="text" id="npQ" placeholder="Search: a few letters or initials" autocomplete="off" autocapitalize="off" value="' + esc(sp.nq || '') + '">';
+    h += '<div id="npRes">' + namePickResults(d) + '</div>';
+    if (grp.length > 1) h += '<label class="ttsw"><span><b>Use for the sizes under it too</b><small>' + grp.map(function (x) { return esc(g[x][SC.size] || '?'); }).join(', ') + '</small></span><input type="checkbox" id="npAll"' + (sp.nall ? ' checked' : '') + '><i></i></label>';
+    h += '<button type="button" class="btn ghost small" id="npBack">‹ Back</button>';
+    h += '<p class="muted small">Your pick is remembered for “' + esc(raw || nm) + '” next time.</p>';
+    return h;
+  }
+  // the rows that share this row's name, starting here and going down
+  function groupRows(g, r) { var nm = String(g[r][SC.item] || '').trim(), out = [r]; if (!nm) return out; var rows = dataRows(g), i = rows.indexOf(r) + 1; while (i < rows.length && String(g[rows[i]][SC.item] || '').trim() === nm) out.push(rows[i++]); var j = rows.indexOf(r) - 1; while (j >= 0 && String(g[rows[j]][SC.item] || '').trim() === nm) out.unshift(rows[j--]); return out; }
+  function namePickResults(d) {
+    var g = d.grid, r = sp.nrow, q = (sp.nq || '').trim(), size = String(g[r][SC.size] || '').replace(/[^0-9]/g, ''), Y = yRows(sp.k), h = '', list = [];
+    var rows = dataRows(g).filter(function (x) { return String(g[x][SC.size] || '').trim() || String(g[x][SC.item] || '').trim(); });
+    var best = Y ? yMatch(Y, g, r, rows.indexOf(r)) : null;
+    var add = function (name, sub, cls, ml, mrp) { var i = list.length; list.push({ name: name, ml: ml, mrp: mrp }); return '<button type="button" class="r' + (cls ? ' ' + cls : '') + '" data-npk="' + i + '"><span class="t">' + esc(name) + (ml ? ' ' + esc(ml) : '') + '<small>' + sub + '</small></span></button>'; };
+    if (best && !q) h += '<span class="cap npcap">Best match from yesterday</span><div class="list">' + add(best.y.name, 'row ' + (best.y.i + 1) + ' yesterday' + (best.how === 'close' ? ' · closed at ' + best.y.close + ' = today’s opening ✓' : ' · same place on the page'), 'npbest', '', null) + '</div>';
+    if (Y) {
+      var seen = {}, ys = Y.rows.filter(function (y) { var k = y.name; if (seen[k]) return false; seen[k] = 1; return !q || nameScore(q, y.name) > .45 || normName(y.name).indexOf(normName(q)) >= 0; });
+      if (size && !q) ys.sort(function (a, b) { return (b.size === size) - (a.size === size) || a.i - b.i; });
+      if (ys.length) h += '<span class="cap npcap">' + new Date(Y.k + 'T00:00:00').toLocaleDateString('en', { weekday: 'long' }) + '’s sheet' + (q ? '' : ', in order') + '</span><div class="list">' + ys.slice(0, q ? 8 : 12).map(function (y) { return add(y.name, 'row ' + (y.i + 1) + (y.close != null ? ' · closed at ' + y.close : ''), '', '', null); }).join('') + '</div>';
+    }
+    if (q || !Y) {
+      var res = plSearch((q || String(g[r][SC.item] || '')) + (size ? ' ' + size : ''), 8, size);
+      if (res.length) h += '<span class="cap npcap">Price list</span><div class="list">' + res.map(function (x) { return add(x.it.name, (x.it.ml ? x.it.ml + ' ml' : '') + (x.it.mrp ? ' · MRP ₹' + fmtCell(x.it.mrp) : '') + (x.mine ? ' · on your sheets' : ''), '', '', x.it.mrp); }).join('') + '</div>';
+      if (q) h += '<div class="list">' + add(q, 'use exactly what you typed', '', '', null) + '</div>';
+    }
+    if (!h) h = '<p class="muted small">Type a few letters to search the price list.</p>';
+    sp.nlist = list;
+    return h;
+  }
+  function bindNamePick(o, d) {
+    var g = d.grid, r = sp.nrow, q = function (x) { return o.querySelector(x); };
+    var back = function () { if (sp.nback === 'row') { sp.step = 'row'; sp.row = r; sp.fresh = true; } else { sp.step = 'sheet'; sp.view = 'list'; } drawShopDay(); };
+    var bindRes = function () {
+      o.querySelectorAll('[data-npk]').forEach(function (b) {
+        b.onclick = function () {
+          var it = sp.nlist[+b.dataset.npk]; if (!it) return; spSnap(d);
+          var grp = sp.nall ? groupRows(g, r) : [r], raw = d.ai && d.ai[r] ? String(d.ai[r][SC.item] || '').trim() : String(g[r][SC.item] || '').trim();
+          grp.forEach(function (x) { g[x][SC.item] = it.name; if (it.mrp && !String(g[x][SC.rate] || '').trim() && x === r) g[x][SC.rate] = String(it.mrp); });
+          if (raw && raw.toLowerCase() !== it.name.toLowerCase()) { var s2 = shop(), k = raw.toLowerCase(); s2.gloss[k] = { to: it.name, n: ((s2.gloss[k] || {}).n || 0) + 1 }; s2.fixes++; }
+          d.edited = true; save(); toast(grp.length > 1 ? grp.length + ' rows named' : 'Named'); back();
+        };
+      });
+    };
+    var inp = q('#npQ');
+    inp.addEventListener('input', function () { sp.nq = inp.value; q('#npRes').innerHTML = namePickResults(d); bindRes(); });
+    var all = q('#npAll'); if (all) all.onchange = function () { sp.nall = all.checked; };
+    q('#npBack').onclick = back;
+    bindRes();
+  }
+
   // --- the day screen: photos + sheet + close the day ---
   function openShopDay(k) {
     if (!PL) loadPL().then(function () { if (sp && sp.k === k) drawShopDay(); });
     resetOverlay(); closeSheet();
     var d = shopDay(k, true); if (!d.grid && d.status !== 'reading' && !d.photos.length) { d.grid = blankGrid(); save(); }
-    sp = { k: k, view: d.grid ? 'both' : 'photo', sel: null, anchor: null, range: false, ph: 0, zoom: 1, step: 'sheet', hist: [] };
+    sp = { k: k, view: d.grid ? 'list' : 'photo', sel: null, anchor: null, range: false, ph: 0, zoom: 1, step: 'sheet', hist: [] };
     drawShopDay(); showOverlay('spo');
   }
   function closeShopDay() { sp = null; closeOverlayEl(); if (ui.tab === 'shop') render(); }
@@ -4992,21 +5216,27 @@
     var o = document.getElementById('overlay'), d = shopDay(sp.k, true), keepY = o.scrollTop;
     var gridBox = o.querySelector('.shgrid'), keepGX = gridBox ? gridBox.scrollLeft : 0, keepGY = gridBox ? gridBox.scrollTop : 0;
     var dl = new Date(sp.k + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' });
-    var h = '<div class="inner shd"><div class="row between"><button type="button" class="btn ghost small" id="spBack">‹ Shop</button><span class="cap">' + dl + ' · ' + d.photos.length + ' photo' + (d.photos.length === 1 ? '' : 's') + '</span><span class="row" style="gap:6px">' + (sp.step === 'sheet' ? '<button type="button" class="nib sm" id="spDelDay" aria-label="Delete this day">🗑</button>' : '') + '<button type="button" class="btn ghost small" id="spClose">Done</button></span></div>';
-    if (sp.step === 'close') { o.innerHTML = h + shopCloseHtml(d) + '</div>'; bindShopClose(o, d); o.scrollTop = 0; return; }
-    if (sp.step === 'names') { o.innerHTML = h + namesHtml(d) + '</div>'; bindNames(o, d); o.scrollTop = 0; return; }
-    if (sp.step === 'profit') { o.innerHTML = h + profitHtml(d) + '</div>'; o.querySelector('#pfBack').onclick = function () { sp.step = 'sheet'; drawShopDay(); }; o.querySelector('#pfNext').onclick = function () { sp.step = 'close'; drawShopDay(); }; o.scrollTop = 0; return; }
+    var h = '<div class="inner shd"><div class="row between"><button type="button" class="btn ghost small" id="spBack">‹ Shop</button><span class="cap">' + dl + '</span><span class="row" style="gap:6px">' + (sp.step === 'sheet' ? '<button type="button" class="nib sm" id="spDelDay" aria-label="Delete this day">🗑</button>' : '') + '<button type="button" class="btn ghost small" id="spClose">Done</button></span></div>';
+    var head = function () { o.querySelector('#spBack').onclick = closeShopDay; o.querySelector('#spClose').onclick = closeShopDay; };
+    if (sp.step === 'row' && d.grid && d.grid[sp.row]) { o.innerHTML = h + rowEdHtml(d) + '</div>'; head(); bindRowEd(o, d); return; }
+    if (sp.step === 'name' && d.grid && d.grid[sp.nrow]) { o.innerHTML = h + namePickHtml(d) + '</div>'; head(); bindNamePick(o, d); return; }
+    if (sp.step === 'row' || sp.step === 'name') sp.step = 'sheet';
+    if (sp.step === 'close') { o.innerHTML = h + shopCloseHtml(d) + '</div>'; head(); bindShopClose(o, d); o.scrollTop = 0; return; }
+    if (sp.step === 'names') { o.innerHTML = h + namesHtml(d) + '</div>'; head(); bindNames(o, d); o.scrollTop = 0; return; }
+    if (sp.step === 'profit') { o.innerHTML = h + profitHtml(d) + '</div>'; head(); o.querySelector('#pfBack').onclick = function () { sp.step = 'sheet'; drawShopDay(); }; o.querySelector('#pfNext').onclick = function () { sp.step = 'close'; drawShopDay(); }; o.scrollTop = 0; return; }
     if (d.status === 'reading') h += '<div class="shreading"><span class="wpulse"></span><b>Reading your sheet…</b><span class="muted small">' + d.photos.length + ' photo' + (d.photos.length === 1 ? '' : 's') + ' · usually 20–60 seconds</span></div>';
-    h += '<div class="seg2 shseg" role="tablist">' + [['photo', 'Photo'], ['both', 'Both'], ['sheet', 'Sheet']].map(function (v) { return '<button type="button" role="tab" data-spv="' + v[0] + '" aria-selected="' + (sp.view === v[0]) + '">' + v[1] + '</button>'; }).join('') + '</div>';
-    if (sp.view !== 'sheet') {
+    h += '<div class="seg2 shseg" role="tablist">' + [['photo', 'Photo'], ['list', 'List'], ['sheet', 'Grid']].map(function (v) { return '<button type="button" role="tab" data-spv="' + v[0] + '" aria-selected="' + (sp.view === v[0]) + '">' + v[1] + '</button>'; }).join('') + '</div>';
+    if (sp.view === 'both') sp.view = 'list';
+    if (sp.view === 'photo') {
       h += '<div class="shphoto' + (sp.view === 'photo' ? ' big' : '') + '" id="spPh">' + (d.photos.length ? '<img id="spImg" alt="Sheet photo" style="width:' + (sp.zoom * 100) + '%">' : '<span class="muted small" style="padding:30px;display:block;text-align:center">No photo yet</span>') + '</div>';
       h += '<div class="row between shphbar"><span class="row" style="gap:4px">' + (d.photos.length > 1 ? '<button type="button" class="nib" data-sph="-1" aria-label="Previous photo">‹</button><span class="cap">' + (sp.ph + 1) + ' / ' + d.photos.length + '</span><button type="button" class="nib" data-sph="1" aria-label="Next photo">›</button>' : '') + '<button type="button" class="nib sm" id="spAddPh">+ Photo</button>' + (d.photos.length ? '<button type="button" class="nib sm" id="spDelPh" aria-label="Delete this photo">🗑</button>' : '') + '</span>' +
         '<span class="row" style="gap:4px"><button type="button" class="nib" id="spZo" aria-label="Zoom out">−</button><span class="cap">' + Math.round(sp.zoom * 100) + '%</span><button type="button" class="nib" id="spZi" aria-label="Zoom in">+</button></span></div>';
       h += '<input type="file" id="spFile" accept="image/*" multiple hidden>';
     }
-    if (sp.view !== 'photo' && d.grid) h += shopGridHtml(d);
+    if (sp.view === 'list' && d.grid) h += shopListHtml(d);
+    else if (sp.view === 'sheet' && d.grid) h += shopGridHtml(d);
     else if (sp.view !== 'photo' && !d.grid) h += '<p class="muted small">The sheet appears here once the photos are read.</p>';
-    if (d.grid && sp.view !== 'photo') {
+    if (d.grid && sp.view === 'sheet') {
       var ck = shopChecks(sp.k);
       if (ck.msgs.length) h += '<div class="shissues">' + ck.msgs.slice(0, 12).map(function (m) { return '<button type="button" class="shiss"' + (m.r != null ? ' data-goto="' + m.r + ',' + m.c + '"' : '') + '>⚠ ' + m.t + '</button>'; }).join('') + (ck.msgs.length > 12 ? '<span class="muted small">+ ' + (ck.msgs.length - 12) + ' more</span>' : '') + '</div>';
       else h += '<div class="notice ok">✓ Every row adds up.</div>';
@@ -5095,6 +5325,7 @@
     var nb = q('#spNames'); if (nb) nb.onclick = function () { sp.step = 'names'; drawShopDay(); };
     itemSuggest(o, d);
     if (!d.grid || sp.view === 'photo') return;
+    if (sp.view === 'list') { bindShopList(o, d); return; }
     // grid
     var g = d.grid, fx = q('#spFx');
     var put = function (r, c, v) {
@@ -5438,6 +5669,7 @@
     idbGet('shopimg-' + j.id).then(function (u) { if (!u) throw new Error('photo missing'); return geminiImages(teachPrompt(), [u], .1); }).then(function (r) {
       var nv2 = function (v) { return v == null || v === '' ? '' : String(v); };
       j.rows = (r.rows || []).filter(function (x) { return x && (x.item || x.open != null || x.sales != null); }).map(function (x) { return [String(x.item || '').trim(), nv2(x.size), nv2(x.open), nv2(x.recv), nv2(x.total), nv2(x.sales), nv2(x.rate), nv2(x.amount), nv2(x.close), nv2(x.remarks)]; });
+      fillDownNames([SHCOLS].concat(j.rows));
       var dt = /^\d{4}-\d{2}-\d{2}$/.test(r.date || '') && r.date >= '2015-01-01' && r.date <= dkey(new Date()) ? r.date : null;
       j.date = dt; j.exp = (r.expenses || []).filter(function (e) { return e && (e.name || e.amount); }).map(function (e) { return { t: String(e.name || ''), v: num(e.amount) }; });
       j.written = r.written || {}; j.notes = (r.notes || []).slice(0, 3).map(function (x) { return String(x).trim().toLowerCase().replace(/\.$/, ''); }).filter(Boolean);
