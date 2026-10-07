@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '35';
+  var APP_VERSION = '36';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -3094,6 +3094,7 @@
       case 'shopmonth': return shopMonthSheet(arg || dkey(new Date()).slice(0, 7));
       case 'shoplearn': return shopLearnSheet();
       case 'shopteach': return shopTeachSheet();
+      case 'shopreset': return shopResetSheet();
       case 'breath': return breathSheet();
       case 'shopset': return shopSetSheet();
       case 'shopstock': return shopStockSheet();
@@ -4991,7 +4992,7 @@
     var o = document.getElementById('overlay'), d = shopDay(sp.k, true), keepY = o.scrollTop;
     var gridBox = o.querySelector('.shgrid'), keepGX = gridBox ? gridBox.scrollLeft : 0, keepGY = gridBox ? gridBox.scrollTop : 0;
     var dl = new Date(sp.k + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' });
-    var h = '<div class="inner shd"><div class="row between"><button type="button" class="btn ghost small" id="spBack">‹ Shop</button><span class="cap">' + dl + ' · ' + d.photos.length + ' photo' + (d.photos.length === 1 ? '' : 's') + '</span><button type="button" class="btn ghost small" id="spClose">Done</button></div>';
+    var h = '<div class="inner shd"><div class="row between"><button type="button" class="btn ghost small" id="spBack">‹ Shop</button><span class="cap">' + dl + ' · ' + d.photos.length + ' photo' + (d.photos.length === 1 ? '' : 's') + '</span><span class="row" style="gap:6px">' + (sp.step === 'sheet' ? '<button type="button" class="nib sm" id="spDelDay" aria-label="Delete this day">🗑</button>' : '') + '<button type="button" class="btn ghost small" id="spClose">Done</button></span></div>';
     if (sp.step === 'close') { o.innerHTML = h + shopCloseHtml(d) + '</div>'; bindShopClose(o, d); o.scrollTop = 0; return; }
     if (sp.step === 'names') { o.innerHTML = h + namesHtml(d) + '</div>'; bindNames(o, d); o.scrollTop = 0; return; }
     if (sp.step === 'profit') { o.innerHTML = h + profitHtml(d) + '</div>'; o.querySelector('#pfBack').onclick = function () { sp.step = 'sheet'; drawShopDay(); }; o.querySelector('#pfNext').onclick = function () { sp.step = 'close'; drawShopDay(); }; o.scrollTop = 0; return; }
@@ -5066,6 +5067,7 @@
   function bindShopDay(o, d) {
     var q = function (s2) { return o.querySelector(s2); };
     q('#spBack').onclick = closeShopDay; q('#spClose').onclick = closeShopDay;
+    q('#spDelDay').onclick = function () { var k = sp.k; if (!confirm('Delete ' + new Date(k + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + ' with its photos and sheet? This can’t be undone.')) return; shopDeleteDay(k); closeShopDay(); toast('Day deleted'); };
     o.querySelectorAll('[data-spv]').forEach(function (b) { b.onclick = function () { sp.view = b.dataset.spv; drawShopDay(); }; });
     // photo
     var img = q('#spImg');
@@ -5326,7 +5328,7 @@
   }
   function shopSetSheet() {
     var s2 = shop();
-    var h = '<label class="lab rng">Shop name<input class="text" id="ssName" value="' + esc(s2.name) + '"></label><label class="lab rng">Usual profit %<input class="text" id="ssPct" inputmode="decimal" value="' + (s2.pct == null ? '' : s2.pct) + '" placeholder="e.g. 20"></label><button type="button" class="btn jungle" id="ssSave">Save</button>';
+    var h = '<label class="lab rng">Shop name<input class="text" id="ssName" value="' + esc(s2.name) + '"></label><label class="lab rng">Usual profit %<input class="text" id="ssPct" inputmode="decimal" value="' + (s2.pct == null ? '' : s2.pct) + '" placeholder="e.g. 20"></label><button type="button" class="btn jungle" id="ssSave">Save</button><div class="list" style="margin-top:8px">' + row({ t: '🧹 Start fresh', sub: 'delete old sheets, bills or learning', sheet: 'shopreset' }) + '</div>';
     return { title: 'Shop settings', cap: '', html: h, bind: function (r) { r.querySelector('#ssSave').onclick = function () { s2.name = r.querySelector('#ssName').value.trim() || 'My shop'; var p = r.querySelector('#ssPct').value.trim(); s2.pct = p === '' ? null : num(p); save(); closeSheet(); render(); }; } };
   }
 
@@ -5830,6 +5832,47 @@
       r.querySelectorAll('[data-brt]').forEach(function (cb) { cb.onchange = function () { p[cb.dataset.brt] = cb.checked; save(); }; });
       r.querySelector('#brOrd').onclick = function () { p.order = p.order === 'kb' ? 'bk' : 'kb'; save(); drawSheet(); };
       r.querySelector('#brStart').onclick = openBreath;
+    } };
+  }
+
+  // ---------- delete a day / start fresh ----------
+  function shopPhotoInUse() { var keep = {}; (learnt().examples || []).forEach(function (e) { keep[e.id] = 1; }); return keep; }
+  function shopDeleteDay(k) {
+    var s2 = shop(), d = s2.days[k]; if (!d) return; var keep = shopPhotoInUse();
+    (d.photos || []).forEach(function (id) { if (!keep[id]) idbDel('shopimg-' + id).catch(function () {}); });
+    Object.keys(bills()).forEach(function (id) { var b = s2.bills[id]; if (b.status === 'added' && b.applied === k) { b.status = 'pending'; b.applied = null; } });
+    delete s2.days[k]; save();
+  }
+  function shopResetSheet() {
+    var s2 = shop(); bills(); ui.rs = ui.rs || { days: true, bills: false, learn: false, prices: false };
+    var nd = Object.keys(s2.days).length, nb = Object.keys(s2.bills).length, nl = Object.keys(s2.gloss).length + Object.keys(s2.alias).length + (learnt().usual.length ? 1 : 0), np = PL && PL.items ? PL.items.length : 0;
+    var tg = function (key, lab, sub) { return '<label class="ttsw"><span><b>' + lab + '</b><small>' + sub + '</small></span><input type="checkbox" data-rs="' + key + '"' + (ui.rs[key] ? ' checked' : '') + '><i></i></label>'; };
+    var h = '<p class="muted" style="margin:0">Choose what to delete. Everything else stays.</p>';
+    h += tg('days', 'Sales sheets', nd + ' day' + (nd === 1 ? '' : 's') + ' with their photos, and the month totals');
+    h += tg('bills', 'Stock-in bills', nb + ' KSBCL bill' + (nb === 1 ? '' : 's') + ' and the stock they added');
+    h += tg('learn', 'Handwriting learning', nl ? 'his short names, habits, usual list and example sheets' : 'nothing learnt yet');
+    h += tg('prices', 'KSBCL price list', np ? fmtN(np) + ' items' : 'not added');
+    h += '<p class="muted small" style="margin:0">Tip: keep the handwriting learning and the price list, so the fresh start still reads his writing well.</p>';
+    h += '<button type="button" class="btn coral" id="rsGo">Delete selected</button>';
+    return { title: 'Start fresh', cap: esc(s2.name), html: '<div class="stack" style="gap:12px">' + h + '</div>', bind: function (r) {
+      r.querySelectorAll('[data-rs]').forEach(function (cb) { cb.onchange = function () { ui.rs[cb.dataset.rs] = cb.checked; }; });
+      r.querySelector('#rsGo').onclick = function () {
+        var o = ui.rs, what = []; if (o.days) what.push(nd + ' sales days'); if (o.bills) what.push(nb + ' bills'); if (o.learn) what.push('the handwriting learning'); if (o.prices) what.push('the price list');
+        if (!what.length) { toast('Nothing selected'); return; }
+        if (!confirm('Delete ' + what.join(', ') + '? This can’t be undone.')) return;
+        var keepImg = {};
+        if (!o.learn) learnt().examples.forEach(function (e) { keepImg[e.id] = 1; });
+        if (!o.days) Object.keys(s2.days).forEach(function (k) { (s2.days[k].photos || []).forEach(function (id) { keepImg[id] = 1; }); });
+        if (!o.bills) Object.keys(s2.bills).forEach(function (id) { (s2.bills[id].photos || []).forEach(function (pid) { keepImg[pid] = 1; }); });
+        var drop = function (ids) { ids.forEach(function (id) { if (!keepImg[id]) idbDel('shopimg-' + id).catch(function () {}); }); };
+        if (o.days) { Object.keys(s2.days).forEach(function (k) { drop(s2.days[k].photos || []); }); s2.days = {}; Object.keys(s2.bills).forEach(function (id) { var b = s2.bills[id]; if (b.status === 'added') { b.status = 'pending'; b.applied = null; } }); }
+        if (o.bills) { Object.keys(s2.bills).forEach(function (id) { drop(s2.bills[id].photos || []); }); s2.bills = {}; s2.items = {}; s2.map = {}; }
+        if (o.learn) { learnt().examples.forEach(function (e) { drop([e.id]); }); s2.gloss = {}; s2.alias = {}; s2.fixes = 0; s2.learn = { digits: {}, notes: {}, usual: [], examples: [] }; }
+        var t = s2.teach; if (t && t.jobs) { drop(t.jobs.map(function (j) { return j.id; })); t.jobs.forEach(function (j) { idbDel('teachth-' + j.id).catch(function () {}); }); }
+        s2.teach = { jobs: [], backfill: t ? t.backfill !== false : true, stage: 'pick', pick: {} }; TT.names = null;
+        if (o.prices) { PL = { items: [], asOf: null }; idbDel('pricelist').catch(function () {}); }
+        shopUi.month = null; save(); closeSheet(); ui.tab = 'shop'; render(); toast('Done · fresh start');
+      };
     } };
   }
 
