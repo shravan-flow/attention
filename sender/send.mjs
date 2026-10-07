@@ -80,6 +80,7 @@ const local = () => new Date(Date.now() + cfg.utcOffsetMinutes * 60000); // "loc
 const hhmm = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 
 const NIGHT = { kind: 'night', url: './?tonight=1', title: 'Before bed', body: 'How was your day? Two minutes of journal, plan tomorrow’s targets, and note today’s resting calories if the app asks.' };
+const BREATH = { kind: 'breath', url: './?breathe=1', title: 'Morning breath', body: 'Bhastrika + Kapalabhati, on an empty stomach. About 7 minutes. Tap to begin.' };
 const MORNING = { kind: 'goal', url: './?goal=1', title: 'Good morning', body: 'Picture your day going well, then set today’s targets. Tap to begin.' };
 if (MODE === 'test') {
   await sendOne('Test ping');
@@ -87,6 +88,8 @@ if (MODE === 'test') {
   await sendOne('Test move ping', movePayload(LIB.moves[Math.floor(Math.random() * LIB.moves.length)]));
 } else if (MODE === 'goal') {
   await sendOne('Morning (test)', MORNING);
+} else if (MODE === 'breath') {
+  await sendOne('Morning breath (test)', BREATH);
 } else if (MODE === 'night') {
   await sendOne('Before bed (test)', NIGHT);
 } else if (MODE === 'move') {
@@ -104,6 +107,14 @@ if (MODE === 'test') {
     .concat(moves.filter(x => inWin(x.m)).map(x => ({ m: x.m, label: hhmm(x.m) + ' move (' + x.mv.name + ')', payload: movePayload(x.mv) })))
     .sort((a, b) => a.m - b.m);
   console.log(`Today (${ymd}) mindful pings at ${plan.map(hhmm).join(', ')}; ${moves.length} movement pings. This run covers ${hhmm(slotStart)}–${hhmm(slotStart + WINDOW)}; sending ${events.length}.`);
+  if (cfg.breathPing) {
+    const [bh, bm] = String(cfg.breathTime || '06:30').split(':').map(Number), bt = bh * 60 + (bm || 0);
+    if (slotStart === Math.floor(bt / 60) * 60 && nowMin <= bt + 20) {
+      const wait = bt - (local().getUTCHours() * 60 + local().getUTCMinutes());
+      if (wait > 0) await sleep(wait * 60000);
+      await sendOne('Morning breath', BREATH);
+    }
+  }
   if (cfg.goalPing && slotStart === cfg.startHour * 60 && nowMin <= slotStart + 50) await sendOne('Morning', MORNING);
   if (cfg.nightPing && slotStart === cfg.nightHour * 60 && nowMin <= slotStart + 50) {
     const wait = cfg.nightHour * 60 - (local().getUTCHours() * 60 + local().getUTCMinutes());

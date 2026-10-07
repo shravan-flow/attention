@@ -1,5 +1,5 @@
-/* Attention service worker: offline shell, push reminders, tap-to-check-in. */
-var CACHE = 'attention-v33';
+/* Attention service worker: opens instantly from the phone (cache first, refreshed in the background), push reminders, tap-to-check-in. */
+var CACHE = 'attention-v34';
 var SHELL = ['./', 'index.html', 'style.css', 'app.js', 'manifest.webmanifest', 'moves.json', 'foods.json', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/badge-96.png', 'fonts/space-grotesk.woff2', 'fonts/space-mono-400.woff2', 'fonts/space-mono-700.woff2'];
 
 self.addEventListener('install', function (e) {
@@ -23,12 +23,25 @@ self.addEventListener('fetch', function (e) {
     return;
   }
   if (e.request.method !== 'GET' || new URL(e.request.url).origin !== location.origin) return;
-  e.respondWith(fetch(e.request, { cache: 'no-cache' }).then(function (res) {
-    var copy = res.clone();
-    caches.open(CACHE).then(function (c) { c.put(e.request, copy); });
-    return res;
-  }).catch(function () {
-    return caches.match(e.request, { ignoreSearch: true }).then(function (r) { return r || caches.match('index.html'); });
+  var url = new URL(e.request.url);
+  var fresh = function () {
+    return fetch(e.request, { cache: 'no-cache' }).then(function (res) {
+      if (res.ok) { var copy = res.clone(); caches.open(CACHE).then(function (c) { c.put(e.request, copy); }); }
+      return res;
+    });
+  };
+  // data that changes (anything with ?query): network first
+  if (url.search && url.search !== '?') {
+    e.respondWith(fresh().catch(function () { return caches.match(e.request, { ignoreSearch: true }).then(function (r) { return r || caches.match('index.html'); }); }));
+    return;
+  }
+  // the app itself: open instantly from the phone, refresh the copy in the background for next time
+  e.respondWith(caches.open(CACHE).then(function (c) {
+    return c.match(e.request).then(function (hit) {
+      var net = fresh();
+      if (hit) { e.waitUntil(net.catch(function () {})); return hit; }
+      return net.catch(function () { return caches.match(e.request, { ignoreSearch: true }).then(function (r) { return r || caches.match('index.html'); }); });
+    });
   }));
 });
 

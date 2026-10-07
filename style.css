@@ -1017,3 +1017,21 @@ code{font-family:var(--mono);font-size:12px;background:var(--sand2);padding:1px 
 .alc button{border:0;background:none;font-size:15px;color:var(--sub);cursor:pointer;padding:0 4px}
 .r.askban{background:#FFE6B8;border-radius:16px}
 .seg2.shseg{align-self:stretch;flex-wrap:nowrap}.seg2.shseg button{flex:1;padding:8px 4px;font-size:13.5px;white-space:nowrap}
+/* my money */
+.overlay.mso{background:var(--sand)}
+.msi{gap:12px}
+.mscard{background:#fff;border-radius:22px;padding:14px;display:flex;flex-direction:column;gap:12px;box-shadow:0 10px 30px rgba(15,77,64,.1)}
+.msamt{font-size:44px;font-weight:700;letter-spacing:-.02em;line-height:1;display:flex;align-items:baseline;gap:4px}
+.msamt b{font-weight:700;min-width:10px}.msamt i{display:inline-block;width:2px;height:36px;background:var(--jungle);animation:blink 1s steps(2) infinite;align-self:center}
+.mscats{display:flex;gap:6px;flex-wrap:wrap}.mscats.nudge{animation:nudge .4s}
+@keyframes nudge{25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
+.mschip{border:0;background:var(--sand);border-radius:999px;padding:9px 12px;font:inherit;font-size:13.5px;font-weight:600;color:var(--ink);cursor:pointer}
+.mschip.sm{padding:7px 12px;font-size:12.5px}.mschip.on{background:var(--jungle);color:#fff}
+.msdate{border:0;background:var(--sand);border-radius:999px;padding:6px 10px;font:inherit;font-size:12.5px;color:var(--ink);margin-left:auto}
+.msnote{border:0;background:var(--sand);border-radius:12px;padding:11px 12px;font:inherit;font-size:14px;color:var(--ink)}
+.mskp button.rec{background:var(--coral)}
+.mnday{font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.06em;padding:10px 4px 2px}
+/* backup */
+.gdic{width:40px;height:40px;border-radius:12px;background:#E8F0FE;display:flex;align-items:center;justify-content:center;font-size:20px}
+.gdsteps{margin:0;padding-left:20px;font-size:13px;line-height:1.55;display:flex;flex-direction:column;gap:6px}
+.qcam{min-height:64px;font-size:17px}

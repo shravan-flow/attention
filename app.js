@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '39';
+  var APP_VERSION = '40';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -292,7 +292,8 @@
       pills += q.mins ? '<button type="button" class="hpill" data-begin="' + q.f + '" data-mins="' + q.mins + '"><span class="pp">' + PLAY + '</span>' + q.n + ' <i>' + q.mins + ' min</i></button>'
         : '<button type="button" class="hpill" data-qt="' + q.f + '" aria-label="Mark done: ' + q.n + '"><span class="pp o"></span>' + q.n + '</button>';
     });
-    h += '<div class="hpills">' + (pills || '<span class="hdone">✓ Today’s practices are done</span>') + '</div></div>';
+    h += '<div class="hpills">' + (pills || '<span class="hdone">✓ Today’s practices are done</span>') + '<button type="button" class="hpill" data-spend="1"><span class="pp">₹</span>Spend</button></div></div>';
+    if (backupDue()) h += '<div class="list"><button type="button" class="r" data-bkup="1"><span class="dot" style="background:' + T.lagoon + '"></span><span class="t">☁ Back up today<small>one tap: everything goes to your Google Drive</small></span>' + CHEV + '</button></div>';
     if (new Date().getHours() < 12) h += breathCard();
     h += timerBlock();
     h += goalCard();
@@ -1465,6 +1466,8 @@
     var nMv = (state.moves || []).filter(function (m) { return !m.skipped; }).length;
     h += '<div class="list">' + row({ t: 'Distractions', v: Object.keys(counts).length + ' kinds', dot: T.hib, sheet: 'dist' }) + row({ t: 'Movement', v: nMv + ' snacks', dot: T.mango, sheet: 'mvstat' }) +
       row({ t: 'Daily targets', v: won + ' of ' + gk.length, dot: T.coral, sheet: 'goals' }) + row({ t: 'Check-in history', v: state.checkins.length, dot: T.lagoon, sheet: 'history' }) + '</div>';
+    var mm0 = dkey(new Date()).slice(0, 7), mt0 = money().items.filter(function (x) { return x.d.slice(0, 7) === mm0; }).reduce(function (a, x) { return a + x.v; }, 0);
+    h += '<div class="list">' + row({ t: '₹ My money', sub: 'your own spending this month', v: inr(mt0), dot: '#7A5300', sheet: 'money' }) + '</div>';
     return h + '</div>';
   }
   function distSheet() {
@@ -1555,7 +1558,8 @@
     var last = state.lastBackup ? ago(state.lastBackup) : 'never';
     h += '<div class="list">' + row({ t: 'Reminders', v: ps.on ? 'connected' : 'off', dot: ps.on ? T.lagoon : T.coral, sheet: 'reminders' }) +
       row({ t: 'Garmin sync', v: garminStatus(), dot: garminDot(), sheet: 'garmin' }) +
-      row({ t: 'Backup', v: last, dot: state.lastBackup && Date.now() - new Date(state.lastBackup) < 8 * 86400000 ? T.lagoon : T.mango, sheet: 'data' }) +
+      row({ t: '☁ Backup', v: state.gdrive && state.gdrive.last ? 'Drive · ' + ago(state.gdrive.last) : state.gdrive && state.gdrive.cid ? 'Drive · not yet' : 'set up Drive', dot: state.gdrive && state.gdrive.last && Date.now() - new Date(state.gdrive.last) < 3 * 86400000 ? T.lagoon : T.mango, sheet: 'backup' }) +
+      row({ t: 'Your data', v: last, sheet: 'data' }) +
       row({ t: 'Visualization', v: state.aiKey ? 'AI on' : 'scene library', dot: state.aiKey ? T.lagoon : '#C8D3CC', sheet: 'ai' }) +
       row({ t: 'Ping schedule', v: '9 am – 10 pm', sheet: 'schedule' }) + row({ t: 'App version', v: APP_VERSION }) + '</div>';
     return h + '</div>';
@@ -1720,10 +1724,11 @@
     if (tk) { var tx = ideaById(tk.id); if (tx) tx.last = tk.page; save(); } tk = null;
     vb = null; sp = null; bp = null;
     if (br) brStop(); br = null;
-    var o = document.getElementById('overlay'); o.classList.remove('dark', 'vzo', 'nto', 'tko', 'vbo', 'spo', 'bro');
+    if (ms && ms.rec) try { ms.rec.abort(); } catch (e) {} ms = null;
+    var o = document.getElementById('overlay'); o.classList.remove('dark', 'vzo', 'nto', 'tko', 'vbo', 'spo', 'bro', 'mso');
   }
   function closeOverlayEl() {
-    var o = document.getElementById('overlay'); o.hidden = true; o.classList.remove('dark', 'vzo', 'nto', 'tko', 'vbo', 'spo', 'bro');
+    var o = document.getElementById('overlay'); o.hidden = true; o.classList.remove('dark', 'vzo', 'nto', 'tko', 'vbo', 'spo', 'bro', 'mso');
     updateEye();
     document.body.style.overflow = ui.sheet ? 'hidden' : '';
   }
@@ -3093,6 +3098,9 @@
       case 'sharedpick': return sharedPickSheet();
       case 'shopmonth': return shopMonthSheet(arg || dkey(new Date()).slice(0, 7));
       case 'shoplearn': return shopLearnSheet();
+      case 'money': return moneySheet(arg);
+      case 'backup': return backupSheet();
+      case 'quickcam': return quickCamSheet(arg);
       case 'shopteach': return shopTeachSheet();
       case 'shopitems': return shopItemsSheet();
       case 'shopitem': return shopItemSheet(arg);
@@ -3162,8 +3170,10 @@
   })();
   // rows and cards that open a sheet or jump to another tab
   document.addEventListener('click', function (e) {
-    var t = e.target.closest && e.target.closest('[data-sheet],[data-tab-go],[data-viz],[data-ocal],[data-drill],[data-breath]');
+    var t = e.target.closest && e.target.closest('[data-sheet],[data-tab-go],[data-viz],[data-ocal],[data-drill],[data-breath],[data-spend],[data-bkup]');
     if (!t) return;
+    if (t.dataset.spend) { e.stopPropagation(); openSpend(); return; }
+    if (t.dataset.bkup) { e.stopPropagation(); openSheet('backup'); gdBackup(); return; }
     if (t.dataset.breath) { e.stopPropagation(); openBreath(); return; }
     if (t.dataset.viz) { openViz(false); return; }
     if (t.dataset.drill) { e.stopPropagation(); openDrill(); return; }
@@ -4268,13 +4278,14 @@
       row({ t: '🌄 Vision board', sub: 'place it on a board', id: 'spVision' }) +
       row({ t: '🧾 Shop sales sheet', sub: 'add it to today’s sales statement', id: 'spShop' }) +
       row({ t: '📦 KSBCL bill', sub: 'stock in: add the bottles to your stock', id: 'spBill' }) +
-      row({ t: '⚖ My weight', sub: 'read the weight from a FitDays screenshot', id: 'spWeight' }) + '</div>';
+      row({ t: '⚖ My weight', sub: 'read the weight from a FitDays screenshot', id: 'spWeight' }) + row({ t: '💸 My expense', sub: 'read a GPay / PhonePe payment', id: 'spMoney' }) + '</div>';
     if (pendingShare) h = '<img src="' + pendingShare + '" alt="" style="max-height:220px;object-fit:contain;border-radius:14px;align-self:center">' + h;
     return { title: 'Shared picture', cap: '', html: h, bind: function (r) {
       var go = function (fn) { var d = pendingShare; pendingShare = null; closeSheet(); fn(d); };
       r.querySelector('#spVision').onclick = function () { go(sharedToVision); };
       r.querySelector('#spShop').onclick = function () { go(function (d) { shopAddPhotos([d]); }); };
       r.querySelector('#spWeight').onclick = function () { go(readWeightShot); };
+      r.querySelector('#spMoney').onclick = function () { go(readPayShot); };
       r.querySelector('#spBill').onclick = function () { go(function (d) { stockAddPhotos([d]); }); };
     } };
   }
@@ -4428,17 +4439,18 @@
     h += '<div class="hero" style="background:' + T.jungle + ';color:#fff;gap:10px">' + sun(T.mango, 120, -34, -44) +
       '<div class="row between"><span class="cap">' + md.toLocaleDateString('en', { month: 'long', year: 'numeric' }) + ' · ' + mt.n + ' day' + (mt.n === 1 ? '' : 's') + ' closed</span><span class="row" style="gap:4px"><button type="button" class="nib sm shm" data-shm="-1" aria-label="Previous month">‹</button><button type="button" class="nib sm shm" data-shm="1" aria-label="Next month">›</button></span></div>' +
       '<div class="shtiles">' + [[inrK(mt.sales), 'sales'], [inrK(mt.profit), 'profit'], [inrK(mt.exp), 'expenses'], [inrK(mt.net), 'net']].map(function (x) { return '<div><b class="display">' + x[0] + '</b><small>' + x[1] + '</small></div>'; }).join('') + '</div></div>';
+    if (queuedCount()) h += '<div class="notice">📶 ' + queuedCount() + ' photo set' + (queuedCount() > 1 ? 's' : '') + ' waiting for internet. They’re read automatically when you’re back online.</div>';
     h += '<div class="shbtns"><button type="button" class="btn coral" id="shAdd">📷 Sales sheet</button><button type="button" class="btn jungle" id="shBill">📦 Stock in (bill)</button></div>';
     h += '<input type="file" id="shFile" accept="image/*" multiple hidden><input type="file" id="shBillFile" accept="image/*" multiple hidden>';
     h += stockCardHtml();
     var ks = shopMonthDays(m), bl = Object.keys(bills()).map(function (id) { return bills()[id]; }).filter(function (b) { return (b.date || '').slice(0, 7) === m; });
     if (bl.length) h += '<div class="list">' + bl.sort(function (a, b) { return a.date < b.date ? 1 : -1; }).map(function (b) {
-      var st = { added: ['in stock', '#E3F0FF'], pending: ['waiting', '#FFE6B8'], reading: ['reading…', '#FFE6B8'], dup: ['duplicate', '#FFD9D3'], draft: ['to check', '#FFE0D9'] }[b.status] || ['', '#fff'];
+      var st = { added: ['in stock', '#E3F0FF'], queued: ['no internet', '#F1E6D6'], pending: ['waiting', '#FFE6B8'], reading: ['reading…', '#FFE6B8'], dup: ['duplicate', '#FFD9D3'], draft: ['to check', '#FFE0D9'] }[b.status] || ['', '#fff'];
       return '<button type="button" class="r" data-bill="' + b.id + '"><span class="t">' + new Date(b.date + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + ' · KSBCL bill<small>' + (b.items.length ? b.items.reduce(function (a, it) { return a + it.cases; }, 0) + ' cases · ' + billBottles(b) + ' bottles' + (b.invoiceValue ? ' · ' + inr(b.invoiceValue) : '') : b.photos.length + ' photos') + '</small></span><span class="tkpill" style="background:' + st[1] + '">' + st[0] + '</span>' + CHEV + '</button>';
     }).join('') + '</div>';
     if (!ks.length) h += '<p class="muted" style="margin:0">No days yet. Take photos of today’s Statement of Sales (all pages) and tap <b>Today’s sheet</b>. The app reads the handwriting into a sheet you can check and fix.</p>';
     else h += '<div class="list">' + ks.map(function (k) {
-      var d = s2.days[k], st = d.status === 'closed' ? ['closed', '#CDEFEA'] : d.status === 'reading' ? ['reading…', '#FFE6B8'] : d.grid ? ['to check', '#FFE0D9'] : ['photos only', '#F1E6D6'];
+      var d = s2.days[k], st = d.status === 'closed' ? ['closed', '#CDEFEA'] : d.status === 'reading' ? ['reading…', '#FFE6B8'] : d.status === 'queued' ? ['waiting', '#F1E6D6'] : d.grid ? ['to check', '#FFE0D9'] : ['photos only', '#F1E6D6'];
       return '<button type="button" class="r" data-shday="' + k + '"><span class="t">' + new Date(k + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + '<small>' + (d.status === 'closed' ? 'sales ' + inr(d.sales) + ' · net ' + inr(d.net) : d.grid ? 'sales ' + inr(daySales(d)) + ' so far' : d.photos.length + ' photo' + (d.photos.length === 1 ? '' : 's')) + '</small></span><span class="tkpill" style="background:' + st[1] + '">' + st[0] + '</span>' + CHEV + '</button>';
     }).join('') + '</div>';
     h += '<div class="list">' + row({ t: '🏷 Your items', sub: regAll().length + ' items' + ((s2.askq || []).length ? ' · <b>' + s2.askq.length + ' to confirm</b>' : ' · his short names, stock, margins'), sheet: 'shopitems' }) + row({ t: '📦 Past KSBCL indents', sub: Object.keys(s2.indents || {}).length ? Object.keys(s2.indents).length + ' indents · used for costs' : 'upload them: your real stock and latest costs', sheet: 'shopindent' }) + row({ t: '📋 KSBCL name list', sub: PL && PL.asOf ? fmtN(PL.items.length) + ' names · as on ' + new Date(PL.asOf + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short', year: 'numeric' }) : 'the supplier-wise list: used only for exact names', sheet: 'shopprices' }) + row({ t: '📊 Month file', sub: 'share ' + md.toLocaleDateString('en', { month: 'long' }) + ' as Excel or PDF', sheet: 'shopmonth:' + m }) + row({ t: '📚 Teach from old sheets', sub: teachSub(), sheet: 'shopteach' }) + row({ t: '🧠 Learning your handwriting', sub: Object.keys(s2.gloss).length + ' words learnt · ' + s2.fixes + ' corrections', sheet: 'shoplearn' }) + row({ t: 'Shop settings', sub: 'name, usual profit %', sheet: 'shopset' }) + '</div>';
@@ -4464,7 +4476,8 @@
       return Promise.all(us.map(function (u, i) { var id = 'sp' + Date.now().toString(36) + i; d.photos.push(id); return idbPut('shopimg-' + id, u); }));
     }).then(function () {
       save(); if (!sp || sp.k !== key) openShopDay(key); else drawShopDay();
-      if (hasAI()) shopRead(key); else { if (!d.grid) { d.grid = blankGrid(); save(); } drawShopDay(); }
+      if (hasAI() && !navigator.onLine) { d.status = 'queued'; save(); drawShopDay(); toast('Saved. It’s read as soon as you’re back online'); }
+      else if (hasAI()) shopRead(key); else { if (!d.grid) { d.grid = blankGrid(); save(); } drawShopDay(); }
     }).catch(function (e) { toast('Couldn’t save the photos: ' + (e.message || e)); });
   }
   function shopPhotos(d) { return Promise.all(d.photos.map(function (id) { return idbGet('shopimg-' + id).catch(function () { return null; }); })).then(function (a) { return a.filter(Boolean); }); }
@@ -4502,9 +4515,10 @@
       applyPendingBills(key);
       if (sp && sp.k === key) { sp.view = 'list'; sp.step = 'sheet'; drawShopDay(); }
       var ck = shopChecks(key);
-      toast('Read ' + (d.grid.length - 2) + ' rows' + (ck.msgs.length ? ' · ' + ck.msgs.length + ' to check' : '') + (cy && cy.n ? ' · ' + cy.n + ' names from yesterday' : fixed ? ' · ' + fixed + ' names auto-fixed' : ''));
+      toast('Read ' + (d.grid.length - 2) + ' rows' + (ck.msgs.length ? ' · ' + ck.msgs.length + ' to check' : '') + (cy && cy.n ? ' · ' + cy.n + ' matched to your items' : fixed ? ' · ' + fixed + ' names auto-fixed' : ''));
       if (ui.tab === 'shop') render();
     }).catch(function (e) {
+      if (isNetErr(e) && !d.grid) { d.status = 'queued'; save(); if (sp && sp.k === key) drawShopDay(); if (ui.tab === 'shop') render(); toast('No internet: the photos wait and are read when you’re back online'); return; }
       d.status = d.grid ? 'draft' : 'new'; if (!d.grid) d.grid = blankGrid(); save();
       if (sp && sp.k === key) drawShopDay();
       toast('Reading failed: ' + (e.message || 'AI error') + '. You can type it in or tap Read again.');
@@ -4569,7 +4583,7 @@
     bills()[id] = b;
     Promise.all(urls.map(function (u) { return shrinkImage(u, 2000); })).then(function (us) {
       return Promise.all(us.map(function (u, i) { var pid = 'bp' + Date.now().toString(36) + i; b.photos.push(pid); return idbPut('shopimg-' + pid, u); }));
-    }).then(function () { save(); openBill(id); if (hasAI()) billRead(id); else { b.status = 'draft'; save(); drawBill(); toast('Add your Gemini key to read bills'); } })
+    }).then(function () { save(); openBill(id); if (hasAI() && !navigator.onLine) { b.status = 'queued'; save(); drawBill(); toast('Saved. It’s read when you’re back online'); } else if (hasAI()) billRead(id); else { b.status = 'draft'; save(); drawBill(); toast('Add your Gemini key to read bills'); } })
       .catch(function (e) { toast('Couldn’t save the photos: ' + (e.message || e)); });
   }
   function billRead(id) {
@@ -4607,7 +4621,7 @@
       b.status = dup ? 'dup' : 'draft'; b.dupOf = dup || null; save();
       if (bp && bp.id === id) drawBill();
       if (dup) toast('This bill (' + no + ') was already added'); else toast('Read ' + b.items.length + ' items · ' + billBottles(b) + ' bottles');
-    }).catch(function (e) { b.status = 'draft'; save(); if (bp && bp.id === id) drawBill(); toast('Reading failed: ' + (e.message || 'AI error')); });
+    }).catch(function (e) { if (isNetErr(e) && !b.items.length) { b.status = 'queued'; save(); if (bp && bp.id === id) drawBill(); toast('No internet: the bill waits'); return; } b.status = 'draft'; save(); if (bp && bp.id === id) drawBill(); toast('Reading failed: ' + (e.message || 'AI error')); });
   }
   // "Original Choice Deluxe Whisky-Aseptic Brick Pack (40%)" → "Original Choice Deluxe Whisky"
   function shortBillName(t) { return String(t || '').replace(/\(.*?\)/g, ' ').replace(/\s*[-–]\s*(aseptic|tetra|brick|pet|can|glass|pack)\b.*$/i, '').replace(/\s+(aseptic|tetra)\s.*$/i, '').replace(/\s+/g, ' ').trim() || t; }
@@ -4620,6 +4634,7 @@
     if (!b) { closeBill(); return; }
     var h = '<div class="inner shd"><div class="row between"><button type="button" class="btn ghost small" id="bpBack">‹ Shop</button><span class="cap">KSBCL bill · ' + b.photos.length + ' photo' + (b.photos.length === 1 ? '' : 's') + '</span><button type="button" class="btn ghost small" id="bpDel">Delete</button></div>';
     h += '<h1 class="display" style="font-size:30px;margin:0;line-height:1.05">' + (bp.step === 2 ? 'Add to stock' : 'Stock in') + '<br><span class="lite" style="font-size:20px">' + esc(b.no || 'bill') + ' · ' + new Date(b.date + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) + '</span></h1>';
+    if (b.status === 'queued') h += '<div class="notice">📶 <b>Waiting for internet.</b> The bill is read automatically when you’re back online.</div>';
     if (b.status === 'reading') h += '<div class="shreading"><span class="wpulse"></span><b>Reading the bill…</b><span class="muted small">usually 15–40 seconds</span></div>';
     if (b.status === 'dup') h += '<div class="notice">This bill was already added to stock on ' + new Date(bills()[b.dupOf].applied ? bills()[b.dupOf].applied + 'T00:00:00' : bills()[b.dupOf].at).toLocaleDateString('en', { day: 'numeric', month: 'short' }) + '. Delete this copy, or open the first one.</div>';
     if (b.status === 'added') h += '<div class="notice ok">✓ Added to stock on the ' + new Date(b.applied + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) + ' sheet.</div>';
@@ -5570,6 +5585,7 @@
     if (sp.step === 'close') { o.innerHTML = h + shopCloseHtml(d) + '</div>'; head(); bindShopClose(o, d); o.scrollTop = 0; return; }
     if (sp.step === 'names') { o.innerHTML = h + namesHtml(d) + '</div>'; head(); bindNames(o, d); o.scrollTop = 0; return; }
     if (sp.step === 'profit') { o.innerHTML = h + profitHtml(d) + '</div>'; head(); o.querySelector('#pfBack').onclick = function () { sp.step = 'sheet'; drawShopDay(); }; o.querySelector('#pfNext').onclick = function () { sp.step = 'close'; drawShopDay(); }; o.scrollTop = 0; return; }
+    if (d.status === 'queued') h += '<div class="notice">📶 <b>Waiting for internet.</b> The photos are saved and are read automatically when you’re back online.</div>';
     if (d.status === 'reading') h += '<div class="shreading"><span class="wpulse"></span><b>Reading your sheet…</b><span class="muted small">' + d.photos.length + ' photo' + (d.photos.length === 1 ? '' : 's') + ' · usually 20–60 seconds</span></div>';
     h += '<div class="seg2 shseg" role="tablist">' + [['photo', 'Photo'], ['list', 'List'], ['exp', 'Expenses'], ['sheet', 'Grid']].map(function (v) { return '<button type="button" role="tab" data-spv="' + v[0] + '" aria-selected="' + (sp.view === v[0]) + '">' + v[1] + '</button>'; }).join('') + '</div>';
     if (sp.view === 'both') sp.view = 'list';
@@ -6463,6 +6479,248 @@
     } };
   }
 
+  // ---------- My money: personal expenses (quick add, voice, payment screenshots, month view) ----------
+  var MCATS = [['fuel', '⛽', 'Fuel', 'petrol diesel fuel shell bharat indian oil hp pump'], ['food', '🍽', 'Food', 'food lunch dinner breakfast hotel restaurant meal biryani swiggy zomato cafe'], ['tea', '☕', 'Tea & snacks', 'tea coffee snacks juice bakery chai'], ['groc', '🛒', 'Groceries', 'grocery groceries vegetables milk supermarket kirana store mart'], ['sport', '🏸', 'Badminton', 'badminton shuttle court gym sport'], ['car', '🚗', 'Car & bike', 'car bike service tyre parking toll wash'], ['bills', '📱', 'Bills', 'recharge mobile electricity internet wifi bill phone dth'], ['home', '🏠', 'Home', 'rent home house repair'], ['health', '💊', 'Health', 'medicine doctor pharmacy medical hospital'], ['gift', '🎁', 'Gifts', 'gift present'], ['travel', '✈', 'Travel', 'bus train flight cab uber ola auto ticket travel'], ['fun', '🎬', 'Fun', 'movie cinema party outing'], ['other', '📦', 'Other', '']];
+  function money() {
+    var m = state.money = state.money || {}; m.items = m.items || []; m.pay = m.pay || 'upi'; m.payee = m.payee || {};
+    if (!m.cats) m.cats = MCATS.map(function (c) { return { id: c[0], ic: c[1], n: c[2], kw: c[3] }; });
+    return m;
+  }
+  function mcat(id) { return money().cats.filter(function (c) { return c.id === id; })[0] || { id: 'other', ic: '📦', n: 'Other' }; }
+  function mcatsByUse() {
+    var m = money(), cut = dkey(new Date(Date.now() - 60 * 864e5)), n = {};
+    m.items.forEach(function (x) { if (x.d >= cut) n[x.cat] = (n[x.cat] || 0) + 1; });
+    return m.cats.slice().sort(function (a, b) { return (n[b.id] || 0) - (n[a.id] || 0); });
+  }
+  function guessCat(text) {
+    var t = ' ' + String(text || '').toLowerCase() + ' ', m = money(), best = null;
+    var pk = Object.keys(m.payee).filter(function (p) { return t.indexOf(p) >= 0; })[0]; if (pk) return m.payee[pk];
+    m.cats.forEach(function (c) { (c.kw || '').split(' ').forEach(function (w) { if (w && !best && t.indexOf(w) >= 0) best = c.id; }); if (!best && t.indexOf(c.n.toLowerCase()) >= 0) best = c.id; });
+    return best;
+  }
+  // "250 petrol" / "petrol 250 at shell" → amount, category, note
+  function parseSpend(text) {
+    var t = String(text || ''), num2 = /(\d+(?:[.,]\d+)?)/.exec(t.replace(/₹|rs\.?|rupees?/gi, ' ')), amt = num2 ? parseFloat(num2[1].replace(',', '')) : null;
+    var rest = t.replace(/₹|rs\.?|rupees?/gi, ' ').replace(num2 ? num2[1] : '', ' ').replace(/\s+/g, ' ').trim();
+    return { v: amt, cat: guessCat(t), note: rest };
+  }
+  var ms = null; // the quick-add screen
+  function openSpend(pre) {
+    resetOverlay(); closeSheet(); var m = money();
+    ms = Object.assign({ v: '', cat: null, note: '', pay: m.pay, d: dkey(new Date()), id: null, more: false }, pre || {});
+    if (ms.v != null && ms.v !== '') ms.v = String(ms.v); ms.fresh = !!ms.v;
+    drawSpend(); showOverlay('mso');
+  }
+  function closeSpend() { if (ms && ms.rec) try { ms.rec.abort(); } catch (e) {} ms = null; closeOverlayEl(); render(); }
+  function drawSpend() {
+    var o = document.getElementById('overlay'), m = money(), cats = mcatsByUse(), tk = dkey(new Date()), yk = dkey(new Date(Date.now() - 864e5));
+    var show = ms.more ? cats : cats.slice(0, 8); if (ms.cat && show.every(function (c) { return c.id !== ms.cat; })) show = show.concat([mcat(ms.cat)]);
+    var h = '<div class="inner msi"><div class="row between"><button type="button" class="btn ghost small" id="msX">‹ Back</button><span class="cap">' + (ms.id ? 'Edit expense' : 'New expense') + '</span><button type="button" class="btn ghost small" id="msMonth">Month</button></div>';
+    h += '<div class="mscard"><div class="row" style="gap:6px">' + [[tk, 'Today'], [yk, 'Yesterday']].map(function (x) { return '<button type="button" class="mschip sm' + (ms.d === x[0] ? ' on' : '') + '" data-msd="' + x[0] + '">' + x[1] + '</button>'; }).join('') + '<input type="date" class="msdate" id="msD" value="' + ms.d + '" max="' + tk + '"></div>';
+    h += '<div class="msamt" id="msAmt">₹ <b id="msV">' + esc(ms.v || '') + '</b><i></i></div>';
+    h += '<div class="mscats">' + show.map(function (c) { return '<button type="button" class="mschip' + (ms.cat === c.id ? ' on' : '') + '" data-msc="' + c.id + '">' + c.ic + ' ' + esc(c.n) + '</button>'; }).join('') + '<button type="button" class="mschip" id="msMore">' + (ms.more ? '− less' : '+ more') + '</button></div>';
+    h += '<input class="msnote" id="msN" placeholder="note (optional): where, what" value="' + esc(ms.note || '') + '" autocomplete="off">';
+    h += '<div class="row" style="gap:6px">' + [['cash', 'Cash'], ['upi', 'UPI'], ['card', 'Card']].map(function (x) { return '<button type="button" class="mschip sm' + (ms.pay === x[0] ? ' on' : '') + '" data-msp="' + x[0] + '">' + x[1] + '</button>'; }).join('') + '</div></div>';
+    h += '<div class="rekp mskp">' + ['1', '2', '3', '⌫', '4', '5', '6', 'C', '7', '8', '9', '🎤', '.', '0', '00', '✓'].map(function (k) { return '<button type="button" data-mk="' + k + '"' + (k === '✓' || k === '🎤' ? ' class="nx"' : '') + ' aria-label="' + ({ '⌫': 'Delete', 'C': 'Clear', '🎤': 'Say it', '✓': 'Save' }[k] || k) + '">' + k + '</button>'; }).join('') + '</div>';
+    if (ms.heard) h += '<p class="muted small" style="margin:0">Heard: “' + esc(ms.heard) + '”</p>';
+    if (ms.id) h += '<button type="button" class="btn ghost small" id="msDel">Delete this expense</button>';
+    o.innerHTML = h + '</div>';
+    var q = function (x) { return o.querySelector(x); };
+    q('#msX').onclick = closeSpend;
+    q('#msMonth').onclick = function () { closeSpend(); openSheet('money'); };
+    o.querySelectorAll('[data-msd]').forEach(function (b) { b.onclick = function () { ms.d = b.dataset.msd; drawSpend(); }; });
+    q('#msD').onchange = function () { if (q('#msD').value) { ms.d = q('#msD').value; drawSpend(); } };
+    o.querySelectorAll('[data-msc]').forEach(function (b) { b.onclick = function () { ms.cat = b.dataset.msc; o.querySelectorAll('[data-msc]').forEach(function (x) { x.classList.toggle('on', x === b); }); }; });
+    q('#msMore').onclick = function () { ms.more = !ms.more; drawSpend(); };
+    q('#msN').addEventListener('input', function () { ms.note = q('#msN').value; });
+    o.querySelectorAll('[data-msp]').forEach(function (b) { b.onclick = function () { ms.pay = b.dataset.msp; o.querySelectorAll('[data-msp]').forEach(function (x) { x.classList.toggle('on', x === b); }); }; });
+    var del = q('#msDel'); if (del) del.onclick = function () { if (!confirm('Delete this expense?')) return; m.items = m.items.filter(function (x) { return x.id !== ms.id; }); save(); toast('Deleted'); var back = ms.back; closeSpend(); if (back) openSheet(back); };
+    o.querySelectorAll('[data-mk]').forEach(function (b) {
+      b.addEventListener('pointerdown', function (e) { e.preventDefault(); });
+      b.onclick = function () {
+        var k = b.dataset.mk, cur = ms.fresh ? '' : String(ms.v || '');
+        if (k === '✓') return saveSpend();
+        if (k === '🎤') return listenSpend();
+        if (k === '⌫') cur = cur.slice(0, -1); else if (k === 'C') cur = ''; else { if (k === '.' && cur.indexOf('.') >= 0) return; if (cur.length >= 8) return; cur += k; }
+        ms.v = cur; ms.fresh = false; q('#msV').textContent = cur;
+      };
+    });
+  }
+  function saveSpend() {
+    var m = money(), v = num(ms.v);
+    if (!v) { toast('Type the amount'); return; }
+    if (!ms.cat) { ms.cat = guessCat(ms.note) || null; if (!ms.cat) { toast('Tap a category'); var c = document.querySelector('.mscats'); if (c) c.classList.add('nudge'); return; } }
+    var it = ms.id ? m.items.filter(function (x) { return x.id === ms.id; })[0] : null;
+    if (!it) { it = { id: 'm' + Date.now().toString(36), at: new Date().toISOString() }; m.items.push(it); }
+    it.v = v; it.cat = ms.cat; it.note = String(ms.note || '').trim(); it.pay = ms.pay; it.d = ms.d;
+    m.pay = ms.pay;
+    if (ms.payee) m.payee[ms.payee.toLowerCase()] = ms.cat;
+    save(); toast('₹' + fmtCell(v) + ' · ' + mcat(ms.cat).n + ' saved');
+    var back = ms.back; closeSpend(); if (back) openSheet(back);
+  }
+  function listenSpend() {
+    var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { toast('Voice isn’t available in this browser'); return; }
+    var r = new SR(); r.lang = 'en-IN'; r.interimResults = false; r.maxAlternatives = 1; ms.rec = r;
+    var b = document.querySelector('[data-mk="🎤"]'); if (b) { b.classList.add('rec'); b.textContent = '●'; }
+    r.onresult = function (e) {
+      var t = e.results[0][0].transcript, p = parseSpend(t); if (!ms) return;
+      ms.heard = t; if (p.v) { ms.v = String(p.v); ms.fresh = true; } if (p.cat) ms.cat = p.cat; if (p.note) ms.note = p.note; drawSpend();
+    };
+    r.onerror = function (e) { toast(e.error === 'not-allowed' ? 'Allow the microphone for this app' : 'Didn’t catch that'); };
+    r.onend = function () { var b2 = document.querySelector('[data-mk="🎤"]'); if (b2) { b2.classList.remove('rec'); b2.textContent = '🎤'; } };
+    try { r.start(); } catch (e) { toast('Voice couldn’t start'); }
+  }
+  // a GPay / PhonePe / bank screenshot shared to the app
+  function readPayShot(dataUrl) {
+    if (!hasAI()) { openSpend(); toast('Reading screenshots needs your Gemini key'); return; }
+    toast('Reading the payment…');
+    geminiImages('This is a screenshot of a payment in an Indian payments app (Google Pay, PhonePe, Paytm, a bank app) or a receipt. Find the amount paid, who it was paid to, and the date. Reply JSON: {"amount":number,"to":"payee name or null","date":"YYYY-MM-DD" or null,"what":"short description or null"}', [dataUrl]).then(function (r) {
+      var v = num(r.amount); if (!v) { openSpend(); toast('Couldn’t find an amount in that picture'); return; }
+      var to = String(r.to || '').trim(), dt = /^\d{4}-\d{2}-\d{2}$/.test(r.date || '') && r.date <= dkey(new Date()) ? r.date : dkey(new Date());
+      openSpend({ v: v, pay: 'upi', note: [to, r.what].filter(Boolean).join(' · '), d: dt, cat: guessCat(to + ' ' + (r.what || '')), payee: to || null });
+      toast('Check it and tap ✓');
+    }).catch(function (e) { openSpend(); toast('AI: ' + (e.message || 'failed')); });
+  }
+  function moneySheet(arg) {
+    var m = money(), mk = arg || shopUi.mm || dkey(new Date()).slice(0, 7), md = new Date(mk + '-01T00:00:00');
+    var items = m.items.filter(function (x) { return x.d.slice(0, 7) === mk; }).sort(function (a, b) { return a.d < b.d ? 1 : a.d > b.d ? -1 : (a.at < b.at ? 1 : -1); });
+    var tot = items.reduce(function (a, x) { return a + x.v; }, 0), byC = {}; items.forEach(function (x) { byC[x.cat] = (byC[x.cat] || 0) + x.v; });
+    var pm = new Date(md); pm.setMonth(pm.getMonth() - 1); var pk = dkey(pm).slice(0, 7), prevC = {}; m.items.forEach(function (x) { if (x.d.slice(0, 7) === pk) prevC[x.cat] = (prevC[x.cat] || 0) + x.v; });
+    var now = new Date(), days = mk === dkey(now).slice(0, 7) ? now.getDate() : new Date(md.getFullYear(), md.getMonth() + 1, 0).getDate();
+    var h = '<div class="row between"><button type="button" class="nib" data-mm="-1" aria-label="Previous month">‹</button><b class="display" style="font-size:20px">' + md.toLocaleDateString('en', { month: 'long', year: 'numeric' }) + '</b><button type="button" class="nib" data-mm="1" aria-label="Next month">›</button></div>';
+    h += '<div class="shtiles ttq"><div><b class="display">' + inr(tot) + '</b><small>spent</small></div><div><b class="display">' + inr(days ? tot / days : 0) + '</b><small>a day</small></div><div><b class="display">' + (m.budget ? Math.round(tot / m.budget * 100) + '%' : '—') + '</b><small>' + (m.budget ? 'of ' + inr(m.budget) : 'no budget') + '</small></div></div>';
+    if (m.budget) h += '<div class="ttbar"><i style="width:' + Math.min(100, Math.round(tot / m.budget * 100)) + '%;background:' + (tot > m.budget ? '#E5484D' : '#12A39A') + '"></i></div>';
+    var cs = Object.keys(byC).sort(function (a, b) { return byC[b] - byC[a]; }), mx = cs.length ? byC[cs[0]] : 1;
+    if (cs.length) h += '<div class="card stack" style="gap:8px"><b style="font-size:14px">By category</b>' + cs.map(function (c) { var d2 = byC[c] - (prevC[c] || 0); return '<div class="hbar"><span>' + mcat(c).ic + ' ' + esc(mcat(c).n) + '</span><span class="b"><i style="background:#12A39A;width:' + Math.round(byC[c] / mx * 100) + '%"></i></span><span style="text-align:right">' + inr(byC[c]) + '</span></div>'; }).join('') + '</div>';
+    var up = cs.filter(function (c) { return prevC[c] && byC[c] - prevC[c] > 500; })[0];
+    if (up) h += '<p class="muted small" style="margin:0">' + mcat(up).n + ' is up ' + inr(byC[up] - prevC[up]) + ' on ' + pm.toLocaleDateString('en', { month: 'long' }) + '.</p>';
+    h += '<button type="button" class="btn coral" id="mnAdd">+ Add expense</button>';
+    var lastD = '';
+    h += items.length ? '<div class="list">' + items.slice(0, 120).map(function (x) {
+      var dh = x.d !== lastD ? '<div class="mnday">' + (x.d === dkey(new Date()) ? 'Today' : new Date(x.d + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' })) + '</div>' : ''; lastD = x.d;
+      return dh + '<button type="button" class="r" data-mni="' + x.id + '"><span class="t">' + mcat(x.cat).ic + ' ' + esc(mcat(x.cat).n) + '<small>' + esc([x.pay ? x.pay.toUpperCase() : '', x.note].filter(Boolean).join(' · ')) + '</small></span><span class="v strong">' + inr(x.v) + '</span></button>';
+    }).join('') + '</div>' : '<p class="muted small">Nothing this month yet.</p>';
+    h += '<div class="list">' + row({ t: 'Monthly budget', v: m.budget ? inr(m.budget) : 'set', id: 'mnBud' }) + '</div>';
+    h += '<p class="muted small">Your own spending only. Shop expenses stay in the shop. Tip: share a GPay or PhonePe payment screenshot to Attention and it fills itself.</p>';
+    return { title: 'My money', cap: items.length + ' entries', html: '<div class="stack" style="gap:12px">' + h + '</div>', bind: function (r) {
+      r.querySelectorAll('[data-mm]').forEach(function (b) { b.onclick = function () { var d = new Date(md); d.setMonth(d.getMonth() + +b.dataset.mm); shopUi.mm = dkey(d).slice(0, 7); drawSheet(); }; });
+      r.querySelector('#mnAdd').onclick = function () { openSpend({ back: 'money' }); };
+      r.querySelectorAll('[data-mni]').forEach(function (b) { b.onclick = function () { var x = m.items.filter(function (y) { return y.id === b.dataset.mni; })[0]; if (x) openSpend({ id: x.id, v: x.v, cat: x.cat, note: x.note, pay: x.pay, d: x.d, back: 'money' }); }; });
+      r.querySelector('#mnBud').onclick = function () { var v = prompt('Monthly budget for your own spending (₹)', m.budget || ''); if (v == null) return; m.budget = num(v) || null; save(); drawSheet(); };
+    } };
+  }
+
+  // ---------- full backup: everything, including photos (file, or your Google Drive) ----------
+  function makeBackup() {
+    var copy = JSON.parse(JSON.stringify(state)); delete copy.keys; delete copy.code; delete copy.aiKey;
+    if (copy.gdrive) delete copy.gdrive.tok;
+    var out = { kind: 'attention-full', v: 2, at: new Date().toISOString(), app: APP_VERSION, state: copy, idb: {} };
+    return idbKeys().then(function (keys) {
+      keys = keys.filter(function (k) { return String(k).indexOf('snap-') !== 0; });
+      return Promise.all(keys.map(function (k) { return idbGet(k).then(function (v) { if (v != null) out.idb[k] = v; }).catch(function () {}); }));
+    }).then(function () { return new Blob([JSON.stringify(out)], { type: 'application/json' }); });
+  }
+  function restoreBackup(d) {
+    if (d && d.kind === 'attention-full') {
+      var code = state.code, keys = state.keys, ak = state.aiKey, gd = state.gdrive;
+      return Promise.all(Object.keys(d.idb || {}).map(function (k) { return idbPut(k, d.idb[k]).catch(function () {}); })).then(function () {
+        state = d.state; state.code = state.code || code; state.keys = state.keys || keys; if (ak) state.aiKey = ak; if (gd) state.gdrive = Object.assign({}, state.gdrive || {}, gd);
+        migrate(state); NOTES = null; PL = null; plLoading = null; save(); return loadNotes();
+      }).then(function () { syncGoal(); render(); });
+    }
+    return Promise.reject(new Error('not a full backup'));
+  }
+  var GD = { tok: null, exp: 0, busy: false, msg: null, files: null };
+  function gdrive() { var g = state.gdrive = state.gdrive || {}; return g; }
+  function gdToken() {
+    if (GD.tok && Date.now() < GD.exp - 60000) return Promise.resolve(GD.tok);
+    var g = gdrive(); if (!g.cid) return Promise.reject(new Error('add your Google client ID first'));
+    var ready = window.google && window.google.accounts ? Promise.resolve() : loadScript('https://accounts.google.com/gsi/client');
+    return ready.then(function () {
+      return new Promise(function (res, rej) {
+        var tc = window.google.accounts.oauth2.initTokenClient({ client_id: g.cid.trim(), scope: 'https://www.googleapis.com/auth/drive.appdata',
+          callback: function (r) { if (r.error) rej(new Error(r.error)); else { GD.tok = r.access_token; GD.exp = Date.now() + (r.expires_in || 3600) * 1000; g.ok = true; save(); res(GD.tok); } },
+          error_callback: function (e) { rej(new Error(e && e.type === 'popup_closed' ? 'sign-in closed' : (e && e.type) || 'sign-in failed')); } });
+        tc.requestAccessToken({ prompt: g.ok ? '' : 'consent' });
+      });
+    });
+  }
+  function gdFetch(url, opt) { return gdToken().then(function (t) { opt = opt || {}; opt.headers = Object.assign({ Authorization: 'Bearer ' + t }, opt.headers || {}); return fetch(url, opt); }).then(function (r) { if (r.status === 401) { GD.tok = null; } if (!r.ok) throw new Error('Drive said ' + r.status); return r; }); }
+  function gdList() { return gdFetch('https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&pageSize=100&orderBy=createdTime%20desc&fields=files(id,name,size,createdTime)').then(function (r) { return r.json(); }).then(function (j) { GD.files = (j.files || []).filter(function (f) { return /^attention-backup/.test(f.name); }); return GD.files; }); }
+  function gdBackup() {
+    if (GD.busy) return Promise.resolve(); GD.busy = true; GD.msg = 'Packing everything…'; drawSheet();
+    var g = gdrive(), blob;
+    return gdToken().then(function () { return makeBackup(); }).then(function (b) {
+      blob = b; GD.msg = 'Uploading ' + (blob.size / 1048576).toFixed(1) + ' MB…'; drawSheet();
+      return gdFetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable', { method: 'POST', headers: { 'Content-Type': 'application/json; charset=UTF-8', 'X-Upload-Content-Type': 'application/json' }, body: JSON.stringify({ name: 'attention-backup-' + new Date().toISOString().slice(0, 16).replace(':', '-') + '.json', parents: ['appDataFolder'] }) });
+    }).then(function (r) { var loc = r.headers.get('Location'); if (!loc) throw new Error('no upload link'); return fetch(loc, { method: 'PUT', body: blob }); })
+      .then(function (r) { if (!r.ok) throw new Error('upload failed ' + r.status); return gdList(); })
+      .then(function (files) { // keep the newest 30
+        return Promise.all(files.slice(30).map(function (f) { return gdFetch('https://www.googleapis.com/drive/v3/files/' + f.id, { method: 'DELETE' }).catch(function () {}); }));
+      }).then(function () { g.last = new Date().toISOString(); g.size = blob.size; GD.msg = null; GD.busy = false; save(); drawSheet(); if (ui.tab === 'trail' && !ui.sheet) render(); toast('Backed up to Google Drive'); })
+      .catch(function (e) { GD.busy = false; GD.msg = 'Backup failed: ' + (e.message || e); drawSheet(); toast(GD.msg); });
+  }
+  function gdRestore(f) {
+    if (!confirm('Replace everything on this phone with the backup from ' + new Date(f.createdTime).toLocaleString('en') + '?')) return;
+    GD.busy = true; GD.msg = 'Downloading…'; drawSheet();
+    gdFetch('https://www.googleapis.com/drive/v3/files/' + f.id + '?alt=media').then(function (r) { return r.json(); }).then(restoreBackup)
+      .then(function () { GD.busy = false; GD.msg = null; closeSheet(); toast('Restored from Google Drive'); })
+      .catch(function (e) { GD.busy = false; GD.msg = 'Restore failed: ' + (e.message || e); drawSheet(); });
+  }
+  function backupDue() { var g = state.gdrive; return !!(g && g.cid && g.ok && (!g.last || Date.now() - new Date(g.last) > 20 * 3600 * 1000)); }
+  function backupSheet() {
+    var g = gdrive(), h = '';
+    if (g.cid) {
+      h += '<div class="card stack" style="gap:10px"><div class="row" style="gap:10px;align-items:center"><span class="gdic">☁</span><span style="flex:1;display:flex;flex-direction:column"><b>Google Drive</b><small class="muted">a private app folder only Attention can see</small></span><span class="tkpill" style="background:' + (g.ok ? '#CDEFEA' : '#FFE6B8') + '">' + (g.ok ? 'on' : 'not signed in') + '</span></div>' +
+        '<div class="shtiles ttq"><div><b class="display" style="font-size:16px">' + (g.last ? ago(g.last) : 'never') + '</b><small>last backup</small></div><div><b class="display" style="font-size:16px">' + (g.size ? (g.size / 1048576).toFixed(1) + ' MB' : '—') + '</b><small>incl. photos</small></div><div><b class="display" style="font-size:16px">30</b><small>kept</small></div></div></div>';
+      if (GD.msg) h += '<div class="' + (GD.busy ? 'shreading' : 'notice') + '">' + (GD.busy ? '<span class="wpulse"></span>' : '') + '<b>' + esc(GD.msg) + '</b></div>';
+      h += '<button type="button" class="btn jungle" id="gdNow"' + (GD.busy ? ' disabled' : '') + '>☁ Back up now</button>';
+      h += '<button type="button" class="btn line" id="gdList"' + (GD.busy ? ' disabled' : '') + '>Restore from Drive…</button>';
+      if (GD.files) h += GD.files.length ? '<div class="list">' + GD.files.slice(0, 12).map(function (f, i) { return '<button type="button" class="r" data-gdr="' + i + '"><span class="t">' + new Date(f.createdTime).toLocaleString('en', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) + '<small>' + (f.size ? (f.size / 1048576).toFixed(1) + ' MB' : '') + '</small></span><span class="v">Restore</span></button>'; }).join('') + '</div>' : '<p class="muted small">No backups on Drive yet.</p>';
+      h += '<p class="muted small">The app reminds you once a day on Today (“☁ Back up”). One tap and it goes to your Drive. Web apps can’t run while closed, so it needs that tap.</p>';
+      h += '<details class="card"><summary class="muted small">Change the Google client ID</summary><input class="text" id="gdCid" value="' + esc(g.cid) + '" style="margin-top:8px"><button type="button" class="btn line small" id="gdSave" style="margin-top:8px">Save</button></details>';
+    } else {
+      h += '<div class="card stack" style="gap:8px"><b>Connect Google Drive (one time, about 10 minutes)</b><ol class="gdsteps"><li>Open <b>console.cloud.google.com</b> and sign in. Make a new project called <b>Attention</b>.</li><li>Search <b>Google Drive API</b> → Enable.</li><li><b>Google Auth Platform → Get started</b>: app name Attention, your email, <b>External</b>, then add yourself under <b>Audience → Test users</b>.</li><li><b>Clients → Create client</b> → type <b>Web application</b>. Under <b>Authorised JavaScript origins</b> add <b>https://shravan-flow.github.io</b>. Create.</li><li>Copy the <b>Client ID</b> (ends in .apps.googleusercontent.com) and paste it here.</li></ol><input class="text" id="gdCid" placeholder="123…apps.googleusercontent.com"><button type="button" class="btn jungle" id="gdSave">Connect</button></div>';
+    }
+    h += '<div class="card stack" style="gap:8px"><b style="font-size:14px">Backup file on this phone</b><p class="muted small" style="margin:0">Everything in one file, photos included. Keep it in your Downloads or send it to yourself.</p><div class="row" style="gap:8px"><button type="button" class="btn line" style="flex:1" id="bkFile">Save file</button><button type="button" class="btn line" style="flex:1" id="bkOpen">Restore file</button><input type="file" id="bkIn" accept="application/json,.json" hidden></div></div>';
+    return { title: 'Backup', cap: g.last ? 'last ' + ago(g.last) : '', html: '<div class="stack" style="gap:12px">' + h + '</div>', bind: function (r) {
+      var q = function (x) { return r.querySelector(x); };
+      var sv = q('#gdSave'); if (sv) sv.onclick = function () { var v = q('#gdCid').value.trim(); if (!/\.apps\.googleusercontent\.com$/.test(v)) { toast('That doesn’t look like a client ID'); return; } g.cid = v; g.ok = false; GD.tok = null; save(); gdBackup(); };
+      var bn = q('#gdNow'); if (bn) bn.onclick = function () { gdBackup(); };
+      var gl = q('#gdList'); if (gl) gl.onclick = function () { GD.msg = 'Looking…'; GD.busy = true; drawSheet(); gdList().then(function () { GD.busy = false; GD.msg = null; drawSheet(); }).catch(function (e) { GD.busy = false; GD.msg = e.message; drawSheet(); }); };
+      r.querySelectorAll('[data-gdr]').forEach(function (b) { b.onclick = function () { gdRestore(GD.files[+b.dataset.gdr]); }; });
+      q('#bkFile').onclick = function () { toast('Packing…'); makeBackup().then(function (blob) { var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'attention-full-backup-' + dkey(new Date()) + '.json'; a.click(); state.lastBackup = new Date().toISOString(); save(); }); };
+      var bi = q('#bkIn'); q('#bkOpen').onclick = function () { bi.click(); };
+      bi.onchange = function () { var f = bi.files[0]; if (!f) return; f.text().then(function (t) { var d = JSON.parse(t); if (d.kind !== 'attention-full') throw new Error('use Settings → Your data → Restore file for older backups'); if (!confirm('Replace everything on this phone with this backup from ' + new Date(d.at).toLocaleString('en') + '?')) return; return restoreBackup(d).then(function () { closeSheet(); toast('Backup restored'); }); }).catch(function (e) { toast('Could not restore: ' + e.message); }); };
+    } };
+  }
+
+  // ---------- photos taken without internet wait, and are read when it's back ----------
+  function isNetErr(e) { return !navigator.onLine || (e && (e.name === 'TypeError' || /network|failed to fetch|load failed/i.test(e.message || ''))); }
+  var qBusy = false;
+  function runQueue() {
+    if (qBusy || !navigator.onLine || !hasAI() || !state.shop) return;
+    var s2 = shop(), dk = Object.keys(s2.days).filter(function (k) { return s2.days[k].status === 'queued'; })[0];
+    var bk = Object.keys(s2.bills || {}).filter(function (id) { return s2.bills[id].status === 'queued'; })[0];
+    if (!dk && !bk) return;
+    qBusy = true; toast('Back online · reading the waiting photos');
+    if (dk) { shopRead(dk); setTimeout(function () { qBusy = false; runQueue(); }, 15000); }
+    else { billRead(bk); setTimeout(function () { qBusy = false; runQueue(); }, 15000); }
+  }
+  window.addEventListener('online', function () { setTimeout(runQueue, 1500); });
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) setTimeout(runQueue, 1500); });
+  setTimeout(runQueue, 3000);
+  function queuedCount() { var s2 = state.shop; if (!s2) return 0; return Object.keys(s2.days || {}).filter(function (k) { return s2.days[k].status === 'queued'; }).length + Object.keys(s2.bills || {}).filter(function (id) { return s2.bills[id].status === 'queued'; }).length; }
+
+  // ---------- long-press shortcuts: open a camera straight from the app icon ----------
+  function quickCamSheet(kind) {
+    var bill = kind === 'bill';
+    return { title: bill ? 'Stock in' : 'Today’s sheet', cap: '', html: '<div class="stack" style="gap:12px"><button type="button" class="btn coral qcam" id="qcGo">📷 ' + (bill ? 'Photos of the KSBCL bill' : 'Photos of today’s sales sheet') + '</button><p class="muted small" style="margin:0">Pick or take all the pages at once.</p></div>', bind: function (r) {
+      r.querySelector('#qcGo').onclick = function () { var f = document.getElementById(bill ? 'shBillFile' : 'shFile'); closeSheet(); if (f) f.click(); };
+    } };
+  }
+
   // ---------- shell ----------
   function render() {
     migrate(state);
@@ -6484,6 +6742,12 @@
   document.getElementById('notesFab').addEventListener('click', function () { openNotes(); });
 
   if ('serviceWorker' in navigator) {
+    var hadSW = !!navigator.serviceWorker.controller, t0 = Date.now();
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (!hadSW) return;
+      var busy = !document.getElementById('overlay').hidden || ui.sheet;
+      if (Date.now() - t0 < 20000 && !busy) location.reload(); else toast('A new version is ready: close and reopen the app');
+    });
     navigator.serviceWorker.register('sw.js').catch(function () {});
     navigator.serviceWorker.addEventListener('message', function (e) {
       if (!e.data) return;
@@ -6507,6 +6771,8 @@
   else if (/[?&]goal=1/.test(location.search)) openMorning();
   else if (/[?&]shared=1/.test(location.search)) { history.replaceState(history.state, '', location.pathname); receiveShared(); }
   else if (/[?&]tonight=1/.test(location.search)) { openSheet('tonight'); history.replaceState(history.state, '', location.pathname); }
+  else if (/[?&]go=spend/.test(location.search)) { history.replaceState(history.state, '', location.pathname); openSpend(); }
+  else if (/[?&]go=(sheet|bill)/.test(location.search)) { var gk2 = /go=bill/.test(location.search) ? 'bill' : 'sheet'; history.replaceState(history.state, '', location.pathname); ui.tab = 'shop'; render(); openSheet('quickcam:' + gk2); }
   else if (/[?&]breathe=1/.test(location.search)) { history.replaceState(history.state, '', location.pathname); openBreath(); }
   else if (/[?&]checkin=1/.test(location.search)) openCheckin();
 })();

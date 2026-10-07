@@ -31,9 +31,42 @@
   ],
   "shortcuts": [
     {
-      "name": "Check in now",
-      "short_name": "Check in",
-      "url": "./?checkin=1",
+      "name": "Today’s sales sheet",
+      "short_name": "Sales sheet",
+      "url": "./?go=sheet",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Stock in (KSBCL bill)",
+      "short_name": "Stock in",
+      "url": "./?go=bill",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Add an expense",
+      "short_name": "Spend",
+      "url": "./?go=spend",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Morning breath",
+      "short_name": "Breathe",
+      "url": "./?breathe=1",
       "icons": [
         {
           "src": "icons/icon-192.png",
