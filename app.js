@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '43';
+  var APP_VERSION = '44';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -6901,9 +6901,15 @@
   // ---------- daily card: one picture for stakeholders on WhatsApp ----------
   function cardCfg() {
     var s2 = shop(), c = s2.card = s2.card || {};
-    var def = { sales: true, profit: true, exp: false, trend: true, top: true, stock: true, month: true, aftertax: true, tax: 30, fixed: 0, theme: 'green' };
+    var def = { sales: true, profit: true, exp: false, trend: true, top: true, stock: true, month: true, aftertax: true, tax: 30, fixed: 0, theme: 'green', lang: 'en', knName: '' };
     Object.keys(def).forEach(function (k) { if (c[k] == null) c[k] = def[k]; });
     return c;
+  }
+  var KN = { wd: ['ಭಾನುವಾರ', 'ಸೋಮವಾರ', 'ಮಂಗಳವಾರ', 'ಬುಧವಾರ', 'ಗುರುವಾರ', 'ಶುಕ್ರವಾರ', 'ಶನಿವಾರ'], mo: ['ಜನವರಿ', 'ಫೆಬ್ರವರಿ', 'ಮಾರ್ಚ್', 'ಏಪ್ರಿಲ್', 'ಮೇ', 'ಜೂನ್', 'ಜುಲೈ', 'ಆಗಸ್ಟ್', 'ಸೆಪ್ಟೆಂಬರ್', 'ಅಕ್ಟೋಬರ್', 'ನವೆಂಬರ್', 'ಡಿಸೆಂಬರ್'] };
+  function cardWords(kn, dd) {
+    var wd = dd.getDay(), mo = dd.getMonth(), enW = dd.toLocaleDateString('en', { weekday: 'long' }), enM = dd.toLocaleDateString('en', { month: 'long' });
+    return kn ? { report: 'ದೈನಂದಿನ ವರದಿ', date: KN.wd[wd] + ', ' + dd.getDate() + ' ' + KN.mo[mo] + ' ' + dd.getFullYear(), sales: 'ಮಾರಾಟ', vs: function (p) { return 'ಕಳೆದ ' + KN.wd[wd] + 'ಕ್ಕಿಂತ ' + p; }, net: 'ನಿವ್ವಳ ಲಾಭ', margin: 'ಲಾಭಾಂಶ', last7: 'ಕಳೆದ 7 ದಿನಗಳು', exp: 'ಖರ್ಚು', cash: 'ಕೈಯಲ್ಲಿರುವ ನಗದು', stock: 'ಬಂದ ಸ್ಟಾಕ್', cases: function (n) { return n + ' ಕೇಸ್'; }, top: 'ಹೆಚ್ಚು ಮಾರಾಟವಾದವು', after: KN.mo[mo] + '\u200cನಲ್ಲಿ ಇಲ್ಲಿಯವರೆಗೆ · ತೆರಿಗೆ ನಂತರದ ಲಾಭ', fx: function (n, f, t) { return n + ' ನಿವ್ವಳ' + (f ? ' − ' + f + ' ನಿಗದಿತ ವೆಚ್ಚ' : '') + ' − ' + t + '% ತೆರಿಗೆ'; }, month: function (v) { return KN.mo[mo] + '\u200cನಲ್ಲಿ ಇಲ್ಲಿಯವರೆಗೆ ಮಾರಾಟ: ' + v; } }
+      : { report: 'DAILY REPORT', date: enW + ', ' + dd.getDate() + ' ' + enM + ' ' + dd.getFullYear(), sales: 'Sales', vs: function (p) { return p + ' vs last ' + dd.toLocaleDateString('en', { weekday: 'short' }); }, net: 'Net', margin: 'margin', last7: 'Last 7 days', exp: 'Expenses', cash: 'Cash in hand', stock: 'Stock in', cases: function (n) { return n + ' case' + (n > 1 ? 's' : ''); }, top: 'Top sellers', after: enM + ' so far · profit after tax', fx: function (n, f, t) { return n + ' net' + (f ? ' − ' + f + ' fixed' : '') + ' − ' + t + '% tax'; }, month: function (v) { return enM + ' so far: ' + v + ' sales'; } };
   }
   function daySalesOf(d) { return !d ? null : d.status === 'closed' ? d.sales : d.grid ? daySales(d) : null; }
   // this month's net up to a day, minus fixed monthly costs (pro rata) and tax
@@ -6926,7 +6932,7 @@
   }
   function drawCard(k) {
     var c = cardCfg(), D = cardData(k), W = 1080, H = 1350, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
-    var x = cv.getContext('2d'), F = '"Space Grotesk", system-ui, sans-serif', M = '"Space Mono", monospace';
+    var x = cv.getContext('2d'), kn = c.lang === 'kn', F = '"Space Grotesk", "Noto Sans Kannada", system-ui, sans-serif', M = kn ? F : '"Space Mono", monospace', Wd = cardWords(kn, new Date(k + 'T00:00:00'));
     var blue = c.theme === 'blue', g = x.createLinearGradient(0, 0, W * .6, H);
     g.addColorStop(0, blue ? '#1B2F5A' : '#0F4D40'); g.addColorStop(.65, blue ? '#24407A' : '#12665A'); g.addColorStop(1, blue ? '#2E5296' : '#12A39A');
     x.fillStyle = g; x.fillRect(0, 0, W, H);
@@ -6934,45 +6940,44 @@
     var rr = function (X, Y, w, h, r, fill) { x.beginPath(); x.moveTo(X + r, Y); x.arcTo(X + w, Y, X + w, Y + h, r); x.arcTo(X + w, Y + h, X, Y + h, r); x.arcTo(X, Y + h, X, Y, r); x.arcTo(X, Y, X + w, Y, r); x.closePath(); x.fillStyle = fill; x.fill(); };
     var txt = function (t, X, Y, size, opt) { opt = opt || {}; x.font = (opt.w || 400) + ' ' + size + 'px ' + (opt.mono ? M : F); x.fillStyle = opt.c || '#fff'; x.textAlign = opt.a || 'left'; x.textBaseline = 'alphabetic'; var mw = opt.max; if (mw) { var s = size; while (x.measureText(t).width > mw && s > 12) { s -= 2; x.font = (opt.w || 400) + ' ' + s + 'px ' + (opt.mono ? M : F); } } x.fillText(t, X, Y); };
     var P = 72, y = 110;
-    txt('DAILY REPORT', P, y, 26, { mono: true, c: 'rgba(255,255,255,.8)' }); y += 66;
-    txt(D.name, P, y, 66, { w: 700, max: 760 }); y += 50;
-    var dd0 = new Date(k + 'T00:00:00'); txt(dd0.toLocaleDateString('en', { weekday: 'long' }) + ', ' + dd0.getDate() + ' ' + dd0.toLocaleDateString('en', { month: 'long' }) + ' ' + dd0.getFullYear(), P, y, 34, { c: 'rgba(255,255,255,.85)' }); y += 50;
+    txt(Wd.report, P, y, 26, { mono: true, c: 'rgba(255,255,255,.8)' }); y += 66;
+    txt(kn && c.knName ? c.knName : D.name, P, y, 66, { w: 700, max: 760 }); y += 50;
+    txt(Wd.date, P, y, 34, { c: 'rgba(255,255,255,.85)' }); y += 50;
     var showNet = c.profit && D.closed, tw = showNet ? 560 : W - 2 * P;
     if (c.sales) {
       rr(P, y, tw, 250, 34, 'rgba(255,255,255,.13)');
-      txt('Sales', P + 34, y + 58, 30, { c: 'rgba(255,255,255,.8)' });
+      txt(Wd.sales, P + 34, y + 58, 30, { c: 'rgba(255,255,255,.8)' });
       txt(inr(D.sales), P + 34, y + 160, 96, { w: 700, max: tw - 68 });
-      if (D.chg != null) txt((D.chg >= 0 ? '▲ ' : '▼ ') + Math.abs(D.chg).toFixed(0) + '% vs last ' + new Date(k + 'T00:00:00').toLocaleDateString('en', { weekday: 'short' }), P + 34, y + 214, 28, { c: D.chg >= 0 ? '#9FF0D9' : '#FFC2B8' });
+      if (D.chg != null) txt(Wd.vs((D.chg >= 0 ? '▲ ' : '▼ ') + Math.abs(D.chg).toFixed(0) + '%'), P + 34, y + 214, 28, { c: D.chg >= 0 ? '#9FF0D9' : '#FFC2B8', max: tw - 68 });
       if (showNet) {
         var nx = P + tw + 24, nw = W - P - nx; rr(nx, y, nw, 250, 34, '#FFB23F');
-        txt('Net', nx + 30, y + 58, 30, { c: '#0F4D40' }); txt(inr(D.net), nx + 30, y + 150, 70, { w: 700, c: '#0F4D40', max: nw - 60 }); txt('margin ' + D.pct + '%', nx + 30, y + 214, 28, { c: '#0F4D40' });
+        txt(Wd.net, nx + 30, y + 58, 30, { c: '#0F4D40', max: nw - 60 }); txt(inr(D.net), nx + 30, y + 150, 70, { w: 700, c: '#0F4D40', max: nw - 60 }); txt(Wd.margin + ' ' + D.pct + '%', nx + 30, y + 214, 28, { c: '#0F4D40', max: nw - 60 });
       }
       y += 280;
     }
     if (c.trend) {
-      rr(P, y, W - 2 * P, 210, 30, 'rgba(255,255,255,.09)'); txt('Last 7 days', P + 30, y + 48, 26, { c: 'rgba(255,255,255,.8)' });
+      rr(P, y, W - 2 * P, 210, 30, 'rgba(255,255,255,.09)'); txt(Wd.last7, P + 30, y + 48, 26, { c: 'rgba(255,255,255,.8)' });
       var mx = Math.max.apply(null, D.trend.map(function (t) { return t.v; }).concat([1])), bw = (W - 2 * P - 60 - 6 * 14) / 7;
       D.trend.forEach(function (t, i) { var h = Math.max(6, t.v / mx * 120), bx = P + 30 + i * (bw + 14); rr(bx, y + 186 - h, bw, h, 8, i === 6 ? '#FFB23F' : 'rgba(255,255,255,.45)'); });
       y += 240;
     }
     var rows = [];
-    if (c.exp) { rows.push(['Expenses', inr(D.exp)]); rows.push(['Cash in hand', inr(D.cash)]); }
-    if (c.stock && D.cases) rows.push(['Stock in', D.cases + ' case' + (D.cases > 1 ? 's' : '') + (D.first ? ' · ' + D.first : '')]);
+    if (c.exp) { rows.push([Wd.exp, inr(D.exp)]); rows.push([Wd.cash, inr(D.cash)]); }
+    if (c.stock && D.cases) rows.push([Wd.stock, Wd.cases(D.cases) + (D.first ? ' · ' + D.first : '')]);
     rows.forEach(function (r) { txt(r[0], P, y + 38, 32, { c: 'rgba(255,255,255,.8)' }); txt(r[1], W - P, y + 38, 32, { w: 700, a: 'right', max: 600 }); x.fillStyle = 'rgba(255,255,255,.16)'; x.fillRect(P, y + 60, W - 2 * P, 2); y += 76; });
-    if (c.top && D.top.length) { y += 10; txt('Top sellers', P, y + 30, 28, { c: 'rgba(255,255,255,.75)' }); txt(D.top.map(function (t) { return t.n + ' · ' + t.q; }).join('    '), P, y + 76, 32, { w: 600, max: W - 2 * P }); y += 110; }
+    if (c.top && D.top.length) { y += 10; txt(Wd.top, P, y + 30, 28, { c: 'rgba(255,255,255,.75)' }); txt(D.top.map(function (t) { return t.n + ' · ' + t.q; }).join('    '), P, y + 76, 32, { w: 600, max: W - 2 * P }); y += 110; }
     var by = H - 90;
     if (c.aftertax && D.mon.n) {
       var bh = 150, bt = by - bh - 20; rr(P, bt, W - 2 * P, bh, 30, 'rgba(255,255,255,.15)');
-      var mname = new Date(k + 'T00:00:00').toLocaleDateString('en', { month: 'long' });
-      txt(mname + ' so far · profit after tax', P + 32, bt + 60, 30, { c: 'rgba(255,255,255,.85)' });
-      txt(inrK(D.mon.net) + ' net' + (D.mon.fixed ? ' − ' + inrK(D.mon.fixed) + ' fixed' : '') + ' − ' + num(c.tax) + '% tax', P + 32, bt + 106, 26, { c: 'rgba(255,255,255,.65)', max: 560 });
+      txt(Wd.after, P + 32, bt + 60, 30, { c: 'rgba(255,255,255,.85)', max: 560 });
+      txt(Wd.fx(inrK(D.mon.net), D.mon.fixed ? inrK(D.mon.fixed) : 0, num(c.tax)), P + 32, bt + 106, 26, { c: 'rgba(255,255,255,.65)', max: 560 });
       txt(inr(D.mon.after), W - P - 32, bt + 100, 64, { w: 700, a: 'right', c: '#FFD27A', max: 380 });
     }
-    txt(c.month ? new Date(k + 'T00:00:00').toLocaleDateString('en', { month: 'long' }) + ' so far: ' + inrK(D.mon.sales) + ' sales' : '', P, H - 50, 28, { c: 'rgba(255,255,255,.85)' });
+    txt(c.month ? Wd.month(inrK(D.mon.sales)) : '', P, H - 50, 28, { c: 'rgba(255,255,255,.85)' });
     txt('◎ Attention', W - P, H - 50, 28, { c: 'rgba(255,255,255,.85)', a: 'right' });
     return cv;
   }
-  function cardFonts() { try { return Promise.all(['700 40px "Space Grotesk"', '400 40px "Space Grotesk"', '400 20px "Space Mono"'].map(function (f) { return document.fonts.load(f); })).catch(function () {}); } catch (e) { return Promise.resolve(); } }
+  function cardFonts() { try { return Promise.all([['700 40px "Space Grotesk"'], ['400 40px "Space Grotesk"'], ['400 20px "Space Mono"'], ['400 40px "Noto Sans Kannada"', 'ಕನ್ನಡ'], ['700 40px "Noto Sans Kannada"', 'ಕನ್ನಡ']].map(function (f) { return document.fonts.load(f[0], f[1]); })).catch(function () {}); } catch (e) { return Promise.resolve(); } }
   function shareCard(k) {
     cardFonts().then(function () {
       var cv = drawCard(k), name = shop().name.replace(/[^a-z0-9]+/gi, '-') + '-' + k + '.png';
@@ -6986,7 +6991,9 @@
   function shopCardSheet(k) {
     var c = cardCfg(), s2 = shop();
     var tg = function (key, lab, sub) { return '<label class="ttsw"><span><b>' + lab + '</b>' + (sub ? '<small>' + sub + '</small>' : '') + '</span><input type="checkbox" data-cc="' + key + '"' + (c[key] ? ' checked' : '') + '><i></i></label>'; };
-    var h = '<img id="cardImg" class="cardimg" alt="Daily card preview">';
+    var h = '<div class="row" style="gap:6px">' + [['en', 'English'], ['kn', 'ಕನ್ನಡ']].map(function (t) { return '<button type="button" class="mschip' + (c.lang === t[0] ? ' on' : '') + '" data-clang="' + t[0] + '">' + t[1] + '</button>'; }).join('') + '</div>';
+    if (c.lang === 'kn') h += '<label class="lab rng">Shop name in Kannada (optional)<input class="text" id="knName" value="' + esc(c.knName || '') + '" placeholder="ಲಕ್ಷ್ಮಿ ವೈನ್ಸ್"></label>';
+    h += '<img id="cardImg" class="cardimg" alt="Daily card preview">';
     h += '<button type="button" class="btn wa" id="cardGo">Share the card on WhatsApp</button>';
     h += '<details class="card"' + (s2.cardOpen ? ' open' : '') + ' id="cardOpts"><summary><b>What to show</b></summary><div class="stack" style="gap:8px;margin-top:10px">' +
       tg('sales', 'Sales', 'with the change vs the same day last week') + tg('profit', 'Profit and net', 'margin %, net after expenses (closed days)') + tg('exp', 'Expenses and cash in hand', '') + tg('trend', '7-day trend', '') + tg('top', 'Top sellers', 'top 3 items') + tg('stock', 'Stock in', 'KSBCL bills that arrived') + tg('month', 'Month so far', 'sales this month') + tg('aftertax', 'Month profit after tax', 'this month’s net − fixed costs − tax') +
@@ -6998,6 +7005,8 @@
       var paint = function () { cardFonts().then(function () { var im = r.querySelector('#cardImg'); if (im) im.src = drawCard(k).toDataURL('image/png'); }); };
       paint();
       r.querySelector('#cardGo').onclick = function () { shareCard(k); };
+      r.querySelectorAll('[data-clang]').forEach(function (b) { b.onclick = function () { c.lang = b.dataset.clang; save(); drawSheet(); }; });
+      var kn2 = r.querySelector('#knName'); if (kn2) kn2.onchange = function () { c.knName = kn2.value.trim(); save(); paint(); };
       r.querySelector('#cardOpts').addEventListener('toggle', function (e) { s2.cardOpen = e.target.open; });
       r.querySelectorAll('[data-cc]').forEach(function (cb) { cb.onchange = function () { c[cb.dataset.cc] = cb.checked; save(); paint(); }; });
       r.querySelectorAll('[data-cn]').forEach(function (inp) { inp.onchange = function () { c[inp.dataset.cn] = Math.max(0, num(inp.value)); save(); paint(); }; });
