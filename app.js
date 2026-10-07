@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '46';
+  var APP_VERSION = '47';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -293,7 +293,7 @@
         : '<button type="button" class="hpill" data-qt="' + q.f + '" aria-label="Mark done: ' + q.n + '"><span class="pp o"></span>' + q.n + '</button>';
     });
     h += '<div class="hpills">' + (pills || '<span class="hdone">✓ Today’s practices are done</span>') + '<button type="button" class="hpill" data-spend="1"><span class="pp">₹</span>Spend</button></div></div>';
-    if (backupDue()) h += '<div class="list"><button type="button" class="r" data-bkup="1"><span class="dot" style="background:' + T.lagoon + '"></span><span class="t">☁ Back up today<small>one tap: everything goes to your Google Drive</small></span>' + CHEV + '</button></div>';
+    if (backupDue()) h += '<div class="list"><button type="button" class="r" data-bkup="1"><span class="dot" style="background:' + T.lagoon + '"></span><span class="t">☁ Back up today<small>' + (state.gdrive && state.gdrive.cid ? 'one tap: everything goes to your Google Drive' : 'pack everything and save it to Drive') + '</small></span>' + CHEV + '</button></div>';
     if (new Date().getHours() < 12) h += breathCard();
     h += timerBlock();
     h += goalCard();
@@ -1558,7 +1558,7 @@
     var last = state.lastBackup ? ago(state.lastBackup) : 'never';
     h += '<div class="list">' + row({ t: 'Reminders', v: ps.on ? 'connected' : 'off', dot: ps.on ? T.lagoon : T.coral, sheet: 'reminders' }) +
       row({ t: 'Garmin sync', v: garminStatus(), dot: garminDot(), sheet: 'garmin' }) +
-      row({ t: '☁ Backup', v: state.gdrive && state.gdrive.last ? 'Drive · ' + ago(state.gdrive.last) : state.gdrive && state.gdrive.cid ? 'Drive · not yet' : 'set up Drive', dot: state.gdrive && state.gdrive.last && Date.now() - new Date(state.gdrive.last) < 3 * 86400000 ? T.lagoon : T.mango, sheet: 'backup' }) +
+      row({ t: '☁ Backup', v: state.lastShareBackup || (state.gdrive && state.gdrive.last) ? ago(state.lastShareBackup && (!state.gdrive || !state.gdrive.last || state.lastShareBackup > state.gdrive.last) ? state.lastShareBackup : state.gdrive.last) : 'not yet', dot: !backupDue() && (state.lastShareBackup || (state.gdrive && state.gdrive.last)) ? T.lagoon : T.mango, sheet: 'backup' }) +
       row({ t: 'Your data', v: last, sheet: 'data' }) +
       row({ t: 'Visualization', v: state.aiKey ? 'AI on' : 'scene library', dot: state.aiKey ? T.lagoon : '#C8D3CC', sheet: 'ai' }) +
       row({ t: 'Ping schedule', v: '9 am – 10 pm', sheet: 'schedule' }) + row({ t: 'App version', v: APP_VERSION }) + '</div>';
@@ -3179,7 +3179,7 @@
     var t = e.target.closest && e.target.closest('[data-sheet],[data-tab-go],[data-viz],[data-ocal],[data-drill],[data-breath],[data-spend],[data-bkup]');
     if (!t) return;
     if (t.dataset.spend) { e.stopPropagation(); openSpend(); return; }
-    if (t.dataset.bkup) { e.stopPropagation(); openSheet('backup'); gdBackup(); return; }
+    if (t.dataset.bkup) { e.stopPropagation(); openSheet('backup'); if (state.gdrive && state.gdrive.cid && state.gdrive.ok) gdBackup(); else shareBackup(); return; }
     if (t.dataset.breath) { e.stopPropagation(); openBreath(); return; }
     if (t.dataset.viz) { openViz(false); return; }
     if (t.dataset.drill) { e.stopPropagation(); openDrill(); return; }
@@ -6700,9 +6700,33 @@
       .then(function () { GD.busy = false; GD.msg = null; closeSheet(); toast('Restored from Google Drive'); })
       .catch(function (e) { GD.busy = false; GD.msg = 'Restore failed: ' + (e.message || e); drawSheet(); });
   }
-  function backupDue() { var g = state.gdrive; return !!(g && g.cid && g.ok && (!g.last || Date.now() - new Date(g.last) > 20 * 3600 * 1000)); }
+  // pack everything and hand it to the phone's share menu: Drive (pick a folder), WhatsApp, Gmail…
+  var SB = { file: null, busy: false };
+  function shareBackupFile(file) {
+    return navigator.share({ files: [file], title: 'Attention backup ' + dkey(new Date()) }).then(function () {
+      state.lastShareBackup = new Date().toISOString(); state.lastBackup = state.lastShareBackup; save(); SB.file = null; toast('Backup sent ✓'); drawSheet(); if (ui.tab === 'trail' && !ui.sheet) render();
+    });
+  }
+  function shareBackup() {
+    if (SB.busy) return; SB.busy = true; SB.file = null; drawSheet();
+    makeBackup().then(function (blob) {
+      var file = new File([blob], 'attention-backup-' + dkey(new Date()) + '.txt', { type: 'text/plain' });
+      SB.busy = false;
+      if (!(navigator.canShare && navigator.canShare({ files: [file] }))) { var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = file.name; a.click(); state.lastBackup = new Date().toISOString(); save(); drawSheet(); toast('Saved to Downloads (sharing isn’t available here)'); return; }
+      SB.file = file;
+      return shareBackupFile(file).catch(function (e) { if (e && e.name === 'AbortError') { SB.file = null; drawSheet(); return; } drawSheet(); });
+    }).catch(function (e) { SB.busy = false; toast('Couldn’t pack the backup: ' + (e.message || e)); drawSheet(); });
+  }
+  function backupDue() {
+    var g = state.gdrive; if (g && g.cid && g.ok) return !g.last || Date.now() - new Date(g.last) > 20 * 3600 * 1000;
+    var hasData = state.shop && Object.keys(state.shop.days || {}).length; if (!hasData) return false;
+    var last = state.lastShareBackup || state.lastBackup; return !last || Date.now() - new Date(last) > 20 * 3600 * 1000;
+  }
   function backupSheet() {
-    var g = gdrive(), h = '';
+    var g = gdrive(), h = '', ls = state.lastShareBackup;
+    h += '<div class="card stack" style="gap:10px"><b style="font-size:15px">☁ Back up to Google Drive</b><span class="muted small" style="margin:0">Packs everything (photos too) and opens your phone’s share menu. Tap <b>Drive</b>, choose a folder like “Attention Backups”, tap <b>Save</b>. No setup needed. WhatsApp or Gmail work too.</span>' +
+      (SB.busy ? '<div class="shreading"><span class="wpulse"></span><b>Packing everything…</b></div>' : SB.file ? '<button type="button" class="btn jungle" id="sbSend">Send the backup (' + (SB.file.size / 1048576).toFixed(1) + ' MB) →</button>' : '<button type="button" class="btn jungle" id="sbGo">☁ Back up now</button>') +
+      '<span class="muted small">' + (ls ? 'Last sent ' + ago(ls) : 'Not backed up this way yet') + '</span></div>';
     if (g.cid) {
       h += '<div class="card stack" style="gap:10px"><div class="row" style="gap:10px;align-items:center"><span class="gdic">☁</span><span style="flex:1;display:flex;flex-direction:column"><b>Google Drive</b><small class="muted">a private app folder only Attention can see</small></span><span class="tkpill" style="background:' + (g.ok ? '#CDEFEA' : '#FFE6B8') + '">' + (g.ok ? 'on' : 'not signed in') + '</span></div>' +
         '<div class="shtiles ttq"><div><b class="display" style="font-size:16px">' + (g.last ? ago(g.last) : 'never') + '</b><small>last backup</small></div><div><b class="display" style="font-size:16px">' + (g.size ? (g.size / 1048576).toFixed(1) + ' MB' : '—') + '</b><small>incl. photos</small></div><div><b class="display" style="font-size:16px">30</b><small>kept</small></div></div></div>';
@@ -6713,11 +6737,13 @@
       h += '<p class="muted small">The app reminds you once a day on Today (“☁ Back up”). One tap and it goes to your Drive. Web apps can’t run while closed, so it needs that tap.</p>';
       h += '<details class="card"><summary class="muted small">Change the Google client ID</summary><input class="text" id="gdCid" value="' + esc(g.cid) + '" style="margin-top:8px"><button type="button" class="btn line small" id="gdSave" style="margin-top:8px">Save</button></details>';
     } else {
-      h += '<div class="card stack" style="gap:8px"><b>Connect Google Drive (one time, about 10 minutes)</b><ol class="gdsteps"><li>Open <b>console.cloud.google.com</b> and sign in. Make a new project called <b>Attention</b>.</li><li>Search <b>Google Drive API</b> → Enable.</li><li><b>Google Auth Platform → Get started</b>: app name Attention, your email, <b>External</b>, then add yourself under <b>Audience → Test users</b>.</li><li><b>Clients → Create client</b> → type <b>Web application</b>. Under <b>Authorised JavaScript origins</b> add <b>https://shravan-flow.github.io</b>. Create.</li><li>Copy the <b>Client ID</b> (ends in .apps.googleusercontent.com) and paste it here.</li></ol><input class="text" id="gdCid" placeholder="123…apps.googleusercontent.com"><button type="button" class="btn jungle" id="gdSave">Connect</button></div>';
+      h += '<details class="card"><summary class="muted small">Advanced: connect Drive directly (one-time Google setup, about 10 minutes)</summary><div class="stack" style="gap:8px;margin-top:8px"><ol class="gdsteps"><li>Open <b>console.cloud.google.com</b> and sign in. Make a new project called <b>Attention</b>.</li><li>Search <b>Google Drive API</b> → Enable.</li><li><b>Google Auth Platform → Get started</b>: app name Attention, your email, <b>External</b>, then add yourself under <b>Audience → Test users</b>.</li><li><b>Clients → Create client</b> → type <b>Web application</b>. Under <b>Authorised JavaScript origins</b> add <b>https://shravan-flow.github.io</b>. Create.</li><li>Copy the <b>Client ID</b> (ends in .apps.googleusercontent.com) and paste it here.</li></ol><input class="text" id="gdCid" placeholder="123…apps.googleusercontent.com"><button type="button" class="btn line" id="gdSave">Connect</button></div></details>';
     }
-    h += '<div class="card stack" style="gap:8px"><b style="font-size:14px">Backup file on this phone</b><p class="muted small" style="margin:0">Everything in one file, photos included. Keep it in your Downloads or send it to yourself.</p><div class="row" style="gap:8px"><button type="button" class="btn line" style="flex:1" id="bkFile">Save file</button><button type="button" class="btn line" style="flex:1" id="bkOpen">Restore file</button><input type="file" id="bkIn" accept="application/json,.json" hidden></div></div>';
+    h += '<div class="card stack" style="gap:8px"><b style="font-size:14px">Backup file on this phone</b><p class="muted small" style="margin:0">Everything in one file, photos included. Keep it in your Downloads or send it to yourself.</p><div class="row" style="gap:8px"><button type="button" class="btn line" style="flex:1" id="bkFile">Save file</button><button type="button" class="btn line" style="flex:1" id="bkOpen">Restore file</button><input type="file" id="bkIn" accept="application/json,.json,text/plain,.txt" hidden></div></div>';
     return { title: 'Backup', cap: g.last ? 'last ' + ago(g.last) : '', html: '<div class="stack" style="gap:12px">' + h + '</div>', bind: function (r) {
       var q = function (x) { return r.querySelector(x); };
+      var sg = q('#sbGo'); if (sg) sg.onclick = shareBackup;
+      var sd = q('#sbSend'); if (sd) sd.onclick = function () { shareBackupFile(SB.file).catch(function () {}); };
       var sv = q('#gdSave'); if (sv) sv.onclick = function () { var v = q('#gdCid').value.trim(); if (!/\.apps\.googleusercontent\.com$/.test(v)) { toast('That doesn’t look like a client ID'); return; } g.cid = v; g.ok = false; GD.tok = null; save(); gdBackup(); };
       var bn = q('#gdNow'); if (bn) bn.onclick = function () { gdBackup(); };
       var gl = q('#gdList'); if (gl) gl.onclick = function () { GD.msg = 'Looking…'; GD.busy = true; drawSheet(); gdList().then(function () { GD.busy = false; GD.msg = null; drawSheet(); }).catch(function (e) { GD.busy = false; GD.msg = e.message; drawSheet(); }); };
