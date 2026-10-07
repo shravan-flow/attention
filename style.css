@@ -1061,3 +1061,4 @@ code{font-family:var(--mono);font-size:12px;background:var(--sand2);padding:1px 
 #cardOpts summary{cursor:pointer;list-style:none}#cardOpts summary::-webkit-details-marker{display:none}
 .shq{grid-template-columns:repeat(4,1fr)}.shq button{font-size:12px;padding:12px 4px}
 .cardlang{display:flex;align-items:center;gap:8px;background:#fff;border-radius:16px;padding:10px 12px}.cardlang .cap{flex:1}
+.pkday{background:#fff;border-radius:18px;padding:14px;display:flex;flex-direction:column;gap:4px}.pkday .display{font-size:22px}

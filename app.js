@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '45';
+  var APP_VERSION = '46';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -3100,6 +3100,7 @@
       case 'shoplearn': return shopLearnSheet();
       case 'money': return moneySheet(arg);
       case 'shopshare': return shopShareSheet(arg);
+      case 'shoppick': return shopPickSheet();
       case 'shopcard': return shopCardSheet(arg);
       case 'shoporder': return shopOrderSheet();
       case 'shopdash': return shopDashSheet(arg);
@@ -4469,12 +4470,12 @@
     if (!PL) loadPL().then(function () { if (ui.tab === 'shop' && !ui.sheet) render(); });
     view.querySelectorAll('[data-shm]').forEach(function (b) { b.onclick = function () { var d = new Date((shopUi.month || dkey(new Date()).slice(0, 7)) + '-01T00:00:00'); d.setMonth(d.getMonth() + +b.dataset.shm); shopUi.month = dkey(d).slice(0, 7); render(); }; });
     var fi = view.querySelector('#shFile');
-    view.querySelector('#shAdd').onclick = function () { fi.click(); };
+    view.querySelector('#shAdd').onclick = function () { openSheet('shoppick'); };
     var bf = view.querySelector('#shBillFile');
     view.querySelector('#shBill').onclick = function () { bf.click(); };
     bf.onchange = function () { var fs = [].slice.call(bf.files); if (!fs.length) return; Promise.all(fs.map(blobToDataURL)).then(stockAddPhotos); bf.value = ''; };
     view.querySelectorAll('[data-bill]').forEach(function (b) { b.onclick = function () { openBill(b.dataset.bill); }; });
-    fi.onchange = function () { var fs = [].slice.call(fi.files); if (!fs.length) return; Promise.all(fs.map(blobToDataURL)).then(function (us) { shopAddPhotos(us); }); fi.value = ''; };
+    fi.onchange = function () { var fs = [].slice.call(fi.files); if (!fs.length) return; var pk = shopUi.pickKey || dkey(new Date()); shopUi.pickKey = null; Promise.all(fs.map(blobToDataURL)).then(function (us) { shopAddPhotos(us, pk); }); fi.value = ''; };
     view.querySelectorAll('[data-shday]').forEach(function (b) { b.onclick = function () { openShopDay(b.dataset.shday); }; });
   }
   function shopAddPhotos(urls, key) {
@@ -4500,7 +4501,8 @@
       'A dash "-" or "—" in a number column means 0. Skip rows with no numbers at all. Keep numbers exactly as written; do not correct the maths.\n' +
       'Some pages also have a list of expenses (names with amounts, usually with a total) and written day totals like "Sale 74085", "Exp 9850" and a balance. Return those too.\n' +
       shopHints() +
-      'Reply JSON: {"rows":[{"sl":1,"item":"brand","size":"750","open":number|null,"recv":number|null,"total":number|null,"sales":number|null,"rate":number|null,"amount":number|null,"close":number|null,"remarks":"text"}],"expenses":[{"name":"text","amount":number}],"written":{"sales":number|null,"expenses":number|null,"balance":number|null}}';
+      'Also read the date written on the sheet (Indian day/month/year order) as "date": "YYYY-MM-DD", or null if none.\n' +
+      'Reply JSON: {"date":"YYYY-MM-DD"|null,"rows":[{"sl":1,"item":"brand","size":"750","open":number|null,"recv":number|null,"total":number|null,"sales":number|null,"rate":number|null,"amount":number|null,"close":number|null,"remarks":"text"}],"expenses":[{"name":"text","amount":number}],"written":{"sales":number|null,"expenses":number|null,"balance":number|null}}';
     shopPhotos(d).then(function (imgs) {
       if (!imgs.length) throw new Error('no photos');
       return geminiImagesEx(prompt, imgs, .1);
@@ -4519,7 +4521,8 @@
       dataRows(d.grid).forEach(function (rr) { var gk = String(d.grid[rr][SC.item] || '').trim().toLowerCase(); if (gk && s2.gloss[gk]) { d.grid[rr][SC.item] = s2.gloss[gk].to; fixed++; } });
       var cy = regAssign(key);
       d.exp = (r.expenses || []).filter(function (e) { return e && (e.name || e.amount); }).map(function (e) { return { t: String(e.name || ''), v: num(e.amount) }; });
-      d.written = r.written || {}; d.status = 'draft'; save();
+      d.written = r.written || {}; d.status = 'draft';
+      d.sheetDate = /^\d{4}-\d{2}-\d{2}$/.test(r.date || '') && r.date !== key && r.date <= dkey(new Date()) ? r.date : null; save();
       applyPendingBills(key);
       if (sp && sp.k === key) { sp.view = 'list'; sp.step = 'sheet'; drawShopDay(); }
       var ck = shopChecks(key);
@@ -5074,6 +5077,7 @@
   // the list
   function shopListHtml(d) {
     var g = d.grid, ck = shopChecks(sp.k), h = '';
+    if (d.sheetDate && d.sheetDate !== sp.k) h += '<div class="notice">📅 The sheet says <b>' + new Date(d.sheetDate + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + '</b>, but it’s saved under ' + new Date(sp.k + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + '. <button type="button" class="link" id="lsMove">Move it to ' + new Date(d.sheetDate + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) + '</button> · <button type="button" class="link" id="lsKeep">It’s right</button></div>';
     if (d.carried && d.carried.n) h += '<div class="lsban"><span>↺</span><p>' + (d.carried.reg ? '<b>' + d.carried.n + ' of ' + d.carried.of + ' rows matched to your items</b><br>by his short name, size and yesterday’s closing; the order on the page doesn’t matter' : '<b>Names from ' + new Date(d.carried.k + 'T00:00:00').toLocaleDateString('en', { weekday: 'long' }) + '’s sheet</b><br>' + d.carried.n + ' of ' + d.carried.of + ' rows matched') + '</p></div>';
     h += asksHtml(d) + missingHtml(d);
     var bad = Object.keys(ck.bad).length;
@@ -5108,6 +5112,8 @@
   function bindShopList(o, d) {
     var q = function (x) { return o.querySelector(x); };
     q('#lsPh').onclick = function () { sp.lph = !sp.lph; drawShopDay(); };
+    var mv = q('#lsMove'); if (mv) mv.onclick = function () { var to = d.sheetDate; if (!moveShopDay(sp.k, to)) return; closeShopDay(); openShopDay(to); toast('Moved to ' + new Date(to + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' })); };
+    var kp2 = q('#lsKeep'); if (kp2) kp2.onclick = function () { d.sheetDate = null; save(); drawShopDay(); };
     bindAsks(o, d);
     o.querySelectorAll('[data-lsrow]').forEach(function (b) { b.onclick = function () { openRowEd(+b.dataset.lsrow); }; });
     o.querySelectorAll('[data-lsname]').forEach(function (b) { b.onclick = function () { openNamePick(+b.dataset.lsname, 'sheet'); }; });
@@ -7018,6 +7024,38 @@
     } };
   }
 
+  // ---------- a sales sheet for any day, not just today ----------
+  function moveShopDay(from, to) {
+    var s2 = shop(), d = s2.days[from], t = s2.days[to];
+    if (!d) return false;
+    if (t && (t.grid || (t.photos || []).length)) { toast('There’s already a sheet on that day: open it, or delete it first'); return false; }
+    d.sheetDate = null; delete d.carried; s2.days[to] = d; delete s2.days[from];
+    regAssign(to); save(); return true;
+  }
+  function missingDays() {
+    var s2 = shop(), ks = Object.keys(s2.days).filter(function (k) { var d = s2.days[k]; return d.grid || (d.photos || []).length; }).sort(), out = [];
+    var start = new Date(); start.setDate(1); if (ks[0] && ks[0] < dkey(start)) start = new Date(Math.max(new Date(ks[0] + 'T00:00:00').getTime(), Date.now() - 45 * 864e5));
+    var have = {}; ks.forEach(function (k) { have[k] = 1; });
+    for (var d = new Date(start); dkey(d) < dkey(new Date()); d.setDate(d.getDate() + 1)) if (!have[dkey(d)]) out.push(dkey(d));
+    return out;
+  }
+  function shopPickSheet() {
+    var s2 = shop(), tk = dkey(new Date()), yk = dkey(new Date(Date.now() - 864e5)), sel = shopUi.pickSel || tk, miss = missingDays();
+    var fmt = function (k) { return new Date(k + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }); };
+    var has = s2.days[sel] && (s2.days[sel].grid || (s2.days[sel].photos || []).length);
+    var h = '<div class="row" style="gap:6px;flex-wrap:wrap">' + [[tk, 'Today'], [yk, 'Yesterday']].map(function (x) { return '<button type="button" class="mschip' + (sel === x[0] ? ' on' : '') + '" data-pk="' + x[0] + '">' + x[1] + '</button>'; }).join('') + '<input type="date" class="msdate" id="pkD" value="' + sel + '" max="' + tk + '"></div>';
+    if (miss.length) h += '<div class="card stack" style="gap:8px"><b style="font-size:14px">Days with no sheet yet</b><div class="row" style="gap:6px;flex-wrap:wrap">' + miss.slice(-40).map(function (k) { return '<button type="button" class="mschip sm' + (sel === k ? ' on' : '') + '" data-pk="' + k + '">' + fmt(k) + '</button>'; }).join('') + '</div><span class="muted small">Fill them oldest first: each day’s opening is checked against the day before.</span></div>';
+    h += '<div class="pkday"><span class="cap">Sheet for</span><b class="display">' + new Date(sel + 'T00:00:00').toLocaleDateString('en', { weekday: 'long', day: 'numeric', month: 'long' }) + '</b>' + (has ? '<span class="muted small">There’s already a sheet for this day: new photos are added to it.</span>' : '') + '</div>';
+    h += '<button type="button" class="btn coral qcam" id="pkCam">📷 Photos of the sheet</button>';
+    h += '<button type="button" class="btn line" id="pkType">' + (has ? 'Open that day' : '✎ Type it in instead') + '</button>';
+    return { title: 'Sales sheet', cap: 'which day?', html: '<div class="stack" style="gap:12px">' + h + '</div>', bind: function (r) {
+      r.querySelectorAll('[data-pk]').forEach(function (b) { b.onclick = function () { shopUi.pickSel = b.dataset.pk; drawSheet(); }; });
+      var di = r.querySelector('#pkD'); di.onchange = function () { if (di.value && di.value <= tk) { shopUi.pickSel = di.value; drawSheet(); } };
+      r.querySelector('#pkCam').onclick = function () { shopUi.pickKey = sel; shopUi.pickSel = null; var f = document.getElementById('shFile'); closeSheet(); if (f) f.click(); };
+      r.querySelector('#pkType').onclick = function () { shopUi.pickSel = null; closeSheet(); openShopDay(sel); };
+    } };
+  }
+
   // ---------- shell ----------
   function render() {
     migrate(state);
@@ -7069,7 +7107,7 @@
   else if (/[?&]shared=1/.test(location.search)) { history.replaceState(history.state, '', location.pathname); receiveShared(); }
   else if (/[?&]tonight=1/.test(location.search)) { openSheet('tonight'); history.replaceState(history.state, '', location.pathname); }
   else if (/[?&]go=spend/.test(location.search)) { history.replaceState(history.state, '', location.pathname); openSpend(); }
-  else if (/[?&]go=(sheet|bill)/.test(location.search)) { var gk2 = /go=bill/.test(location.search) ? 'bill' : 'sheet'; history.replaceState(history.state, '', location.pathname); ui.tab = 'shop'; render(); openSheet('quickcam:' + gk2); }
+  else if (/[?&]go=(sheet|bill)/.test(location.search)) { var gk2 = /go=bill/.test(location.search) ? 'bill' : 'sheet'; history.replaceState(history.state, '', location.pathname); ui.tab = 'shop'; render(); openSheet(gk2 === 'sheet' ? 'shoppick' : 'quickcam:' + gk2); }
   else if (/[?&]breathe=1/.test(location.search)) { history.replaceState(history.state, '', location.pathname); openBreath(); }
   else if (/[?&]checkin=1/.test(location.search)) openCheckin();
 })();
