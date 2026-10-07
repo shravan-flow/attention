@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '47';
+  var APP_VERSION = '48';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -4502,13 +4502,15 @@
       'Some pages also have a list of expenses (names with amounts, usually with a total) and written day totals like "Sale 74085", "Exp 9850" and a balance. Return those too.\n' +
       shopHints() +
       'Also read the date written on the sheet (Indian day/month/year order) as "date": "YYYY-MM-DD", or null if none.\n' +
-      'Reply JSON: {"date":"YYYY-MM-DD"|null,"rows":[{"sl":1,"item":"brand","size":"750","open":number|null,"recv":number|null,"total":number|null,"sales":number|null,"rate":number|null,"amount":number|null,"close":number|null,"remarks":"text"}],"expenses":[{"name":"text","amount":number}],"written":{"sales":number|null,"expenses":number|null,"balance":number|null}}';
+      'For every row that has its OWN handwritten brand name, also give "box": where that handwritten NAME is on its photo, as [ymin, xmin, ymax, xmax] scaled 0–1000, and "page": which of the new photos it is on (0 = the first new photo). Rows without their own name: "box": null.\n' +
+      'Reply JSON: {"date":"YYYY-MM-DD"|null,"rows":[{"sl":1,"item":"brand","box":[120,40,160,300],"page":0,"size":"750","open":number|null,"recv":number|null,"total":number|null,"sales":number|null,"rate":number|null,"amount":number|null,"close":number|null,"remarks":"text"}],"expenses":[{"name":"text","amount":number}],"written":{"sales":number|null,"expenses":number|null,"balance":number|null}}';
     shopPhotos(d).then(function (imgs) {
       if (!imgs.length) throw new Error('no photos');
       return geminiImagesEx(prompt, imgs, .1);
     }).then(function (r) {
-      var g = [SHCOLS.slice()], fixed = 0;
-      (r.rows || []).forEach(function (x) {
+      var g = [SHCOLS.slice()], fixed = 0, boxes = {};
+      (r.rows || []).forEach(function (x, xi) {
+        if (x && Array.isArray(x.box) && x.box.length === 4 && String(x.item || '').trim() && x.box[2] > x.box[0] && x.box[3] > x.box[1]) boxes[xi + 1] = { p: +x.page || 0, b: x.box.map(Number) };
         var ss = splitSize(x.item, x.size), item = ss[0]; x.size = ss[1];
         var nv2 = function (v) { return v == null || v === '' ? '' : String(v); };
         var row2 = [item, nv2(x.size), nv2(x.open), nv2(x.recv), nv2(x.total), nv2(x.sales), nv2(x.rate), nv2(x.amount), nv2(x.close), nv2(x.remarks)];
@@ -4522,7 +4524,9 @@
       var cy = regAssign(key);
       d.exp = (r.expenses || []).filter(function (e) { return e && (e.name || e.amount); }).map(function (e) { return { t: String(e.name || ''), v: num(e.amount) }; });
       d.written = r.written || {}; d.status = 'draft';
-      d.sheetDate = /^\d{4}-\d{2}-\d{2}$/.test(r.date || '') && r.date !== key && r.date <= dkey(new Date()) ? r.date : null; save();
+      d.sheetDate = /^\d{4}-\d{2}-\d{2}$/.test(r.date || '') && r.date !== key && r.date <= dkey(new Date()) ? r.date : null;
+      d.boxes = boxes; d.ink = {}; d.inkm = null; save();
+      inkProcess(key).catch(function () {});
       applyPendingBills(key);
       if (sp && sp.k === key) { sp.view = 'list'; sp.step = 'sheet'; drawShopDay(); }
       var ck = shopChecks(key);
@@ -5079,7 +5083,7 @@
     var g = d.grid, ck = shopChecks(sp.k), h = '';
     if (d.sheetDate && d.sheetDate !== sp.k) h += '<div class="notice">📅 The sheet says <b>' + new Date(d.sheetDate + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + '</b>, but it’s saved under ' + new Date(sp.k + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + '. <button type="button" class="link" id="lsMove">Move it to ' + new Date(d.sheetDate + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) + '</button> · <button type="button" class="link" id="lsKeep">It’s right</button></div>';
     if (d.carried && d.carried.n) h += '<div class="lsban"><span>↺</span><p>' + (d.carried.reg ? '<b>' + d.carried.n + ' of ' + d.carried.of + ' rows matched to your items</b><br>by his short name, size and yesterday’s closing; the order on the page doesn’t matter' : '<b>Names from ' + new Date(d.carried.k + 'T00:00:00').toLocaleDateString('en', { weekday: 'long' }) + '’s sheet</b><br>' + d.carried.n + ' of ' + d.carried.of + ' rows matched') + '</p></div>';
-    h += asksHtml(d) + missingHtml(d);
+    h += inkSummary(d) + asksHtml(d) + missingHtml(d);
     var bad = Object.keys(ck.bad).length;
     h += '<div class="row between"><button type="button" class="nib sm' + (sp.lph ? ' on' : '') + '" id="lsPh">📷 ' + (sp.lph ? 'Hide photo' : 'Show photo') + '</button><span class="cap">' + (bad ? '<span style="color:#B3372B">' + ck.msgs.filter(function (m) { return m.r != null; }).length + ' to check</span>' : '✓ adds up') + '</span></div>';
     if (sp.lph && d.photos.length) h += '<div class="shphoto" id="spPh"><img id="spImg" alt="Sheet photo" style="width:' + (sp.zoom * 100) + '%"></div>';
@@ -5094,7 +5098,9 @@
     h += groups.map(function (G) {
       var r0 = G.rows[0], inPL = !PL || !PL.items.length || !G.name || plFind(G.name, g[r0][SC.size]), raw = d.ai && d.ai[r0] ? String(d.ai[r0][SC.item] || '').trim() : '';
       var tag = !G.name ? '<span class="lstag bad">pick a name</span>' : d.from && d.from[r0] ? '<span class="lstag">from yesterday</span>' : !inPL ? '<span class="lstag warn">not in price list</span>' : '';
-      var hh = '<div class="lsg"><button type="button" class="lshead" data-lsname="' + r0 + '">' + (G.name ? '<b>' + esc(G.name) + '</b>' : '<span class="hw">' + esc(raw || '?') + '</span>') + tag + '<span class="lsed" aria-hidden="true">✎</span></button>';
+      var ik = d.ink && d.ink[r0], im = d.inkm && d.inkm[r0];
+      var hh = '<div class="lsg' + (im && im.st === 'conflict' ? ' cf' : '') + '"><button type="button" class="lshead" data-lsname="' + r0 + '">' + (ik ? inkImg(ik.id) : '') + (G.name ? '<b>' + esc(G.name) + '</b>' : '<span class="hw">' + esc(raw || '?') + '</span>') + (im ? inkBadge(im) : tag) + '<span class="lsed" aria-hidden="true">✎</span></button>';
+      if (im && im.st === 'conflict') hh += '<button type="button" class="ikmsg" data-ikw="' + r0 + '">Writing looks like <b>' + esc(inkBrandName(im.alt)) + '</b> (' + im.ap + '%), but it was read as ' + esc(G.name || raw) + '. Tap to choose.</button>';
       G.rows.forEach(function (r) {
         hh += '<button type="button" class="lsrow" data-lsrow="' + r + '" aria-label="Edit ' + esc((G.name || 'row') + ' ' + (g[r][SC.size] || '')) + '"><span class="lssz">' + esc(g[r][SC.size] || '—') + '</span>' + labs.map(function (l) {
           var v = g[r][l[0]], show = v === '' || v == null ? '' : fmtCell(cellVal(g, r, l[0]));
@@ -5114,7 +5120,8 @@
     q('#lsPh').onclick = function () { sp.lph = !sp.lph; drawShopDay(); };
     var mv = q('#lsMove'); if (mv) mv.onclick = function () { var to = d.sheetDate; if (!moveShopDay(sp.k, to)) return; closeShopDay(); openShopDay(to); toast('Moved to ' + new Date(to + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' })); };
     var kp2 = q('#lsKeep'); if (kp2) kp2.onclick = function () { d.sheetDate = null; save(); drawShopDay(); };
-    bindAsks(o, d);
+    bindAsks(o, d); fillInk(o);
+    o.querySelectorAll('[data-ikw]').forEach(function (b) { b.onclick = function () { sp.step = 'ink'; sp.inkRow = b.dataset.ikw; drawShopDay(); document.getElementById('overlay').scrollTop = 0; }; });
     o.querySelectorAll('[data-lsrow]').forEach(function (b) { b.onclick = function () { openRowEd(+b.dataset.lsrow); }; });
     o.querySelectorAll('[data-lsname]').forEach(function (b) { b.onclick = function () { openNamePick(+b.dataset.lsname, 'sheet'); }; });
     q('#lsAdd').onclick = function () {
@@ -5262,6 +5269,7 @@
           var gr = groupRows(g, r), grp = sp.nmode === 'all' ? gr : sp.nmode === 'down' ? gr.slice(gr.indexOf(r)) : [r], raw = d.ai && d.ai[r] ? String(d.ai[r][SC.item] || '').trim() : String(g[r][SC.item] || '').trim();
           grp.forEach(function (x) { g[x][SC.item] = it.name; var rk = regAdd(it.name, g[x][SC.size], 'sheet'), rw = d.ai && d.ai[x] ? String(d.ai[x][SC.item] || '').trim() : ''; if (rk && rw) regAlias(rk, rw, 2); d.rid = d.rid || {}; d.rid[x] = rk; });
           d.ask = (d.ask || []).filter(function (a) { return grp.indexOf(a.r) < 0; });
+          if (d.ink) { var ikr = grp.filter(function (x) { return d.ink[x]; })[0]; if (ikr != null) inkLoad().then(function () { inkLearn(it.name, d.ink[ikr]); inkMatch(sp.k); return inkSave(); }).then(function () { save(); }); }
           if (raw && raw.toLowerCase() !== it.name.toLowerCase()) { var s2 = shop(), k = raw.toLowerCase(); s2.gloss[k] = { to: it.name, n: ((s2.gloss[k] || {}).n || 0) + 1 }; s2.fixes++; }
           d.edited = true; save(); toast(grp.length > 1 ? grp.length + ' rows named' : 'Named'); back();
         };
@@ -5379,6 +5387,7 @@
     });
     if (raw && mode !== 'new') { var gk = raw.toLowerCase(); s2.gloss[gk] = { to: brand, n: ((s2.gloss[gk] || {}).n || 0) + 1 }; }
     d.ask = (d.ask || []).filter(function (y) { return y !== a && rowsOf.indexOf(y.r) < 0; });
+    if (d.ink && d.ink[a.r]) { var nm3 = String(g[a.r][SC.item] || '').trim(); inkLoad().then(function () { inkLearn(nm3, d.ink[a.r]); inkMatch(sp ? sp.k : null); return inkSave(); }); }
     d.edited = true; save();
   }
   // items on yesterday's sheet that are missing today
@@ -5481,6 +5490,9 @@
     var x = regItem(key); if (!x) return { title: 'Item', cap: '', html: '<p class="muted">This item was merged or removed.</p>', bind: function () {} };
     key = resolveKey(key); var c = costFor(x.item, x.size), rt = lastRate(key), st = regStock()[key];
     var h = '<label class="lab rng">Name on your sheets<input class="text" id="itName" value="' + esc(x.item) + '"></label>';
+    if (!INK) inkLoad().then(function () { if (ui.sheet && ui.sheet.kind === 'shopitem') drawSheet(); });
+    var smp = ((INK || {})[brandKey(x.item)] || []);
+    h += '<div class="card stack" style="gap:8px"><div class="row between"><b style="font-size:14px">How he writes it</b><span class="muted small">' + smp.length + ' sample' + (smp.length === 1 ? '' : 's') + '</span></div>' + (smp.length ? '<div class="inkgal">' + smp.slice().reverse().map(function (s2_) { return '<span class="inkg">' + inkImg(s2_.id) + '<button type="button" data-ikdel="' + s2_.id + '" aria-label="Remove this sample">×</button></span>'; }).join('') + '</div><span class="muted small">Tap × on a sample that’s wrong.</span>' : '<span class="muted small">Samples are saved when you close a day or confirm a name.</span>') + '</div>';
     h += '<div class="card stack" style="gap:8px"><b style="font-size:14px">He writes</b><div class="row" style="gap:6px;flex-wrap:wrap">' + (Object.keys(x.alias).length ? Object.keys(x.alias).map(function (a) { return '<span class="alc"><span class="hw">' + esc(a) + '</span><button type="button" data-ald="' + esc(a) + '" aria-label="Forget">×</button></span>'; }).join('') : '<span class="muted small">nothing learnt yet</span>') + '</div></div>';
     h += '<div class="list">' + row({ t: 'KSBCL name', sub: x.full ? esc(x.full) : 'not linked yet: it links when a bill or indent with this item comes in' }) + row({ t: 'Size', v: x.size ? x.size + ' ml' : '—' }) + row({ t: 'Stock now', v: st ? fmtN(st.qty) : '—' }) + row({ t: 'Cost per bottle', sub: c ? 'from your ' + c.src + (c.d ? ' of ' + new Date(c.d + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) : '') + (c.tcs ? ' · incl. ' + inr(c.c - c.base, 2) + ' TCS' : '') : 'no bill or indent yet', v: c ? inr(c.c, 2) : '—' }) + row({ t: 'His selling rate', v: rt ? inr(rt) : '—' }) + row({ t: 'Profit margin', v: c && rt ? ((rt - c.c) / rt * 100).toFixed(1) + '%' : '—' }) + '</div>';
     var same = regAll().filter(function (y) { return y.key !== key && (!x.size || y.size === x.size); }).sort(function (a, b) { return a.item.localeCompare(b.item); });
@@ -5488,6 +5500,8 @@
     h += '<button type="button" class="btn jungle" id="itSave">Save</button>';
     return { title: esc(x.item), cap: x.size ? x.size + ' ml' : '', html: '<div class="stack" style="gap:12px">' + h + '</div>', bind: function (r) {
       r.querySelectorAll('[data-ald]').forEach(function (b) { b.onclick = function () { delete x.alias[b.dataset.ald]; save(); drawSheet(); }; });
+      fillInk(r);
+      r.querySelectorAll('[data-ikdel]').forEach(function (b) { b.onclick = function () { var bk = brandKey(x.item); INK[bk] = (INK[bk] || []).filter(function (s3) { return s3.id !== b.dataset.ikdel; }); inkSave(); drawSheet(); }; });
       r.querySelector('#itSave').onclick = function () {
         var nk = key, nm = r.querySelector('#itName').value.trim(), mg = r.querySelector('#itMerge').value;
         if (nm && nm !== x.item) nk = regRename(key, nm);
@@ -5597,6 +5611,8 @@
     var dl = new Date(sp.k + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' });
     var h = '<div class="inner shd"><div class="row between"><button type="button" class="btn ghost small" id="spBack">‹ Shop</button><span class="cap">' + dl + '</span><span class="row" style="gap:6px">' + (sp.step === 'sheet' ? '<button type="button" class="nib sm" id="spDelDay" aria-label="Delete this day">🗑</button>' : '') + '<button type="button" class="btn ghost small" id="spClose">Done</button></span></div>';
     var head = function () { o.querySelector('#spBack').onclick = closeShopDay; o.querySelector('#spClose').onclick = closeShopDay; };
+    if (sp.step === 'ink' && d.ink && d.ink[sp.inkRow] && d.grid[sp.inkRow]) { o.innerHTML = h + inkWhichHtml(d) + '</div>'; head(); bindInkWhich(o, d); return; }
+    if (sp.step === 'ink') sp.step = 'sheet';
     if (sp.step === 'row' && d.grid && d.grid[sp.row]) { o.innerHTML = h + rowEdHtml(d) + '</div>'; head(); bindRowEd(o, d); return; }
     if (sp.step === 'name' && d.grid && d.grid[sp.nrow]) { o.innerHTML = h + namePickHtml(d) + '</div>'; head(); bindNamePick(o, d); return; }
     if (sp.step === 'row' || sp.step === 'name') sp.step = 'sheet';
@@ -5836,7 +5852,7 @@
     var wa = q('#scWa'); if (wa) wa.onclick = function () { waShare(daySummaryText(sp.k)); };
     q('#scSave').onclick = function () {
       var c = calc(); if (c.pct == null) { toast('Type the profit percentage first'); q('#scPct').focus(); return; }
-      d.sales = c.sales; d.pct = c.pct; d.profit = c.profit; d.expTotal = c.et; d.net = c.profit - c.et; d.cash = c.sales - c.et; d.status = 'closed'; d.closedAt = new Date().toISOString(); d.ask = []; regSync();
+      d.sales = c.sales; d.pct = c.pct; d.profit = c.profit; d.expTotal = c.et; d.net = c.profit - c.et; d.cash = c.sales - c.et; d.status = 'closed'; d.closedAt = new Date().toISOString(); d.ask = []; regSync(); inkLearnDay(sp.k);
       s2.pct = c.pct; save();
       var ck2 = sp.k; closeShopDay(); toast('Saved · net ' + inr(d.net));
       if (s2.waAsk !== false) openSheet('shopshare:' + ck2);
@@ -5955,8 +5971,8 @@
   }
   function shopSetSheet() {
     var s2 = shop();
-    var h = '<label class="lab rng">Shop name<input class="text" id="ssName" value="' + esc(s2.name) + '"></label><label class="lab rng">Usual profit %<input class="text" id="ssPct" inputmode="decimal" value="' + (s2.pct == null ? '' : s2.pct) + '" placeholder="e.g. 20"></label><button type="button" class="btn jungle" id="ssSave">Save</button><div class="list" style="margin-top:8px">' + row({ t: '🧹 Start fresh', sub: 'delete old sheets, bills or learning', sheet: 'shopreset' }) + '</div>';
-    return { title: 'Shop settings', cap: '', html: h, bind: function (r) { r.querySelector('#ssSave').onclick = function () { s2.name = r.querySelector('#ssName').value.trim() || 'My shop'; var p = r.querySelector('#ssPct').value.trim(); s2.pct = p === '' ? null : num(p); save(); closeSheet(); render(); }; } };
+    var h = '<label class="lab rng">Shop name<input class="text" id="ssName" value="' + esc(s2.name) + '"></label><label class="lab rng">Usual profit %<input class="text" id="ssPct" inputmode="decimal" value="' + (s2.pct == null ? '' : s2.pct) + '" placeholder="e.g. 20"></label><label class="lab rng">Handwriting match needed (%)<input class="text" id="ssInk" inputmode="numeric" value="' + inkThr() + '"><small class="muted">80 = his writing must look at least 80% like earlier samples to count as the same name</small></label><button type="button" class="btn jungle" id="ssSave">Save</button><div class="list" style="margin-top:8px">' + row({ t: '🧹 Start fresh', sub: 'delete old sheets, bills or learning', sheet: 'shopreset' }) + '</div>';
+    return { title: 'Shop settings', cap: '', html: h, bind: function (r) { r.querySelector('#ssSave').onclick = function () { s2.name = r.querySelector('#ssName').value.trim() || 'My shop'; var p = r.querySelector('#ssPct').value.trim(); s2.pct = p === '' ? null : num(p); var ik = num(r.querySelector('#ssInk').value); s2.inkThr = ik >= 40 && ik <= 99 ? ik : 80; save(); closeSheet(); render(); }; } };
   }
 
   // ---------- Teach from old sheets: read many past sheets once, learn his names, habits and usual list ----------
@@ -6502,7 +6518,7 @@
         var drop = function (ids) { ids.forEach(function (id) { if (!keepImg[id]) idbDel('shopimg-' + id).catch(function () {}); }); };
         if (o.days) { Object.keys(s2.days).forEach(function (k) { drop(s2.days[k].photos || []); }); s2.days = {}; Object.keys(s2.bills).forEach(function (id) { var b = s2.bills[id]; if (b.status === 'added') { b.status = 'pending'; b.applied = null; } }); }
         if (o.bills) { Object.keys(s2.bills).forEach(function (id) { drop(s2.bills[id].photos || []); }); s2.bills = {}; s2.items = {}; s2.map = {}; }
-        if (o.learn) { learnt().examples.forEach(function (e) { drop([e.id]); }); s2.gloss = {}; s2.alias = {}; s2.fixes = 0; s2.learn = { digits: {}, notes: {}, usual: [], examples: [] }; }
+        if (o.learn) { INK = {}; idbDel('inkf').catch(function () {}); learnt().examples.forEach(function (e) { drop([e.id]); }); s2.gloss = {}; s2.alias = {}; s2.fixes = 0; s2.learn = { digits: {}, notes: {}, usual: [], examples: [] }; }
         var t = s2.teach; if (t && t.jobs) { drop(t.jobs.map(function (j) { return j.id; })); t.jobs.forEach(function (j) { idbDel('teachth-' + j.id).catch(function () {}); }); }
         s2.teach = { jobs: [], backfill: t ? t.backfill !== false : true, stage: 'pick', pick: {} }; TT.names = null;
         if (o.prices) { PL = { items: [], asOf: null }; idbDel('pricelist').catch(function () {}); }
@@ -7080,6 +7096,136 @@
       r.querySelector('#pkCam').onclick = function () { shopUi.pickKey = sel; shopUi.pickSel = null; var f = document.getElementById('shFile'); closeSheet(); if (f) f.click(); };
       r.querySelector('#pkType').onclick = function () { shopUi.pickSel = null; closeSheet(); openShopDay(sel); };
     } };
+  }
+
+  // ---------- his handwriting as a second check: cut each brand name from the photo, compare with earlier samples ----------
+  var INK = null; // { brandKey: [{ id, v: base64 of 64x24 bytes, ar }] }
+  function inkThr() { var t = state.shop && state.shop.inkThr; return t == null ? 80 : t; }
+  function inkLoad() { return INK ? Promise.resolve(INK) : idbGet('inkf').then(function (x) { INK = x || {}; return INK; }).catch(function () { INK = {}; return INK; }); }
+  function inkSave() { return idbPut('inkf', INK || {}).catch(function () {}); }
+  function brandKey(n) { return normName(n).replace(/ /g, ''); }
+  function inkDescCanvas(canvas) {
+    var W = canvas.width, H = canvas.height, px = canvas.getContext('2d').getImageData(0, 0, W, H).data, g = new Float32Array(W * H), hist = new Array(256).fill(0), i, t, x, y;
+    for (i = 0; i < W * H; i++) { var v = (px[i * 4] * .299 + px[i * 4 + 1] * .587 + px[i * 4 + 2] * .114) | 0; g[i] = v; hist[v]++; }
+    var tot = W * H, sum = 0; for (t = 0; t < 256; t++) sum += t * hist[t];
+    var sB = 0, wB = 0, best = 0, thr = 128; for (t = 0; t < 256; t++) { wB += hist[t]; if (!wB) continue; var wF = tot - wB; if (!wF) break; sB += t * hist[t]; var mB = sB / wB, mF = (sum - sB) / wF, bt = wB * wF * (mB - mF) * (mB - mF); if (bt > best) { best = bt; thr = t; } }
+    var x0 = W, y0 = H, x1 = -1, y1 = -1, n = 0;
+    for (y = 0; y < H; y++) for (x = 0; x < W; x++) if (g[y * W + x] < thr) { n++; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    if (n < 10) return null;
+    var bw = x1 - x0 + 1, bh = y1 - y0 + 1, OW = 64, OH = 24, m = new Float32Array(OW * OH);
+    for (y = y0; y <= y1; y++) for (x = x0; x <= x1; x++) if (g[y * W + x] < thr) { m[Math.min(OH - 1, ((y - y0) / bh * OH) | 0) * OW + Math.min(OW - 1, ((x - x0) / bw * OW) | 0)] += 1; }
+    for (var pass = 0; pass < 2; pass++) { var b = new Float32Array(OW * OH); for (y = 0; y < OH; y++) for (x = 0; x < OW; x++) { var s = 0, c = 0; for (var dy = -1; dy <= 1; dy++) for (var dx = -1; dx <= 1; dx++) { var yy = y + dy, xx = x + dx; if (yy >= 0 && yy < OH && xx >= 0 && xx < OW) { s += m[yy * OW + xx]; c++; } } b[y * OW + x] = s / c; } m = b; }
+    // store as bytes (0–255 of the normalised map) to keep it small
+    var mx = 0; for (i = 0; i < m.length; i++) if (m[i] > mx) mx = m[i];
+    var bytes = new Uint8Array(m.length); for (i = 0; i < m.length; i++) bytes[i] = mx ? Math.round(m[i] / mx * 255) : 0;
+    var str = ''; for (i = 0; i < bytes.length; i++) str += String.fromCharCode(bytes[i]);
+    return { v: btoa(str), ar: Math.round(bw / bh * 100) / 100 };
+  }
+  var inkVecCache = {};
+  function inkVec(d) {
+    if (inkVecCache[d.v]) return inkVecCache[d.v];
+    var s = atob(d.v), m = new Float32Array(s.length), mean = 0, i; for (i = 0; i < s.length; i++) { m[i] = s.charCodeAt(i); mean += m[i]; } mean /= m.length;
+    var nn = 0; for (i = 0; i < m.length; i++) { m[i] -= mean; nn += m[i] * m[i]; } nn = Math.sqrt(nn) || 1; for (i = 0; i < m.length; i++) m[i] /= nn;
+    return (inkVecCache[d.v] = m);
+  }
+  function inkSim(a, b) {
+    var A = inkVec(a), Bv = inkVec(b), OW = 64, OH = 24, best = -1;
+    for (var sy = -1; sy <= 1; sy++) for (var sx = -3; sx <= 3; sx++) { var s = 0; for (var y = 0; y < OH; y++) { var yy = y + sy; if (yy < 0 || yy >= OH) continue; for (var x = 0; x < OW; x++) { var xx = x + sx; if (xx < 0 || xx >= OW) continue; s += A[y * OW + x] * Bv[yy * OW + xx]; } } if (s > best) best = s; }
+    var r = Math.min(a.ar, b.ar) / Math.max(a.ar, b.ar);
+    return Math.max(0, Math.round(best * (.75 + .25 * r) * 100));
+  }
+  // cut the name out of the photo: box = [ymin, xmin, ymax, xmax] in 0–1000
+  function inkCrop(photoUrl, box) {
+    return new Promise(function (res) {
+      var im = new Image(); im.onload = function () {
+        var W = im.width, H = im.height, y0 = box[0] / 1000 * H, x0 = box[1] / 1000 * W, y1 = box[2] / 1000 * H, x1 = box[3] / 1000 * W;
+        var ph = (y1 - y0) * .12, pw = (x1 - x0) * .04; y0 = Math.max(0, y0 - ph); y1 = Math.min(H, y1 + ph); x0 = Math.max(0, x0 - pw); x1 = Math.min(W, x1 + pw);
+        var cw = x1 - x0, ch = y1 - y0; if (cw < 8 || ch < 6) { res(null); return; }
+        var k = Math.min(1, 64 / ch), c = document.createElement('canvas'); c.width = Math.max(8, Math.round(cw * k)); c.height = Math.max(6, Math.round(ch * k));
+        var x = c.getContext('2d'); x.filter = 'grayscale(1) contrast(1.3)'; x.drawImage(im, x0, y0, cw, ch, 0, 0, c.width, c.height);
+        res({ url: c.toDataURL('image/jpeg', .7), d: inkDescCanvas(c) });
+      }; im.onerror = function () { res(null); }; im.src = photoUrl;
+    });
+  }
+  // after a sheet is read: cut each brand name, compare with his earlier writing
+  function inkProcess(k) {
+    var d = shopDay(k); if (!d || !d.boxes) return Promise.resolve();
+    return Promise.all([inkLoad(), shopPhotos(d)]).then(function (a) {
+      var imgs = a[1], rows = Object.keys(d.boxes);
+      d.ink = d.ink || {};
+      return rows.reduce(function (p, r) {
+        return p.then(function () {
+          var bx = d.boxes[r], img = imgs[bx.p || 0] || imgs[0]; if (!img) return;
+          return inkCrop(img, bx.b).then(function (c) { if (!c || !c.d) return; var id = 'ik' + Date.now().toString(36) + r; d.ink[r] = { id: id, d: c.d }; return idbPut('ink-' + id, c.url); });
+        });
+      }, Promise.resolve());
+    }).then(function () { inkMatch(k); save(); if (sp && sp.k === k) drawShopDay(); });
+  }
+  function inkBest(desc, bk) { var ss = (INK || {})[bk] || []; var b = 0; ss.forEach(function (s) { var v = inkSim(desc, s); if (v > b) b = v; }); return ss.length ? b : null; }
+  function inkMatch(k) {
+    var d = shopDay(k), g = d && d.grid; if (!g || !d.ink || !INK) return;
+    var thr = inkThr(); d.inkm = {};
+    Object.keys(d.ink).forEach(function (r) {
+      if (!g[r]) return; var nm = String(g[r][SC.item] || '').trim(), mine = brandKey(nm), desc = d.ink[r].d;
+      var pa = nm ? inkBest(desc, mine) : null, best = null, bp = 0;
+      Object.keys(INK).forEach(function (bk) { if (bk === mine) return; var v = inkBest(desc, bk); if (v != null && v > bp) { bp = v; best = bk; } });
+      var st = pa == null ? 'new' : pa >= thr ? 'ok' : pa >= 60 ? 'likely' : 'low';
+      if (best && bp >= thr && (pa == null || bp > pa + 5)) st = 'conflict';
+      d.inkm[r] = { st: st, p: pa, alt: best, ap: bp };
+    });
+  }
+  function inkBrandName(bk) { var x = regAll().filter(function (y) { return brandKey(y.item) === bk; })[0]; return x ? x.item : bk; }
+  // a confirmed name: keep this snippet as a sample of how he writes it (newest 12 per brand)
+  function inkLearn(name, ent) {
+    if (!ent || !ent.d || !name) return; var bk = brandKey(name); INK = INK || {};
+    var arr = INK[bk] = INK[bk] || []; if (arr.some(function (s) { return s.id === ent.id; })) return;
+    arr.push({ id: ent.id, v: ent.d.v, ar: ent.d.ar }); while (arr.length > 12) { var old = arr.shift(); idbDel('ink-' + old.id).catch(function () {}); }
+  }
+  function inkLearnDay(k) {
+    var d = shopDay(k); if (!d || !d.ink || !d.grid) return Promise.resolve();
+    return inkLoad().then(function () { Object.keys(d.ink).forEach(function (r) { var m = (d.inkm || {})[r]; if (m && m.st === 'conflict') return; var nm = d.grid[r] && String(d.grid[r][SC.item] || '').trim(); if (nm) inkLearn(nm, d.ink[r]); }); return inkSave(); });
+  }
+  function inkImg(id, cls) { return '<img class="' + (cls || 'inkimg') + '" data-ink="' + id + '" alt="his writing">'; }
+  function fillInk(root) { root.querySelectorAll('img[data-ink]').forEach(function (im) { idbGet('ink-' + im.dataset.ink).then(function (u) { if (u) im.src = u; }).catch(function () {}); }); }
+  function inkBadge(m) {
+    if (!m) return '';
+    if (m.st === 'ok') return '<span class="ikb ok">✓ ' + m.p + '%</span>';
+    if (m.st === 'likely') return '<span class="ikb lk">likely ' + m.p + '%</span>';
+    if (m.st === 'conflict') return '<span class="ikb cf">check</span>';
+    if (m.st === 'low') return '<span class="ikb lo">' + m.p + '%</span>';
+    return '<span class="ikb nw">new</span>';
+  }
+  function inkSummary(d) {
+    if (!d.inkm) return ''; var c = { ok: 0, likely: 0, conflict: 0, low: 0, new: 0 }; Object.keys(d.inkm).forEach(function (r) { c[d.inkm[r].st]++; });
+    var parts = []; if (c.ok) parts.push(c.ok + ' ✓'); if (c.likely) parts.push(c.likely + ' likely'); if (c.conflict) parts.push(c.conflict + ' to check'); if (c.low) parts.push(c.low + ' unsure'); if (c.new) parts.push(c.new + ' new');
+    return parts.length ? '<div class="inksum"><b>His writing: ' + parts.join(' · ') + '</b><small>✓ = the writing matches earlier samples of that name, ' + inkThr() + '% or more</small></div>' : '';
+  }
+  // "Which one is it?"
+  function inkWhichHtml(d) {
+    var r = sp.inkRow, g = d.grid, m = (d.inkm || {})[r] || {}, nm = String(g[r][SC.item] || '').trim(), ent = d.ink[r];
+    var opts = []; if (m.alt) opts.push({ bk: m.alt, p: m.ap, why: 'his writing on earlier days looks closest' }); opts.push({ bk: brandKey(nm), p: m.p, why: 'what the AI read', name: nm });
+    var h = '<h1 class="display" style="font-size:28px;margin:0">Which one is it?</h1><div class="inkbig"><span class="cap">On this sheet</span>' + inkImg(ent.id, 'inkimg big') + '<small>' + esc(g[r][SC.size] || '') + ' ml</small></div>';
+    h += opts.map(function (o, i) { var ss = ((INK || {})[o.bk] || []).slice(-3); return '<button type="button" class="inkopt' + (i === 0 ? ' on' : '') + '" data-iko="' + i + '"><span class="row between" style="gap:8px"><b>' + esc(o.name || inkBrandName(o.bk)) + '</b>' + (o.p != null ? '<span class="ikb ' + (o.p >= inkThr() ? 'ok' : o.p >= 60 ? 'lk' : 'lo') + '">' + o.p + '%</span>' : '') + '</span><small>' + o.why + '</small><span class="row" style="gap:6px">' + ss.map(function (s) { return inkImg(s.id, 'inkimg sm'); }).join('') + '</span></button>'; }).join('');
+    h += '<button type="button" class="btn line" id="ikElse">Something else…</button><button type="button" class="btn ghost small" id="ikBack">‹ List</button>';
+    h += '<p class="muted small">Your answer is saved as one more sample of how he writes it.</p>';
+    sp.inkOpts = opts; return h;
+  }
+  // the AI's text belongs to another item already → don't teach it as a name for this one
+  function inkRawOther(raw, size, rk) {
+    var low = String(raw).toLowerCase().trim(), k2 = regKey(raw, size);
+    if (k2 && k2 !== rk && regItem(k2)) return true;
+    return regAll().some(function (x) { return x.key !== rk && (String(x.item || '').toLowerCase().trim() === low || x.alias[low]); });
+  }
+  function bindInkWhich(o, d) {
+    var r = sp.inkRow, q = function (x) { return o.querySelector(x); };
+    fillInk(o);
+    q('#ikBack').onclick = function () { sp.step = 'sheet'; sp.view = 'list'; drawShopDay(); };
+    q('#ikElse').onclick = function () { openNamePick(+r, 'sheet', 'all'); };
+    o.querySelectorAll('[data-iko]').forEach(function (b) { b.onclick = function () {
+      var op = sp.inkOpts[+b.dataset.iko], name = op.name || inkBrandName(op.bk), g = d.grid; spSnap(d);
+      groupRows(g, +r).forEach(function (x) { g[x][SC.item] = name; var rk = regAdd(name, g[x][SC.size], 'sheet'); var raw = d.ai && d.ai[x] ? String(d.ai[x][SC.item] || '').trim() : ''; if (rk && raw && !inkRawOther(raw, g[x][SC.size], rk)) regAlias(rk, raw, 2); });
+      inkLoad().then(function () { inkLearn(name, d.ink[r]); return inkSave(); }).then(function () { inkMatch(sp.k); save(); sp.step = 'sheet'; sp.view = 'list'; drawShopDay(); toast('Saved · one more sample of his writing'); });
+    }; });
   }
 
   // ---------- shell ----------
