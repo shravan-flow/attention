@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '44';
+  var APP_VERSION = '45';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -4449,7 +4449,8 @@
     h += '<input type="file" id="shFile" accept="image/*" multiple hidden><input type="file" id="shBillFile" accept="image/*" multiple hidden>';
     h += stockCardHtml();
     var na = newAlerts();
-    h += '<div class="shq"><button type="button" data-sheet="shopdash"><span>📊</span>Dashboard</button><button type="button" data-sheet="shoporder"><span>🛒</span>Order next</button><button type="button" data-sheet="shopchecks"' + (na ? ' class="hot"' : '') + '><span>' + (na ? na : '✓') + '</span>Checks</button></div>';
+    var lastK = Object.keys(s2.days).filter(function (k) { return s2.days[k].grid; }).sort().pop();
+    h += '<div class="shq">' + (lastK ? '<button type="button" data-sheet="shopcard:' + lastK + '"><span>🖼</span>Daily card</button>' : '') + '<button type="button" data-sheet="shopdash"><span>📊</span>Dashboard</button><button type="button" data-sheet="shoporder"><span>🛒</span>Order next</button><button type="button" data-sheet="shopchecks"' + (na ? ' class="hot"' : '') + '><span>' + (na ? na : '✓') + '</span>Checks</button></div>';
     var ks = shopMonthDays(m), bl = Object.keys(bills()).map(function (id) { return bills()[id]; }).filter(function (b) { return (b.date || '').slice(0, 7) === m; });
     if (bl.length) h += '<div class="list">' + bl.sort(function (a, b) { return a.date < b.date ? 1 : -1; }).map(function (b) {
       var st = { added: ['in stock', '#E3F0FF'], queued: ['no internet', '#F1E6D6'], pending: ['waiting', '#FFE6B8'], reading: ['reading…', '#FFE6B8'], dup: ['duplicate', '#FFD9D3'], draft: ['to check', '#FFE0D9'] }[b.status] || ['', '#fff'];
@@ -6991,7 +6992,9 @@
   function shopCardSheet(k) {
     var c = cardCfg(), s2 = shop();
     var tg = function (key, lab, sub) { return '<label class="ttsw"><span><b>' + lab + '</b>' + (sub ? '<small>' + sub + '</small>' : '') + '</span><input type="checkbox" data-cc="' + key + '"' + (c[key] ? ' checked' : '') + '><i></i></label>'; };
-    var h = '<div class="row" style="gap:6px">' + [['en', 'English'], ['kn', 'ಕನ್ನಡ']].map(function (t) { return '<button type="button" class="mschip' + (c.lang === t[0] ? ' on' : '') + '" data-clang="' + t[0] + '">' + t[1] + '</button>'; }).join('') + '</div>';
+    var dks = Object.keys(s2.days).filter(function (x) { return s2.days[x].grid; }).sort().reverse().slice(0, 30);
+    var h = '<div class="cardlang"><span class="cap">Language</span>' + [['en', 'English'], ['kn', 'ಕನ್ನಡ']].map(function (t) { return '<button type="button" class="mschip' + (c.lang === t[0] ? ' on' : '') + '" data-clang="' + t[0] + '">' + t[1] + '</button>'; }).join('') + '</div>';
+    if (dks.length > 1) h += '<label class="lab rng">Day<select class="text" id="cardDay">' + dks.map(function (x) { return '<option value="' + x + '"' + (x === k ? ' selected' : '') + '>' + new Date(x + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + (s2.days[x].status === 'closed' ? '' : ' (not closed)') + '</option>'; }).join('') + '</select></label>';
     if (c.lang === 'kn') h += '<label class="lab rng">Shop name in Kannada (optional)<input class="text" id="knName" value="' + esc(c.knName || '') + '" placeholder="ಲಕ್ಷ್ಮಿ ವೈನ್ಸ್"></label>';
     h += '<img id="cardImg" class="cardimg" alt="Daily card preview">';
     h += '<button type="button" class="btn wa" id="cardGo">Share the card on WhatsApp</button>';
@@ -7005,6 +7008,7 @@
       var paint = function () { cardFonts().then(function () { var im = r.querySelector('#cardImg'); if (im) im.src = drawCard(k).toDataURL('image/png'); }); };
       paint();
       r.querySelector('#cardGo').onclick = function () { shareCard(k); };
+      var cdy = r.querySelector('#cardDay'); if (cdy) cdy.onchange = function () { openSheet('shopcard:' + cdy.value); };
       r.querySelectorAll('[data-clang]').forEach(function (b) { b.onclick = function () { c.lang = b.dataset.clang; save(); drawSheet(); }; });
       var kn2 = r.querySelector('#knName'); if (kn2) kn2.onchange = function () { c.knName = kn2.value.trim(); save(); paint(); };
       r.querySelector('#cardOpts').addEventListener('toggle', function (e) { s2.cardOpen = e.target.open; });

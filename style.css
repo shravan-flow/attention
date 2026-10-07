@@ -1059,3 +1059,5 @@ code{font-family:var(--mono);font-size:12px;background:var(--sand2);padding:1px 
 .recost{font-size:13px;background:#fff;border-radius:12px;padding:8px 12px;line-height:1.4}.recost small{color:var(--sub)}.recost b.neg{color:#B3372B}
 .cardimg{width:100%;aspect-ratio:4/5;border-radius:18px;background:#0F4D40;display:block;box-shadow:0 10px 30px rgba(15,77,64,.2)}
 #cardOpts summary{cursor:pointer;list-style:none}#cardOpts summary::-webkit-details-marker{display:none}
+.shq{grid-template-columns:repeat(4,1fr)}.shq button{font-size:12px;padding:12px 4px}
+.cardlang{display:flex;align-items:center;gap:8px;background:#fff;border-radius:16px;padding:10px 12px}.cardlang .cap{flex:1}
