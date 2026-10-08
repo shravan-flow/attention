@@ -1143,3 +1143,6 @@ code{font-family:var(--mono);font-size:12px;background:var(--sand2);padding:1px 
 .pinx{position:absolute;top:6px;right:6px;width:30px;height:30px;border:0;border-radius:50%;background:rgba(255,255,255,.92);box-shadow:0 1px 4px rgba(0,0,0,.2);font-size:18px;line-height:1;cursor:pointer;color:#16302A}
 .pincap{position:absolute;left:8px;bottom:6px;font-size:10px;color:#555;background:rgba(255,255,255,.88);padding:2px 8px;border-radius:999px;pointer-events:none}
 .lsrow.pinon{box-shadow:inset 3px 0 0 #12A39A}
+/* v54 */
+button.recost{display:block;width:100%;border:0;font:inherit;color:inherit;text-align:left;cursor:pointer}
+.exr.pinon{box-shadow:inset 3px 0 0 #12A39A}

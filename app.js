@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '53';
+  var APP_VERSION = '54';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -3154,7 +3154,7 @@
     var p = String(spec).split(':'), w = document.getElementById('sheet'), first = !ui.sheet;
     ui.sheet = { kind: p[0], arg: p.slice(1).join(':') };
     w.querySelector('.sbody').scrollTop = 0;
-    if (first) { try { history.pushState({ sheet: 1 }, ''); } catch (e) {} w.classList.remove('in'); }
+    if (first) { w.classList.remove('in'); }
     drawSheet();
     if (first) requestAnimationFrame(function () { requestAnimationFrame(function () { w.classList.add('in'); }); });
     if (p[0] === 'garmin') stravaSync(false);
@@ -3166,9 +3166,7 @@
     var w = document.getElementById('sheet');
     w.classList.remove('in'); w.hidden = true; w.querySelector('.panel').style.transform = '';
     document.body.style.overflow = '';
-    if (!fromPop && history.state && history.state.sheet) { try { history.back(); } catch (e) {} }
   }
-  window.addEventListener('popstate', function () { if (ui.sheet) closeSheet(true); });
   (function () {
     var w = document.getElementById('sheet'), panel = w.querySelector('.panel'), y0 = null, dy = 0;
     w.querySelector('.dim').addEventListener('click', function () { closeSheet(); });
@@ -4503,11 +4501,11 @@
       'Each numbered row (Sl. No.) on the form is ONE row in your answer: same order, never merge, split, skip or invent rows. The "Type of Liquor" column has a handwritten brand name and, at its right end, the bottle size in ml (60, 90, 180, 275, 330, 375, 500, 650, 750, 1000, 2000). Copy the size exactly as written: 60 is common, never change it to 90. Put the size in "size", never inside "item".\n' +
       'A row with ONLY a size (no name) is the same brand as the nearest row above it that has a name: repeat that brand. A row with its OWN handwritten name is a NEW brand, however short or abbreviated (like "RC W", "R Stg", "BCD", "N.P."): write that name, never the brand from above. Names can also be in Kannada. A price like 650 or 330 written next to a beer can be its size; anything else goes in "remarks".\n' +
       'A dash "-" or "—" in a number column means 0. Skip rows with no numbers at all. Keep numbers exactly as written; do not correct the maths.\n' +
-      'Some pages also have a list of expenses (names with amounts, usually with a total) and written day totals like "Sale 74085", "Exp 9850" and a balance. Return those too.\n' +
+      'Some pages also have a list of expenses (names with amounts, usually with a total; for each expense give "ey": [ymin, ymax] of its line on its photo, scaled 0–1000, and "page") and written day totals like "Sale 74085", "Exp 9850" and a balance. Return those too.\n' +
       shopHints() +
       'Also read the date written on the sheet (Indian day/month/year order) as "date": "YYYY-MM-DD", or null if none.\n' +
       'For every row that has its OWN handwritten brand name, also give "box": where that handwritten NAME is on its photo, as [ymin, xmin, ymax, xmax] scaled 0–1000, and "page": which of the new photos it is on (0 = the first new photo). Rows without their own name: "box": null. For EVERY row also give "ry": [ymin, ymax], the top and bottom of that whole line on its photo, scaled 0–1000. For rows with their own handwritten name, also give "letters": the 2–4 letters of that name you can see most clearly, in order, as written (e.g. "OC", "RCW").\n' +
-      'Reply JSON: {"date":"YYYY-MM-DD"|null,"rows":[{"sl":1,"item":"brand","box":[120,40,160,300],"page":0,"ry":[118,162],"letters":"OC","size":"750","open":number|null,"recv":number|null,"total":number|null,"sales":number|null,"rate":number|null,"amount":number|null,"close":number|null,"remarks":"text"}],"expenses":[{"name":"text","amount":number}],"written":{"sales":number|null,"expenses":number|null,"balance":number|null}}';
+      'Reply JSON: {"date":"YYYY-MM-DD"|null,"rows":[{"sl":1,"item":"brand","box":[120,40,160,300],"page":0,"ry":[118,162],"letters":"OC","size":"750","open":number|null,"recv":number|null,"total":number|null,"sales":number|null,"rate":number|null,"amount":number|null,"close":number|null,"remarks":"text"}],"expenses":[{"name":"text","amount":number,"ey":[800,830],"page":0}],"written":{"sales":number|null,"expenses":number|null,"balance":number|null}}';
     shopPhotos(d).then(function (imgs) {
       if (!imgs.length) throw new Error('no photos');
       return geminiImagesEx(prompt, imgs, .1);
@@ -4530,7 +4528,7 @@
       var fiR = freshInfo(), learnNow = !!(fiR && fiR.learn && key >= fiR.from), cy = null;
       d.letters = letters;
       if (learnNow) { d.learn = true; d.named = {}; d.rid = {}; d.ask = []; d.tie = {}; d.carried = null; } else { d.learn = false; cy = regAssign(key); }
-      d.exp = (r.expenses || []).filter(function (e) { return e && (e.name || e.amount); }).map(function (e) { return { t: String(e.name || ''), v: num(e.amount) }; });
+      d.exp = (r.expenses || []).filter(function (e) { return e && (e.name || e.amount); }).map(function (e) { var o2 = { t: String(e.name || ''), v: num(e.amount) }; if (Array.isArray(e.ey) && e.ey.length === 2 && e.ey[1] > e.ey[0]) o2.ey = { p: +e.page || 0, y: e.ey.map(Number) }; return o2; });
       d.written = r.written || {}; d.status = 'draft';
       d.sheetDate = /^\d{4}-\d{2}-\d{2}$/.test(r.date || '') && r.date !== key && r.date <= dkey(new Date()) ? r.date : null;
       d.boxes = boxes; d.rowy = rowy; d.ink = {}; d.inkm = null; pinRows(d); save();
@@ -5156,7 +5154,7 @@
   function rowEdHtml(d) {
     var g = d.grid, r = sp.row, rows = dataRows(g), idx = rows.indexOf(r), nm = String(g[r][SC.item] || '').trim(), raw = d.ai && d.ai[r] ? String(d.ai[r][SC.item] || '').trim() : '';
     var h = (sp.lph !== false ? pinHtml(d) : '') + '<div class="red"><button type="button" class="redname" id="reName"><b>' + (nm ? esc(nm) : '<span class="hw">pick a name</span>') + '</b><small>' + (g[r][SC.size] ? esc(g[r][SC.size]) + ' ml' : 'no size') + (raw && raw !== nm ? ' · <span class="hw">' + esc(raw) + '</span> on the sheet' : '') + ' · change ✎</small></button><span class="cap">row ' + (idx + 1) + ' of ' + rows.length + '</span></div>';
-    h += '<div class="recost" id="reCost">' + recostHtml(g, r) + '</div>';
+    h += '<button type="button" class="recost" id="reCost">' + recostHtml(g, r) + (String(g[r][SC.item] || '').trim() ? ' <span class="lstag">✎ cost</span>' : '') + '</button>';
     h += '<div class="refs">' + REF.map(function (f) { return '<button type="button" class="ref' + (sp.fld === f[0] ? ' on' : '') + '" data-ref="' + f[0] + '"><small>' + f[2] + '</small><b id="rev-' + f[0] + '"></b></button>'; }).join('') + '</div>';
     h += '<div class="rehint" id="reHint" hidden></div>';
     h += '<div class="rekp">' + ['1', '2', '3', '⌫', '4', '5', '6', 'C', '7', '8', '9', '‹', '.', '0', '00', '›'].map(function (k) { return '<button type="button" data-kp="' + k + '"' + (k === '›' || k === '‹' ? ' class="nx" aria-label="' + (k === '›' ? 'Next box' : 'Previous box') + '"' : k === '⌫' ? ' aria-label="Delete"' : k === 'C' ? ' aria-label="Clear"' : '') + '>' + k + '</button>'; }).join('') + '</div>';
@@ -5167,6 +5165,7 @@
   }
   function bindRowEd(o, d) {
     var g = d.grid, r = sp.row, q = function (x) { return o.querySelector(x); };
+    var rc0 = q('#reCost'); if (rc0) rc0.onclick = function () { var nm0 = String(g[r][SC.item] || '').trim(); if (!nm0) return; regAdd(nm0, g[r][SC.size], 'sheet'); costEditPrompt(regKey(nm0, g[r][SC.size]), function () { drawShopDay(); }); };
     if (q('#pinPh')) { sp.pinR = null; bindPin(o, d, function () { sp.lph = false; drawShopDay(); }); pinFocus(o, d, r); }
     var col = function (f) { return REF.filter(function (x) { return x[0] === f; })[0][1]; };
     var autoAmt = function () { var s = cellVal(g, r, SC.sales), rt = cellVal(g, r, SC.rate); return isNum(s) && isNum(rt) && String(g[r][SC.sales]).trim() !== '' && String(g[r][SC.rate]).trim() !== '' ? Math.round(num(s) * num(rt) * 100) / 100 : null; };
@@ -5583,6 +5582,7 @@
   // cost per bottle: the latest KSBCL bill or indent for that item (old price lists are ignored)
   // cost per bottle (TCS included) from the KSBCL bill or indent that applied on that date; the latest one if no date
   function costFor(item, size, asOf) {
+    var xo = regItem(regKey(item, size)), ov = xo && xo.costOv; if (ov && (!asOf || !ov.d || asOf >= ov.d)) return { c: ov.c, base: ov.c, src: 'your price', d: ov.d || '', tcs: false, you: true };
     var hs = costHist(regKey(item, size)); if (!hs.length) return null;
     var pick = null; if (asOf) hs.forEach(function (h) { if (h.d && h.d <= asOf) pick = h; });
     return pick || (asOf ? hs[0] : hs[hs.length - 1]);
@@ -5591,10 +5591,10 @@
   // ---------- expenses tab ----------
   function expHtml(d) {
     var exp = d.exp = d.exp || [], et = exp.reduce(function (a, e) { return a + num(e.v); }, 0), w = d.written && d.written.expenses;
-    var h = '<div class="shtiles ttq"><div><b class="display">' + inr(et) + '</b><small>expenses today</small></div><div><b class="display">' + (w ? inr(w) : '—') + '</b><small>' + (w ? (Math.abs(w - et) < .5 ? '✓ sheet’s written total' : '⚠ sheet’s written total') : 'no total on the sheet') + '</small></div></div>';
+    var h = (sp.lph !== false && d.photos.length ? pinHtml(d) : '') + '<div class="shtiles ttq"><div><b class="display">' + inr(et) + '</b><small>expenses today</small></div><div><b class="display">' + (w ? inr(w) : '—') + '</b><small>' + (w ? (Math.abs(w - et) < .5 ? '✓ sheet’s written total' : '⚠ sheet’s written total') : 'no total on the sheet') + '</small></div></div>';
     var names = {}; Object.keys(shop().days).forEach(function (k) { (shop().days[k].exp || []).forEach(function (e) { if (e.t) names[e.t] = 1; }); });
     h += '<datalist id="expNames">' + Object.keys(names).slice(0, 60).map(function (n) { return '<option value="' + esc(n) + '">'; }).join('') + '</datalist>';
-    h += '<div class="stack" style="gap:8px">' + exp.map(function (e, i) { return '<div class="exr' + (sp.ei === i ? ' on' : '') + '"><input class="exn" data-exn="' + i + '" value="' + esc(e.t || '') + '" placeholder="what was it?" list="expNames" autocomplete="off"><button type="button" class="exv" data-exv="' + i + '">' + (e.v ? inr(e.v) : '₹ —') + '</button><button type="button" class="tkx" data-exd="' + i + '" aria-label="Remove">✕</button></div>'; }).join('') + '</div>';
+    h += '<div class="stack" style="gap:8px">' + exp.map(function (e, i) { return '<div class="exr' + (sp.ei === i ? ' on' : '') + '" data-exi="' + i + '"><input class="exn" data-exn="' + i + '" value="' + esc(e.t || '') + '" placeholder="what was it?" list="expNames" autocomplete="off"><button type="button" class="exv" data-exv="' + i + '">' + (e.v ? inr(e.v) : '₹ —') + '</button><button type="button" class="tkx" data-exd="' + i + '" aria-label="Remove">✕</button></div>'; }).join('') + '</div>';
     if (!exp.length) h += '<p class="muted small">No expenses read from the sheet.</p>';
     h += '<button type="button" class="btn line" id="exAdd">+ Add expense</button>';
     if (sp.ei != null && exp[sp.ei]) h += '<div class="rekp" id="exKp">' + ['1', '2', '3', '⌫', '4', '5', '6', 'C', '7', '8', '9', '✓', '.', '0', '00', '›'].map(function (k) { return '<button type="button" data-ekp="' + k + '"' + (k === '›' || k === '✓' ? ' class="nx"' : '') + '>' + k + '</button>'; }).join('') + '</div>';
@@ -5603,6 +5603,7 @@
   }
   function bindExp(o, d) {
     var exp = d.exp, q = function (x) { return o.querySelector(x); };
+    if (q('#pinPh')) { bindPin(o, d, function () { sp.lph = false; drawShopDay(); }); expFollow(o, d); }
     o.querySelectorAll('[data-exn]').forEach(function (el) { el.addEventListener('input', function () { exp[+el.dataset.exn].t = el.value; clearTimeout(sp.saveT); sp.saveT = setTimeout(save, 400); }); el.addEventListener('focus', function () { if (sp.ei != null) { sp.ei = null; var kp = q('#exKp'); if (kp) kp.remove(); o.querySelectorAll('.exr').forEach(function (r) { r.classList.remove('on'); }); } }); });
     o.querySelectorAll('[data-exv]').forEach(function (b) { b.onclick = function () { sp.ei = +b.dataset.exv; sp.efresh = true; drawShopDay(); }; });
     o.querySelectorAll('[data-exd]').forEach(function (b) { b.onclick = function () { exp.splice(+b.dataset.exd, 1); sp.ei = null; save(); drawShopDay(); }; });
@@ -5645,11 +5646,13 @@
     var smp = ((INK || {})[brandKey(x.item)] || []);
     h += '<div class="card stack" style="gap:8px"><div class="row between"><b style="font-size:14px">How he writes it</b><span class="muted small">' + smp.length + ' sample' + (smp.length === 1 ? '' : 's') + '</span></div>' + (smp.length ? '<div class="inkgal">' + smp.slice().reverse().map(function (s2_) { return '<span class="inkg">' + inkImg(s2_.id) + '<button type="button" data-ikdel="' + s2_.id + '" aria-label="Remove this sample">×</button></span>'; }).join('') + '</div><span class="muted small">Tap × on a sample that’s wrong.</span>' : '<span class="muted small">Samples are saved when you close a day or confirm a name.</span>') + '</div>';
     h += '<div class="card stack" style="gap:8px"><b style="font-size:14px">He writes</b><div class="row" style="gap:6px;flex-wrap:wrap">' + (Object.keys(x.alias).length ? Object.keys(x.alias).map(function (a) { return '<span class="alc"><span class="hw">' + esc(a) + '</span><button type="button" data-ald="' + esc(a) + '" aria-label="Forget">×</button></span>'; }).join('') : '<span class="muted small">nothing learnt yet</span>') + '</div></div>';
-    h += '<div class="list">' + row({ t: 'KSBCL name', sub: x.full ? esc(x.full) : 'not linked yet: it links when a bill or indent with this item comes in' }) + row({ t: 'Size', v: x.size ? x.size + ' ml' : '—' }) + row({ t: 'Stock now', v: st ? fmtN(st.qty) : '—' }) + row({ t: 'Cost per bottle', sub: c ? 'from your ' + c.src + (c.d ? ' of ' + new Date(c.d + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) : '') + (c.tcs ? ' · incl. ' + inr(c.c - c.base, 2) + ' TCS' : '') : 'no bill or indent yet', v: c ? inr(c.c, 2) : '—' }) + row({ t: 'His selling rate', v: rt ? inr(rt) : '—' }) + row({ t: 'Profit margin', v: c && rt ? ((rt - c.c) / rt * 100).toFixed(1) + '%' : '—' }) + '</div>';
+    h += '<div class="list">' + row({ t: 'KSBCL name', sub: x.full ? esc(x.full) : 'not linked yet: it links when a bill or indent with this item comes in' }) + row({ t: 'Size', v: x.size ? x.size + ' ml' : '—' }) + row({ t: 'Stock now', v: st ? fmtN(st.qty) : '—' }) + row({ t: 'Cost per bottle', sub: c && c.you ? 'your own price' + (c.d ? ' from ' + new Date(c.d + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) : '') + ' · replaces the indent cost' : c ? 'from your ' + c.src + (c.d ? ' of ' + new Date(c.d + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) : '') + (c.tcs ? ' · incl. ' + inr(c.c - c.base, 2) + ' TCS' : '') : 'no bill or indent yet', v: c ? inr(c.c, 2) : '—' }) + row({ t: 'His selling rate', v: rt ? inr(rt) : '—' }) + row({ t: 'Profit margin', v: c && rt ? ((rt - c.c) / rt * 100).toFixed(1) + '%' : '—' }) + '</div>';
     var same = regAll().filter(function (y) { return y.key !== key && (!x.size || y.size === x.size); }).sort(function (a, b) { return a.item.localeCompare(b.item); });
     h += '<label class="lab rng">Same as another item? Merge into<select class="text" id="itMerge"><option value="">— pick an item —</option>' + same.map(function (y) { return '<option value="' + esc(y.key) + '">' + esc(y.item) + ' ' + esc(y.size || '') + '</option>'; }).join('') + '</select></label>';
+    h += '<button type="button" class="btn line" id="itCost">✎ ' + (x.costOv ? 'Change your cost per bottle (₹' + x.costOv.c.toFixed(2) + ')' : 'Change the cost per bottle') + '</button>';
     h += '<button type="button" class="btn jungle" id="itSave">Save</button>';
     return { title: esc(x.item), cap: x.size ? x.size + ' ml' : '', html: '<div class="stack" style="gap:12px">' + h + '</div>', bind: function (r) {
+      r.querySelector('#itCost').onclick = function () { costEditPrompt(key, function () { drawSheet(); }); };
       r.querySelectorAll('[data-ald]').forEach(function (b) { b.onclick = function () { delete x.alias[b.dataset.ald]; save(); drawSheet(); }; });
       fillInk(r);
       r.querySelectorAll('[data-ikdel]').forEach(function (b) { b.onclick = function () { var bk = brandKey(x.item); INK[bk] = (INK[bk] || []).filter(function (s3) { return s3.id !== b.dataset.ikdel; }); inkSave(); drawSheet(); }; });
@@ -6461,6 +6464,67 @@
     o.onscroll = function () { if (!busy) { busy = true; requestAnimationFrame(pick); } };
     sp.pinR = null; pick();
   }
+  // ---------- v54: expenses with the pinned photo; your own cost per bottle ----------
+  function bandAtY(d, p, yc) {
+    var sc = d.scan && d.scan[d.photos[p]]; if (!sc || !sc.bands || !sc.bands.length) return null;
+    var best = -1, bd = 1e9; sc.bands.forEach(function (B, i) { var c = (lineY(sc, B[0], .5) + lineY(sc, B[1], .5)) / 2, dd = Math.abs(c - yc); if (dd < bd) { bd = dd; best = i; } });
+    if (best < 0 || bd > sc.sp * 1.2) return null;
+    var B = sc.bands[best], top = [], bot = [], y0 = 1, y1 = 0; for (var x = 0; x <= 1.0001; x += .05) { var a = lineY(sc, B[0], x), b = lineY(sc, B[1], x); top.push([x, a]); bot.unshift([x, b]); y0 = Math.min(y0, a); y1 = Math.max(y1, b); }
+    return { p: p, pts: top.concat(bot).map(function (q) { return Math.round(q[0] * 1000) + ',' + Math.round(q[1] * 1000); }).join(' '), y0: y0, y1: y1 };
+  }
+  // where an expense line is on the photo: its own position, or between its neighbours, or the bottom of the last page
+  function expBand(d, i) {
+    var E = d.exp || [], e = E[i]; if (!e) return null;
+    var at = function (x) { return x && x.ey ? x.ey : null; }, own = at(e);
+    if (!own) { var lo = null, hi = null; for (var j = i - 1; j >= 0; j--) if (at(E[j])) { lo = j; break; } for (j = i + 1; j < E.length; j++) if (at(E[j])) { hi = j; break; }
+      if (lo != null && hi != null && E[lo].ey.p === E[hi].ey.p) { var f = (i - lo) / (hi - lo), a = E[lo].ey.y, b = E[hi].ey.y, h0 = a[1] - a[0], mid = (a[0] + a[1]) / 2 + f * ((b[0] + b[1]) / 2 - (a[0] + a[1]) / 2); own = { p: E[lo].ey.p, y: [mid - h0 / 2, mid + h0 / 2] }; }
+      else if (lo != null || hi != null) { var n = lo != null ? lo : hi, kb = E[n].ey, hh = kb.y[1] - kb.y[0]; own = { p: kb.p, y: [kb.y[0] + (i - n) * hh, kb.y[1] + (i - n) * hh] }; } }
+    if (!own) return { p: Math.max(0, d.photos.length - 1), y: [780, 820], none: true };
+    var bp = bandAtY(d, own.p, (own.y[0] + own.y[1]) / 2000);
+    return bp ? { p: bp.p, y: [bp.y0 * 1000, bp.y1 * 1000], poly: bp.pts } : own;
+  }
+  function pinShow(o, d, band) {
+    var ph = o.querySelector('#pinPh'), img = o.querySelector('#pinImg'); if (!ph || !img || !band) return;
+    var id = d.photos[band.p || 0] || d.photos[0];
+    var show = function () {
+      if (!sp) return; var svg = o.querySelector('#pinSvg'), be = o.querySelector('#pinBand');
+      svg.innerHTML = band.poly ? '<polygon points="' + band.poly + '"/>' : ''; be.style.display = 'none';
+      if (!band.poly && !band.none) { be.style.top = (band.y[0] / 10) + '%'; be.style.height = Math.max(1.5, (band.y[1] - band.y[0]) / 10) + '%'; be.style.display = 'block'; }
+      if (img.clientHeight) { var top = img.clientHeight * band.y[0] / 1000 - ph.clientHeight * .38; if (ph.scrollTo) ph.scrollTo({ top: Math.max(0, top), behavior: sp.pinB ? 'smooth' : 'auto' }); else ph.scrollTop = Math.max(0, top); }
+      sp.pinB = true;
+    };
+    if (img.dataset.id !== id) { img.dataset.id = id; var c = sp.pinSrc; if (c && c.id === id) { img.onload = show; img.src = c.u; } else idbGet('shopimg-' + id).then(function (u) { if (!u) return; sp.pinSrc = { id: id, u: u }; img.onload = show; img.src = u; }); }
+    else if (img.complete && img.naturalHeight) show(); else img.onload = show;
+  }
+  function expFollow(o, d) {
+    var ph = o.querySelector('#pinPh'); if (!ph) return; var busy = false, cur = null;
+    var pick = function () {
+      busy = false; if (!sp || !ph.isConnected) { o.onscroll = null; return; }
+      var i = sp.ei != null ? sp.ei : null;
+      if (i == null) { var lim = ph.getBoundingClientRect().bottom + 6, rows = o.querySelectorAll('[data-exi]'); for (var j = 0; j < rows.length; j++) if (rows[j].getBoundingClientRect().bottom > lim) { i = +rows[j].dataset.exi; break; } if (i == null && rows.length) i = +rows[rows.length - 1].dataset.exi; }
+      o.querySelectorAll('.exr.pinon').forEach(function (x) { x.classList.remove('pinon'); }); var el = o.querySelector('[data-exi="' + i + '"]'); if (el) el.classList.add('pinon');
+      if (i != null && i !== cur) { cur = i; pinShow(o, d, expBand(d, i)); }
+    };
+    o.onscroll = function () { if (!busy) { busy = true; requestAnimationFrame(pick); } };
+    sp.pinB = false; pick();
+    o.querySelectorAll('[data-exn]').forEach(function (el) { el.addEventListener('focus', function () { cur = +el.dataset.exn; pinShow(o, d, expBand(d, cur)); }); });
+  }
+  // your own cost per bottle, replacing what the indents give from a date on
+  function costOvSet(key, c, from) {
+    var x = regItem(key); if (!x) return; var s2 = shop(), old = {};
+    Object.keys(s2.days).forEach(function (k) { var d = s2.days[k]; if (d.status === 'closed' && d.grid) { var pr = profitRows(d, k); old[k] = pr.avg != null ? Math.round(pr.avg * 10) / 10 : null; } });
+    if (c == null) delete x.costOv; else x.costOv = { c: c, d: from || '', at: dkey(new Date()) };
+    var n = 0;
+    Object.keys(old).forEach(function (k) { var d = s2.days[k], pr = profitRows(d, k); if (pr.avg == null) return; var np = Math.round(pr.avg * 10) / 10; if (np === old[k] || (d.pct != null && old[k] != null && Math.abs(d.pct - old[k]) > .06)) return; d.pct = np; d.profit = (d.sales || 0) * np / 100; d.net = d.profit - (d.expTotal || 0); n++; });
+    save(); return n;
+  }
+  function costEditPrompt(key, after) {
+    var x = regItem(key); if (!x) return; var c = costFor(x.item, x.size), hs = costHist(resolveKey(key)), last = hs[hs.length - 1];
+    var v = prompt('Cost per bottle for ' + x.item + ' ' + x.size + ' ml (₹).' + (last ? ' The indent of ' + (last.d || '—') + ' gives ₹' + last.c.toFixed(2) + (last.tcs ? ' incl. TCS' : '') + '.' : '') + ' Leave empty to use the indent cost again.', c ? c.c.toFixed(2) : '');
+    if (v == null) return; v = String(v).trim();
+    var n = costOvSet(key, v === '' ? null : num(v), last ? last.d : '');
+    toast(v === '' ? 'Back to the indent cost' : 'Cost saved' + (n ? ' · ' + n + ' closed day' + (n > 1 ? 's' : '') + ' recalculated' : '')); if (after) after();
+  }
   // --- the day screen: photos + sheet + close the day ---
   function openShopDay(k) {
     if (!PL) loadPL().then(function () { if (sp && sp.k === k) drawShopDay(); });
@@ -6917,7 +6981,7 @@
       'If the photo is too blurry to read or is not a sales sheet, set "readable" to false.\n' +
       'In "notes" give up to 3 short, general observations about HOW this person writes (for example "a dash means 0", "½ next to a beer means 650 ml", "cases and bottles written as 2-6"), only if clearly seen on this page.\n' +
       shopHints() +
-      'Reply JSON: {"readable":true,"date":"YYYY-MM-DD"|null,"rows":[{"sl":1,"item":"brand","size":"750","open":number|null,"recv":number|null,"total":number|null,"sales":number|null,"rate":number|null,"amount":number|null,"close":number|null,"remarks":"text"}],"expenses":[{"name":"text","amount":number}],"written":{"sales":number|null,"expenses":number|null,"balance":number|null},"notes":["..."]}';
+      'Reply JSON: {"readable":true,"date":"YYYY-MM-DD"|null,"rows":[{"sl":1,"item":"brand","size":"750","open":number|null,"recv":number|null,"total":number|null,"sales":number|null,"rate":number|null,"amount":number|null,"close":number|null,"remarks":"text"}],"expenses":[{"name":"text","amount":number,"ey":[800,830],"page":0}],"written":{"sales":number|null,"expenses":number|null,"balance":number|null},"notes":["..."]}';
   }
   function teachWake(on) {
     if (on) { if (TT.lock || !('wakeLock' in navigator)) return; navigator.wakeLock.request('screen').then(function (w) { TT.lock = w; w.addEventListener('release', function () { TT.lock = null; }); }).catch(function () {}); }
@@ -8150,6 +8214,87 @@
   var lastDay = todayNum();
   document.addEventListener('visibilitychange', function () { if (!document.hidden && todayNum() !== lastDay) { lastDay = todayNum(); ui.sel = null; render(); } });
 
+  // ---------- v54: back and forward between screens, and come back to where you were ----------
+  var NAV = { stack: [], i: -1, n: 0, applying: false, skip: 0, hold: true };
+  try { var nv0 = JSON.parse(sessionStorage.getItem('attention.nav') || 'null'); if (nv0 && nv0.stack) { NAV.stack = nv0.stack; NAV.i = nv0.i; NAV.n = nv0.n; NAV.boot = true; } } catch (e) {}
+  function navKeep() { try { sessionStorage.setItem('attention.nav', JSON.stringify({ stack: NAV.stack, i: NAV.i, n: NAV.n })); } catch (e) {} }
+  function navSnap() {
+    var s = { tab: ui.tab, sheet: ui.sheet ? ui.sheet.kind + (ui.sheet.arg ? ':' + ui.sheet.arg : '') : null, bill: typeof bp !== 'undefined' && bp ? bp.id : null, day: null };
+    if (sp) s.day = { k: sp.k, step: sp.step, view: sp.view, row: sp.row, fld: sp.fld, nr: sp.nr, sqr: sp.sqr, inkRow: sp.inkRow, ei: sp.ei, rowBack: sp.rowBack, flat: sp.flat ? { ids: sp.flat.ids, i: sp.flat.i } : null };
+    return s;
+  }
+  function navKey(s) { var d = s.day; return [s.tab, s.sheet || '', s.bill || '', d ? d.k + '/' + d.step + '/' + (d.step === 'sheet' ? d.view : '') : ''].join('|'); }
+  function navNote() {
+    if (NAV.applying || NAV.hold) return; if (NAV.skip > 0) { NAV.dirty = true; return; } var s = navSnap(), k = navKey(s), top = NAV.stack[NAV.i];
+    if (NAV.boot) { NAV.boot = false; var hid = history.state && history.state.nav, at = -1; NAV.stack.forEach(function (x, j) { if (x.id === hid) at = j; }); if (at >= 0) { NAV.i = at; top = NAV.stack[at]; if (top.k === k) { top.s = s; navKeep(); resumeSave(); return; } } }
+    if (top && top.k === k) { top.s = s; navKeep(); resumeSave(); return; }
+    // closing something = going back, when the screen before is the one we land on
+    var prev = NAV.stack[NAV.i - 1];
+    if (prev && prev.k === k) { NAV.i--; prev.s = s; NAV.skip++; NAV.dirty = false; try { history.back(); } catch (e) { NAV.skip--; } setTimeout(function () { if (NAV.skip > 0) { NAV.skip = 0; if (NAV.dirty) { NAV.dirty = false; navNote(); } } }, 700); resumeSave(); return; }
+    NAV.stack = NAV.stack.slice(0, NAV.i + 1); var id = ++NAV.n; NAV.stack.push({ k: k, s: s, id: id }); NAV.i = NAV.stack.length - 1;
+    try { if (NAV.i === 0 && !(history.state && history.state.nav)) history.replaceState({ nav: id }, ''); else history.pushState({ nav: id }, ''); } catch (e) {}
+    navKeep(); resumeSave();
+  }
+  function navApply(s) {
+    NAV.applying = true;
+    try {
+      if (!s.day && sp) closeShopDay();
+      if (!s.bill && typeof bp !== 'undefined' && bp) closeBill();
+      var cur = ui.sheet ? ui.sheet.kind + (ui.sheet.arg ? ':' + ui.sheet.arg : '') : null;
+      if (!s.sheet && cur) closeSheet(true);
+      if (ui.tab !== s.tab) { ui.tab = s.tab; }
+      render();
+      if (s.sheet && s.sheet !== cur) openSheet(s.sheet);
+      if (s.bill && (typeof bp === 'undefined' || !bp || bp.id !== s.bill) && bills()[s.bill]) openBill(s.bill);
+      if (s.day && shop().days[s.day.k]) {
+        if (!sp || sp.k !== s.day.k) openShopDay(s.day.k);
+        var D = s.day; ['step', 'view', 'row', 'fld', 'nr', 'sqr', 'inkRow', 'ei', 'rowBack'].forEach(function (f) { if (D[f] !== undefined) sp[f] = D[f]; });
+        if (D.flat) sp.flat = { ids: D.flat.ids, i: D.flat.i, pts: null }; else if (D.step === 'flat' || D.step === 'rows') sp.step = 'sheet';
+        sp.fresh = true; drawShopDay();
+      } else if (sp && s.day) closeShopDay();
+    } catch (e) { } finally { NAV.applying = false; }
+  }
+  window.addEventListener('popstate', function (e) {
+    if (NAV.skip > 0) { NAV.skip--; if (!NAV.skip && NAV.dirty) { NAV.dirty = false; navNote(); } return; }
+    var id = e.state && e.state.nav; if (!id) return;
+    for (var i = 0; i < NAV.stack.length; i++) if (NAV.stack[i].id === id) { NAV.i = i; navApply(NAV.stack[i].s); navKeep(); resumeSave(); return; }
+  });
+  // remember the screen, its scroll and the field you were on
+  var resumeT = null;
+  function resumeSave() {
+    clearTimeout(resumeT);
+    resumeT = setTimeout(function () {
+      try { var ov = document.getElementById('overlay'), sb = document.querySelector('#sheet .sbody'); localStorage.setItem('attention.resume', JSON.stringify({ t: Date.now(), s: navSnap(), y: ov && !ov.hidden ? ov.scrollTop : 0, sy: sb && ui.sheet ? sb.scrollTop : 0, wy: window.scrollY })); } catch (e) {}
+    }, 150);
+  }
+  function resumeApply() {
+    var hid = history.state && history.state.nav; if (hid) for (var j = 0; j < NAV.stack.length; j++) if (NAV.stack[j].id === hid) { var rr = null; try { rr = JSON.parse(localStorage.getItem('attention.resume') || 'null'); } catch (e) {} NAV.i = j; var sv = NAV.stack[j].s; navApply(sv); NAV.boot = false; setTimeout(function () { var ov = document.getElementById('overlay'); if (rr && sv.day && ov && navKey(rr.s) === navKey(sv)) ov.scrollTop = rr.y || 0; }, 120); return true; }
+    var r = null; try { r = JSON.parse(localStorage.getItem('attention.resume') || 'null'); } catch (e) {}
+    if (!r || !r.s || Date.now() - r.t > 24 * 3600e3) return false;
+    var s = r.s; if (!s.sheet && !s.day && !s.bill && s.tab === ui.tab) { if (r.wy) window.scrollTo(0, r.wy); return false; }
+    navApply(s);
+    setTimeout(function () { var ov = document.getElementById('overlay'), sb = document.querySelector('#sheet .sbody'); if (s.day && ov) ov.scrollTop = r.y || 0; if (s.sheet && sb) sb.scrollTop = r.sy || 0; if (!s.day && !s.sheet && r.wy) window.scrollTo(0, r.wy); }, 120);
+    return true;
+  }
+  document.addEventListener('visibilitychange', function () { if (document.hidden) { clearTimeout(resumeT); try { var ov = document.getElementById('overlay'), sb = document.querySelector('#sheet .sbody'); localStorage.setItem('attention.resume', JSON.stringify({ t: Date.now(), s: navSnap(), y: ov && !ov.hidden ? ov.scrollTop : 0, sy: sb && ui.sheet ? sb.scrollTop : 0, wy: window.scrollY })); } catch (e) {} } });
+  window.addEventListener('scroll', function () { resumeSave(); }, { passive: true });
+  document.addEventListener('scroll', function (e) { if (e.target && (e.target.id === 'overlay' || (e.target.classList && e.target.classList.contains('sbody')))) resumeSave(); }, true);
+  // swipe right = back, swipe left = forward (away from photos, grids and anything that scrolls sideways)
+  (function () {
+    var x0 = null, y0 = 0, t0 = 0, ok = false;
+    var blocked = function (el) { while (el && el !== document.body) { if (el.matches && el.matches('input,textarea,select,.shgrid,.pinsc,.nmph,.flbox,.shphoto,.rwbox,.sqimg,.inkgal,.sheet .handle,[data-noswipe]')) return true; if (el.scrollWidth > el.clientWidth + 4 && /(auto|scroll)/.test(getComputedStyle(el).overflowX)) return true; el = el.parentElement; } return false; };
+    document.addEventListener('touchstart', function (e) { if (e.touches.length !== 1) { x0 = null; return; } var t = e.touches[0]; x0 = t.clientX; y0 = t.clientY; t0 = Date.now(); ok = !blocked(e.target) && x0 > 18 && x0 < window.innerWidth - 18; }, { passive: true });
+    document.addEventListener('touchend', function (e) {
+      if (x0 == null || !ok) { x0 = null; return; } var t = e.changedTouches[0], dx = t.clientX - x0, dy = t.clientY - y0; x0 = null;
+      if (Date.now() - t0 > 600 || Math.abs(dx) < 110 || Math.abs(dy) > 45) return;
+      if (dx > 0) { if (NAV.i > 0) history.back(); } else if (NAV.i < NAV.stack.length - 1) history.forward();
+    }, { passive: true });
+  })();
+  (function () {
+    var w = function (name, f) { return function () { var r = f.apply(this, arguments); navNote(); return r; }; };
+    render = w('render', render); drawSheet = w('drawSheet', drawSheet); drawShopDay = w('drawShopDay', drawShopDay); closeSheet = w('closeSheet', closeSheet); closeShopDay = w('closeShopDay', closeShopDay);
+    if (typeof drawBill === 'function') drawBill = w('drawBill', drawBill); if (typeof closeBill === 'function') closeBill = w('closeBill', closeBill);
+  })();
   render();
   loadNotes().then(updateEye);
   syncGoal();
@@ -8164,4 +8309,6 @@
   else if (/[?&]go=(sheet|bill)/.test(location.search)) { var gk2 = /go=bill/.test(location.search) ? 'bill' : 'sheet'; history.replaceState(history.state, '', location.pathname); ui.tab = 'shop'; render(); openSheet(gk2 === 'sheet' ? 'shoppick' : 'quickcam:' + gk2); }
   else if (/[?&]breathe=1/.test(location.search)) { history.replaceState(history.state, '', location.pathname); openBreath(); }
   else if (/[?&]checkin=1/.test(location.search)) openCheckin();
+  else resumeApply();
+  setTimeout(function () { NAV.hold = false; navNote(); }, 0);
 })();
