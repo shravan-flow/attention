@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '54';
+  var APP_VERSION = '55';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -5813,6 +5813,36 @@
       .catch(function (e) { indJob = { stage: 'Couldn’t read it: ' + (e.message || e), err: true }; drawSheet(); });
   }
   var indRes = null;
+  // every item found on your indents: its latest cost per bottle, with TCS, and your own price if you set one
+  function indItemList() {
+    var s2 = shop(), ind = s2.indents || {}, seen = {}, out = [];
+    Object.keys(ind).map(function (id) { return ind[id]; }).sort(function (a, b) { return (b.date || '') < (a.date || '') ? -1 : 1; }).forEach(function (n) {
+      var f = indTcs(n), own = tcsFactor(n) > 1;
+      (n.items || []).forEach(function (it) {
+        var mk = normName(it.name) + '|' + it.ml; if (seen[mk]) { seen[mk].n++; return; }
+        var per = num(it.per) || BPC[+it.ml] || 0, base = it.rate && per ? it.rate / per : null, key = (s2.map || {})[mk], x = key && key !== '__x' ? regItem(key) : null;
+        out.push(seen[mk] = { mk: mk, full: it.name, ml: it.ml, d: n.date, rate: it.rate, per: per, base: base, f: f, own: own, c: base != null ? base * f : null, key: x ? resolveKey(key) : null, x: x, n: 1 });
+      });
+    });
+    return out.sort(function (a, b) { return (a.x ? a.x.item : a.full).localeCompare(b.x ? b.x.item : b.full) || (+b.ml - +a.ml); });
+  }
+  function indItemRows() {
+    var q = (shopUi.indq || '').toLowerCase().trim(), L = indItemList().filter(function (e) { return !q || e.full.toLowerCase().indexOf(q) >= 0 || (e.x && e.x.item.toLowerCase().indexOf(q) >= 0) || e.ml.indexOf(q) === 0; });
+    if (!L.length) return '<p class="muted small">' + (q ? 'Nothing matches “' + esc(shopUi.indq) + '”.' : 'No items yet.') + '</p>';
+    return L.slice(0, 200).map(function (e) {
+      var ov = e.x && e.x.costOv, fmt = function (k) { return k ? new Date(k + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short', year: '2-digit' }) : '—'; };
+      return '<div class="indit"><div class="row between" style="gap:8px;align-items:flex-start"><span class="t"><b>' + (e.x ? esc(e.x.item) + ' ' + esc(e.ml) : '<span class="muted">not linked</span> ' + esc(e.ml)) + '</b><small>' + esc(e.full) + '</small></span>' + (e.key ? '<button type="button" class="nib sm" data-indc="' + esc(e.key) + '">✎ Cost</button>' : '<button type="button" class="nib sm" data-inda="' + esc(e.mk) + '">+ Add</button>') + '</div>' +
+        '<div class="indc"><span>' + (e.base != null ? inr(e.base, 2) + '<small>indent cost</small>' : '—<small>no rate</small>') + '</span><span>+' + ((e.f - 1) * 100).toFixed(e.own ? 2 : 0) + '%<small>' + (e.own ? 'TCS on the indent' : 'TCS') + '</small></span><span class="' + (ov ? 'old' : 'hi') + '">' + (e.c != null ? inr(e.c, 2) : '—') + '<small>with TCS</small></span>' + (ov ? '<span class="hi">' + inr(ov.c, 2) + '<small>your price</small></span>' : '') + '</div>' +
+        '<small class="muted">' + (e.rate ? inr(e.rate, 2) + ' a case of ' + e.per : '') + ' · latest ' + fmt(e.d) + (e.n > 1 ? ' · on ' + e.n + ' indents' : '') + '</small></div>';
+    }).join('') + (L.length > 200 ? '<p class="muted small">Showing 200 of ' + L.length + '. Search to find the rest.</p>' : '');
+  }
+  function indItemsHtml() {
+    var n = indItemList().length;
+    return '<span class="cap">Items found on your indents · ' + n + '</span><input class="text" id="indQ" placeholder="Search: name or ml" value="' + esc(shopUi.indq || '') + '" autocomplete="off"><div class="stack" style="gap:8px" id="indItems">' + indItemRows() + '</div><p class="muted small" style="margin:0">Cost per bottle = rate per case ÷ bottles per case, plus TCS (' + tcsPct() + '% unless the indent shows its own TCS; change it in Shop settings). Tap ✎ Cost to type your own price; it is used for the profit from that indent’s date.</p>';
+  }
+  function bindIndRows(r) {
+    r.querySelectorAll('[data-inda]').forEach(function (b) { b.onclick = function () { var e = indItemList().filter(function (x) { return x.mk === b.dataset.inda; })[0]; if (!e) return; var nn = prompt('Short name for “' + e.full + '” (2–3 words). Type one of your names to join it:', shortFor(e.full)); if (!nn || !nn.trim()) return; var s2 = shop(), k = regAdd(titleCase(nn.trim()), e.ml, 'indent', { full: e.full }); if (!k) return; var x = regItem(k); x.fulls = x.fulls || []; if (x.fulls.indexOf(e.full) < 0) x.fulls.push(e.full); s2.map[e.mk] = k; if (s2.delNames) delete s2.delNames[normName(x.item)]; save(); var box = r.querySelector('#indItems'); if (box) { box.innerHTML = indItemRows(); bindIndRows(r); } toast('Added as ' + x.item + ' ' + x.size); }; });
+    r.querySelectorAll('[data-indc]').forEach(function (b) { b.onclick = function () { costEditPrompt(b.dataset.indc, function () { var box = r.querySelector('#indItems'); if (box) { box.innerHTML = indItemRows(); bindIndRows(r); } }); }; }); }
   function shopIndentSheet() {
     var s2 = shop(), ind = s2.indents || {}, ids = Object.keys(ind), items = {}, dates = [];
     ids.forEach(function (id) { if (ind[id].date) dates.push(ind[id].date); (ind[id].items || []).forEach(function (it) { items[normName(it.name) + '|' + it.ml] = 1; }); });
@@ -5825,10 +5855,13 @@
     if ((s2.askq || []).length) h += '<button type="button" class="btn coral" data-sheet="shopsame">Confirm ' + s2.askq.length + ' name' + (s2.askq.length > 1 ? 's' : '') + ' →</button>';
     h += '<input type="file" id="indFile" accept=".pdf,.xlsx,.xls,.csv,image/*,application/pdf" multiple hidden><button type="button" class="btn jungle" id="indUp"' + (indJob && !indJob.err ? ' disabled' : '') + '>⤒ Upload indent file' + (ids.length ? 's (adds to these)' : '') + '</button>';
     if (!hasAI()) h += '<div class="notice">Reading indents needs your free Gemini key (Settings → Visualization).</div>';
-    if (ids.length) h += '<div class="list">' + ids.map(function (id) { return ind[id]; }).sort(function (a, b) { return (b.date || '') < (a.date || '') ? -1 : 1; }).slice(0, 12).map(function (n) { var c = n.items.reduce(function (a, it) { return a + it.cases; }, 0); var f = tcsFactor(n); return '<div class="r"><span class="t">' + esc(n.no || 'Indent') + '<small>' + (n.date ? new Date(n.date + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short', year: 'numeric' }) + ' · ' : '') + n.items.length + ' items · ' + c + ' cases' + (f > 1 ? ' · TCS ' + ((f - 1) * 100).toFixed(2) + '% shared over the items' : ' · no TCS found') + '</small></span></div>'; }).join('') + '</div>';
+    if (ids.length) h += indItemsHtml();
+    if (ids.length) h += '<span class="cap">Indents</span><div class="list">' + ids.map(function (id) { return ind[id]; }).sort(function (a, b) { return (b.date || '') < (a.date || '') ? -1 : 1; }).slice(0, 12).map(function (n) { var c = n.items.reduce(function (a, it) { return a + it.cases; }, 0); var f = tcsFactor(n); return '<div class="r"><span class="t">' + esc(n.no || 'Indent') + '<small>' + (n.date ? new Date(n.date + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short', year: 'numeric' }) + ' · ' : '') + n.items.length + ' items · ' + c + ' cases' + (f > 1 ? ' · TCS ' + ((f - 1) * 100).toFixed(2) + '% shared over the items' : ' · no TCS on it: ' + tcsPct() + '% added') + '</small></span></div>'; }).join('') + '</div>';
     return { title: 'Past indents', cap: ids.length ? ids.length + ' indents' : '', html: '<div class="stack" style="gap:12px">' + h + '</div>', bind: function (r) {
       var f = r.querySelector('#indFile'); r.querySelector('#indUp').onclick = function () { if (!hasAI()) { toast('Add your Gemini key first'); return; } f.click(); };
       f.onchange = function () { var fs = [].slice.call(f.files); f.value = ''; if (fs.length) importIndents(fs); };
+      var iq = r.querySelector('#indQ'); if (iq) iq.addEventListener('input', function () { shopUi.indq = iq.value; var box = r.querySelector('#indItems'); box.innerHTML = indItemRows(); bindIndRows(r); });
+      bindIndRows(r);
       r.querySelectorAll('[data-indr]').forEach(function (b) { b.onclick = function () { var x = indRes.list[+b.dataset.indr], it = regItem(x.key); if (!it) return; var nn = prompt('Short name for “' + x.full + '” (2–3 words). Type one of your names to join it:', it.item); if (!nn || !nn.trim()) return; var old = it.item, nk = regRename(x.key, titleCase(nn.trim())); x.key = nk; relabelDays(nk); if (old !== regItem(nk).item) inkLoad().then(function () { inkMove(old, regItem(nk).item); }); var ex = regAll().some(function (y) { return y.key !== nk && normName(y.item) === normName(regItem(nk).item); }); x.kind = ex ? 'size' : 'new'; save(); drawSheet(); }; });
     } };
   }
@@ -6909,8 +6942,8 @@
   }
   function shopSetSheet() {
     var s2 = shop();
-    var h = '<label class="lab rng">Shop name<input class="text" id="ssName" value="' + esc(s2.name) + '"></label><label class="lab rng">Usual profit %<input class="text" id="ssPct" inputmode="decimal" value="' + (s2.pct == null ? '' : s2.pct) + '" placeholder="e.g. 20"></label><label class="lab rng">Handwriting match needed (%)<input class="text" id="ssInk" inputmode="numeric" value="' + inkThr() + '"><small class="muted">80 = his writing must look at least 80% like earlier samples to count as the same name</small></label><button type="button" class="btn jungle" id="ssSave">Save</button><div class="list" style="margin-top:8px">' + row({ t: '🧹 Start fresh', sub: 'clear the sheets and learning, keep the items from your indents', sheet: 'shopfresh' }) + '</div>';
-    return { title: 'Shop settings', cap: '', html: h, bind: function (r) { r.querySelector('#ssSave').onclick = function () { s2.name = r.querySelector('#ssName').value.trim() || 'My shop'; var p = r.querySelector('#ssPct').value.trim(); s2.pct = p === '' ? null : num(p); var ik = num(r.querySelector('#ssInk').value); s2.inkThr = ik >= 40 && ik <= 99 ? ik : 80; save(); closeSheet(); render(); }; } };
+    var h = '<label class="lab rng">Shop name<input class="text" id="ssName" value="' + esc(s2.name) + '"></label><label class="lab rng">Usual profit %<input class="text" id="ssPct" inputmode="decimal" value="' + (s2.pct == null ? '' : s2.pct) + '" placeholder="e.g. 20"></label><label class="lab rng">TCS added to indent costs (%)<input class="text" id="ssTcs" inputmode="decimal" value="' + tcsPct() + '"><small class="muted">used when an indent doesn’t show its own TCS amount</small></label><label class="lab rng">Handwriting match needed (%)<input class="text" id="ssInk" inputmode="numeric" value="' + inkThr() + '"><small class="muted">80 = his writing must look at least 80% like earlier samples to count as the same name</small></label><button type="button" class="btn jungle" id="ssSave">Save</button><div class="list" style="margin-top:8px">' + row({ t: '🧹 Start fresh', sub: 'clear the sheets and learning, keep the items from your indents', sheet: 'shopfresh' }) + '</div>';
+    return { title: 'Shop settings', cap: '', html: h, bind: function (r) { r.querySelector('#ssSave').onclick = function () { s2.name = r.querySelector('#ssName').value.trim() || 'My shop'; var p = r.querySelector('#ssPct').value.trim(); s2.pct = p === '' ? null : num(p); var ik = num(r.querySelector('#ssInk').value); s2.inkThr = ik >= 40 && ik <= 99 ? ik : 80; var tc = r.querySelector('#ssTcs').value.trim(); s2.tcsPct = tc === '' ? 10 : Math.max(0, Math.min(50, num(tc))); save(); closeSheet(); render(); }; } };
   }
 
   // ---------- Teach from old sheets: read many past sheets once, learn his names, habits and usual list ----------
@@ -7784,12 +7817,14 @@
     var inv = num(x.invoiceValue) || (num(x.tcs) ? tot + num(x.tcs) : 0);
     return tot && inv > tot && inv / tot < 1.2 ? inv / tot : 1;
   }
+  function tcsPct() { var t = shop().tcsPct; return t == null ? 10 : t; }
+  function indTcs(n) { var f = tcsFactor(n); return f > 1 ? f : 1 + tcsPct() / 100; }
   function costHist(key) {
     var s2 = shop(), out = []; key = resolveKey(key); var me = s2.items[key], keys = {}; keys[key] = 1;
     if (me) Object.keys(me.alias || {}).forEach(function (a) { keys[regKey(a, me.size)] = 1; });
     var per = function (x) { return num(x.per) || BPC[+String(x.ml || (me && me.size) || '').replace(/[^0-9]/g, '')] || null; };
     Object.keys(bills()).forEach(function (id) { var b = s2.bills[id]; if (b.status !== 'added' && b.status !== 'pending') return; var f = tcsFactor(b); (b.items || []).forEach(function (it) { if (keys[resolveKey(it.key)] && it.rate && per(it)) out.push({ d: b.date, c: it.rate / per(it) * f, base: it.rate / per(it), tcs: f > 1, src: 'bill' }); }); });
-    Object.keys(s2.indents || {}).forEach(function (id) { var n = s2.indents[id], f = tcsFactor(n); (n.items || []).forEach(function (it) { if (keys[resolveKey((s2.map || {})[normName(it.name) + '|' + it.ml])] && it.rate && per(it)) out.push({ d: n.date || '', c: it.rate / per(it) * f, base: it.rate / per(it), tcs: f > 1, src: 'indent' }); }); });
+    Object.keys(s2.indents || {}).forEach(function (id) { var n = s2.indents[id], f = indTcs(n); (n.items || []).forEach(function (it) { if (keys[resolveKey((s2.map || {})[normName(it.name) + '|' + it.ml])] && it.rate && per(it)) out.push({ d: n.date || '', c: it.rate / per(it) * f, base: it.rate / per(it), tcs: f > 1, src: 'indent' }); }); });
     return out.sort(function (a, b) { return a.d < b.d ? -1 : 1; });
   }
   function perCase(key) { var x = regItem(key), best = null; Object.keys(bills()).forEach(function (id) { (shop().bills[id].items || []).forEach(function (it) { if (resolveKey(it.key) === key && it.per) best = it.per; }); }); return best || (x && BPC[+x.size]) || 12; }

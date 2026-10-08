@@ -1146,3 +1146,8 @@ code{font-family:var(--mono);font-size:12px;background:var(--sand2);padding:1px 
 /* v54 */
 button.recost{display:block;width:100%;border:0;font:inherit;color:inherit;text-align:left;cursor:pointer}
 .exr.pinon{box-shadow:inset 3px 0 0 #12A39A}
+/* v55: items on your indents */
+.indit{background:#fff;border-radius:16px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+.indit .t{display:flex;flex-direction:column;gap:2px;min-width:0}.indit .t b{font-size:14.5px}.indit .t small{font-size:11px;color:var(--sub);line-height:1.35}
+.indc{display:flex;gap:6px}.indc span{flex:1;background:#FBF3E6;border-radius:10px;padding:6px 8px;font-size:13.5px;font-weight:700;display:flex;flex-direction:column;gap:1px}
+.indc small{font-size:9.5px;font-weight:500;color:var(--sub)}.indc .hi{background:#CDEFEA;color:#0F4D40}.indc .old{text-decoration:line-through;color:var(--sub)}
