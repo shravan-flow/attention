@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '50';
+  var APP_VERSION = '51';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -5306,7 +5306,7 @@
   function regAdd(name, size, src, extra) {
     bills(); var s2 = shop(), sz = String(size || '').replace(/[^0-9]/g, ''), key = regKey(name, sz);
     if (!String(name || '').trim()) return null;
-    if (!s2.items[key]) s2.items[key] = { item: String(name).trim(), size: sz, src: src || 'sheet', alias: {}, at: dkey(new Date()) };
+    if (!s2.items[key]) { s2.items[key] = { item: String(name).trim(), size: sz, src: src || 'sheet', alias: {}, at: dkey(new Date()) }; var nc = (s2.nameCfg || {})[normName(name)]; if (nc && sz && nc.ml.indexOf(sz) < 0) nc.ml.push(sz); }
     var x = s2.items[key]; x.alias = x.alias || {}; if (extra) Object.keys(extra).forEach(function (f) { if (extra[f] != null) x[f] = extra[f]; });
     return key;
   }
@@ -5337,7 +5337,7 @@
   function regSync(skip) {
     var s2 = shop(); bills();
     // names from the sheets, except rows still waiting for an answer and the sheet being read right now
-    Object.keys(s2.days).forEach(function (k) { var d = s2.days[k], g = d.grid; if (!g || k === skip || d.status === 'reading') return; var pend = {}; (d.ask || []).forEach(function (a) { pend[a.r] = 1; }); dataRows(g).forEach(function (r) { if (pend[r] || (d.learn && !(d.named || {})[r])) return; var n = String(g[r][SC.item] || '').trim(), sz = String(g[r][SC.size] || '').replace(/[^0-9]/g, ''); if (n && sz && !s2.items[regKey(n, sz)]) regAdd(n, sz, 'sheet'); }); });
+    Object.keys(s2.days).forEach(function (k) { var d = s2.days[k], g = d.grid; if (!g || k === skip || d.status === 'reading') return; var pend = {}; (d.ask || []).forEach(function (a) { pend[a.r] = 1; }); dataRows(g).forEach(function (r) { if (pend[r] || (d.learn && !(d.named || {})[r])) return; var n = String(g[r][SC.item] || '').trim(), sz = String(g[r][SC.size] || '').replace(/[^0-9]/g, ''); if (n && sz && !s2.items[regKey(n, sz)] && !(s2.delNames || {})[normName(n)]) regAdd(n, sz, 'sheet'); }); });
     if (!s2.regv) {
       s2.regv = 1;
       Object.keys(s2.gloss || {}).forEach(function (raw) { var to = s2.gloss[raw].to; regAll().forEach(function (x) { if (normName(x.item) === normName(to)) regAlias(x.key, raw, s2.gloss[raw].n); }); });
@@ -5750,7 +5750,7 @@
       // each new indent line joins one of your short names, or adds a size or a new name
       var lst = [], ad = 0, lk = 0;
       Object.keys(seen).forEach(function (mk) {
-        if (s2.map[mk] && regItem(s2.map[mk])) return; var e = seen[mk];
+        if (s2.map[mk] === '__x' || (s2.map[mk] && regItem(s2.map[mk]))) return; var e = seen[mk];
         var byFull = regAll().filter(function (x) { return (x.fulls || []).concat(x.full ? [x.full] : []).some(function (f) { return normName(f) === normName(e.name); }); })[0];
         var short = byFull ? byFull.item : shortFor(e.name), same = regAll().filter(function (x) { return normName(x.item) === normName(short); }), hit = same.filter(function (x) { return x.size === e.ml; })[0];
         var kind = hit ? 'yours' : same.length ? 'size' : 'new', k = hit ? hit.key : regAdd(short, e.ml, 'indent', { full: e.name });
@@ -5877,6 +5877,7 @@
         var x = s2.items[k]; x.fulls = x.fulls || []; if (x.fulls.indexOf(it.name) < 0) x.fulls.push(it.name); s2.map[mk] = k;
       });
     });
+    s2.nameCfg = {}; s2.delNames = {}; myNames();
     s2.fresh = { from: from, at: dkey(new Date()), learn: 15 };
     shopUi.month = from.slice(0, 7); save();
   }
@@ -5905,10 +5906,39 @@
     } };
   }
   // your names: one short name per brand, with its ml sizes
+  // the standard sizes: each name keeps the ones you chose (placeholders until they're in stock) plus every size it has had
+  var LIQML = ['1000', '750', '375', '180', '90', '60'], BEERML = ['650', '500', '330'];
+  function guessKind(name, fulls, sizes) {
+    var t = (name + ' ' + (fulls || []).join(' ')).toLowerCase();
+    if (/\b(beer|lager|ale|bira|kingfisher|haywards|tuborg|budweiser|carlsberg|heineken|knock ?out|kf)\b/.test(t)) return 'beer';
+    if (sizes && sizes.length && sizes.every(function (z) { return BEERML.indexOf(z) >= 0; })) return 'beer';
+    return 'liquor';
+  }
+  function ncfg(name, make, real, fulls) {
+    var s2 = shop(), C = s2.nameCfg = s2.nameCfg || {}, k = normName(name); if (!k) return null;
+    if (!C[k] && make) C[k] = { kind: guessKind(name, fulls, real), ml: (real || []).slice() };
+    return C[k] || null;
+  }
+  function stdFor(kind) { return kind === 'beer' ? BEERML : LIQML; }
+  function sortMl(a) { return a.slice().sort(function (x, y) { return +y - +x; }); }
   function myNames() {
-    var m = {};
-    regAll().forEach(function (x) { var k = normName(x.item); var e = m[k] = m[k] || { name: x.item, sizes: [], fulls: [], keys: [] }; if (x.size && e.sizes.indexOf(x.size) < 0) e.sizes.push(x.size); e.keys.push(x.key); (x.fulls || (x.full ? [x.full] : [])).forEach(function (f) { if (e.fulls.indexOf(f) < 0) e.fulls.push(f); }); });
-    return Object.keys(m).map(function (k) { var e = m[k]; e.sizes.sort(function (a, b) { return a - b; }); return e; }).sort(function (a, b) { return a.name.localeCompare(b.name); });
+    var m = {}, del = shop().delNames || {};
+    regAll().forEach(function (x) { var k = normName(x.item); if (del[k]) return; var e = m[k] = m[k] || { name: x.item, real: [], fulls: [], keys: [] }; if (x.size && e.real.indexOf(x.size) < 0) e.real.push(x.size); e.keys.push(x.key); (x.fulls || (x.full ? [x.full] : [])).forEach(function (f) { if (e.fulls.indexOf(f) < 0) e.fulls.push(f); }); });
+    return Object.keys(m).map(function (k) {
+      var e = m[k], c = ncfg(e.name, true, e.real, e.fulls); e.cfg = c; e.kind = c.kind;
+      e.real.forEach(function (z) { if (c.ml.indexOf(z) < 0) c.ml.push(z); });
+      e.sizes = sortMl(c.ml); e.real = sortMl(e.real); return e;
+    }).sort(function (a, b) { return a.name.localeCompare(b.name); });
+  }
+  function deleteName(name) {
+    var s2 = shop(), k = normName(name), keys = {};
+    regAll().forEach(function (x) { if (normName(x.item) === k) keys[x.key] = 1; });
+    Object.keys(keys).forEach(function (key) { delete s2.items[key]; });
+    Object.keys(s2.map || {}).forEach(function (mk) { if (keys[resolveKey(s2.map[mk])]) s2.map[mk] = '__x'; });
+    if (s2.nameCfg) delete s2.nameCfg[k];
+    s2.delNames = s2.delNames || {}; s2.delNames[k] = 1;
+    inkLoad().then(function () { var bk = brandKey(name); if (INK && INK[bk]) { INK[bk].forEach(function (x) { idbDel('ink-' + x.id).catch(function () {}); }); delete INK[bk]; inkSave(); } });
+    save();
   }
   function relabelDays(key) {
     var s2 = shop(), x = regItem(key); if (!x) return; key = resolveKey(key);
@@ -5921,6 +5951,9 @@
   }
   function renameName(oldName, newName) {
     newName = titleCase(newName); if (!newName) return;
+    var C = shop().nameCfg = shop().nameCfg || {}, ok = normName(oldName), nk0 = normName(newName);
+    if (C[ok] && ok !== nk0) { if (C[nk0]) C[ok].ml.forEach(function (z) { if (C[nk0].ml.indexOf(z) < 0) C[nk0].ml.push(z); }); else C[nk0] = C[ok]; delete C[ok]; }
+    if (shop().delNames) delete shop().delNames[nk0];
     var xs = regAll().filter(function (x) { return normName(x.item) === normName(oldName); });
     xs.forEach(function (x) { var nk = regRename(x.key, newName); var y = regItem(nk); if (y && x.fulls) { y.fulls = y.fulls || []; x.fulls.forEach(function (f) { if (y.fulls.indexOf(f) < 0) y.fulls.push(f); }); } relabelDays(nk); });
     inkLoad().then(function () { inkMove(oldName, newName); });
@@ -5932,12 +5965,25 @@
     var h = '';
     if (fi) h += '<div class="notice ok">' + (fi.learn ? 'Learning day ' + fi.day + ' of ' + fi.of + ': you type the name of each row, it learns his writing.' : 'Learning done: names are filled in from his writing. Check them on each sheet.') + '</div>';
     h += '<input class="text" id="snq" placeholder="Search your ' + N.length + ' names" value="' + esc(shopUi.nq || '') + '">';
+    h += '<p class="muted small" style="margin:0">Tick the sizes each one comes in. Filled = in your stock or indents; outlined = kept ready for when it comes in. New sizes from indents and sheets are added on their own.</p>';
     h += '<div class="stack" style="gap:8px">' + list.map(function (e) {
-      return '<button type="button" class="snc" data-sheet="shopname:' + esc(e.name) + '"><span class="row between"><b>' + esc(e.name) + '</b><span class="lstag">✎ edit</span></span><span class="snml">' + e.sizes.map(function (s) { return '<i>' + esc(s) + '</i>'; }).join('') + '</span>' + (e.fulls.length ? '<small>from ' + e.fulls.slice(0, 3).map(esc).join(' · ') + (e.fulls.length > 3 ? ' · +' + (e.fulls.length - 3) : '') + '</small>' : '<small>added from a sheet</small>') + '</button>';
+      var std = stdFor(e.kind), all = sortMl(std.concat(e.sizes.filter(function (z) { return std.indexOf(z) < 0; })));
+      return '<div class="snc"><div class="row between" style="gap:8px"><button type="button" class="snn" data-sheet="shopname:' + esc(e.name) + '"><b>' + esc(e.name) + '</b><span class="lstag">✎</span></button><span class="snk">' + [['liquor', '🥃 Liquor'], ['beer', '🍺 Beer']].map(function (kd) { return '<button type="button" data-snk="' + esc(e.name) + '|' + kd[0] + '" class="' + (e.kind === kd[0] ? 'on' : '') + '">' + kd[1] + '</button>'; }).join('') + '</span></div>' +
+        '<div class="snml">' + all.map(function (z) { var real = e.real.indexOf(z) >= 0, on = e.sizes.indexOf(z) >= 0; return '<button type="button" data-snm="' + esc(e.name) + '|' + z + '" class="' + (real ? 'real' : on ? 'on' : '') + '">' + z + '</button>'; }).join('') + '</div>' +
+        (e.fulls.length ? '<small>from ' + e.fulls.slice(0, 2).map(esc).join(' · ') + (e.fulls.length > 2 ? ' · +' + (e.fulls.length - 2) : '') + '</small>' : '<small>added from a sheet</small>') + '</div>';
     }).join('') + '</div>';
     if (!N.length) h += '<p class="muted small">No names yet. Upload your past indents (Shop → Past KSBCL indents), or type names while you enter a sheet.</p>';
-    h += '<p class="muted small">Brands with small name changes (pack, edition) share one name, since you sell them the same way. Keep names to 2–3 words. Tap a name to rename it, or merge it into another.</p>';
-    return { title: 'Your short names', cap: N.length + ' names', html: '<div class="stack" style="gap:10px">' + h + '</div>', bind: function (r) { var i = r.querySelector('#snq'); i.addEventListener('input', function () { shopUi.nq = i.value; var pos = i.selectionStart; drawSheet(); var j = document.getElementById('snq'); if (j) { j.focus(); j.setSelectionRange(pos, pos); } }); } };
+    h += '<p class="muted small">Tap a name to rename it, merge it into another, or delete it. Keep names to 2–3 words.</p>';
+    return { title: 'Your short names', cap: N.length + ' names', html: '<div class="stack" style="gap:10px">' + h + '</div>', bind: function (r) {
+      var i = r.querySelector('#snq'); i.addEventListener('input', function () { shopUi.nq = i.value; var pos = i.selectionStart; drawSheet(); var j = document.getElementById('snq'); if (j) { j.focus(); j.setSelectionRange(pos, pos); } });
+      var keep = function () { var sb = r.closest ? r.closest('.sbody') : null, y = sb ? sb.scrollTop : 0; save(); drawSheet(); if (sb) sb.scrollTop = y; };
+      r.querySelectorAll('[data-snk]').forEach(function (b) { b.onclick = function () { var p = b.dataset.snk.split('|'), c = ncfg(p[0], true); c.kind = p[1]; keep(); }; });
+      r.querySelectorAll('[data-snm]').forEach(function (b) { b.onclick = function () {
+        var p = b.dataset.snm.split('|'), c = ncfg(p[0], true), at = c.ml.indexOf(p[1]);
+        if (b.classList.contains('real')) { toast(p[1] + ' ml is in your stock or indents, so it stays'); return; }
+        if (at >= 0) c.ml.splice(at, 1); else c.ml.push(p[1]); keep();
+      }; });
+    } };
   }
   function shopNameSheet(name) {
     var e = myNames().filter(function (x) { return normName(x.name) === normName(name); })[0];
@@ -5949,13 +5995,18 @@
     if (smp.length) h += '<div class="card stack" style="gap:6px"><b style="font-size:14px">How he writes it</b><div class="inkgal">' + smp.map(function (s) { return '<span class="inkg">' + inkImg(s.id) + '</span>'; }).join('') + '</div></div>';
     var others = myNames().filter(function (x) { return x !== e && normName(x.name) !== normName(e.name); });
     h += '<label class="lab rng">Same as another name? Merge into<select class="text" id="snMerge"><option value="">— pick a name —</option>' + others.map(function (x) { return '<option value="' + esc(x.name) + '">' + esc(x.name) + ' (' + x.sizes.join(', ') + ')</option>'; }).join('') + '</select></label>';
-    h += '<button type="button" class="btn jungle" id="snSave">Save</button><button type="button" class="btn line" data-sheet="shopnames">‹ Your names</button>';
+    h += '<button type="button" class="btn jungle" id="snSave">Save</button><button type="button" class="btn line" data-sheet="shopnames">‹ Your names</button><button type="button" class="btn ghost small" id="snDel" style="color:#B3372B">🗑 Delete this name</button>';
     return { title: e.name, cap: e.sizes.join(' · ') + ' ml', html: '<div class="stack" style="gap:12px">' + h + '</div>', bind: function (r) {
       fillInk(r);
       r.querySelector('#snSave').onclick = function () {
         var mg = r.querySelector('#snMerge').value, nn = mg || r.querySelector('#snName').value.trim(); if (!nn) { toast('Type a name'); return; }
         if (nn.split(/\s+/).length > 4 && !confirm('That’s ' + nn.split(/\s+/).length + ' words. Keep it anyway?')) return;
         renameName(e.name, nn); toast(mg ? 'Merged into ' + mg : 'Saved'); openSheet('shopnames');
+      };
+      r.querySelector('#snDel').onclick = function () {
+        var st2 = regStock(), has = e.keys.some(function (k) { var x = st2[resolveKey(k)]; return x && x.qty > 0; });
+        if (!confirm('Delete “' + e.name + '” (' + e.sizes.join(', ') + ' ml)?' + (has ? ' It still has stock on your sheets.' : '') + ' Past sheets keep their rows as typed; it won’t come back from old indents.')) return;
+        deleteName(e.name); toast('Deleted ' + e.name); openSheet('shopnames');
       };
     } };
   }
@@ -5995,7 +6046,7 @@
   }
   function nmDefaultMl(d, r, name) {
     var g = d.grid, rows = nmRows(d), i = rows.indexOf(r), out = [], e = myNames().filter(function (x) { return normName(x.name) === normName(name); })[0];
-    var s0 = String(g[r][SC.size] || '').replace(/[^0-9]/g, ''); if (!s0) return e && e.sizes.length === 1 ? e.sizes.slice() : [];
+    var s0 = String(g[r][SC.size] || '').replace(/[^0-9]/g, ''); if (!s0) return e && e.real.length === 1 ? e.real.slice() : [];
     out.push(s0);
     // the rows below with no name of their own are the same brand in other sizes
     for (var j = i + 1; j < rows.length; j++) { var rr = rows[j], own = d.ai && d.ai[rr] ? String(d.ai[rr][SC.item] || '').trim() : ''; if (own || (d.named || {})[rr]) break; var s = String(g[rr][SC.size] || '').replace(/[^0-9]/g, ''); if (!s) break; out.push(s); }
@@ -6012,10 +6063,13 @@
     h += '<input class="text nmq" id="nmQ" placeholder="Type the short name (2–3 words)" autocomplete="off" autocapitalize="words" enterkeyhint="done" value="' + esc(sp.nmName || sp.nmQ || '') + '">';
     h += '<div class="nmsug" id="nmSug">' + (sp.nmName ? '' : nmSugHtml(d, r)) + '</div>';
     if (sp.nmName) {
-      var e = myNames().filter(function (x) { return normName(x.name) === normName(sp.nmName); })[0], have = e ? e.sizes.slice() : [], ml = sp.nmMl = sp.nmMl || [];
-      ml.forEach(function (s) { if (have.indexOf(s) < 0) have.push(s); });
-      var s0 = String(g[r][SC.size] || '').replace(/[^0-9]/g, ''); if (s0 && have.indexOf(s0) < 0) have.push(s0);
-      var list = sp.nmAll || !have.length ? STDML.concat(have.filter(function (s) { return STDML.indexOf(s) < 0; })) : have; list = list.slice().sort(function (a, b) { return a - b; });
+      var e = myNames().filter(function (x) { return normName(x.name) === normName(sp.nmName); })[0], ml = sp.nmMl = sp.nmMl || [];
+      var s0 = String(g[r][SC.size] || '').replace(/[^0-9]/g, ''), kind = e ? e.kind : (sp.nmKind = sp.nmKind || guessKind(sp.nmName, [], s0 ? [s0] : []));
+      var have = e ? e.sizes.slice() : stdFor(kind).slice();
+      ml.forEach(function (z) { if (have.indexOf(z) < 0) have.push(z); });
+      if (s0 && have.indexOf(s0) < 0) have.push(s0);
+      var list = sortMl(sp.nmAll ? LIQML.concat(BEERML).concat(have.filter(function (z) { return LIQML.indexOf(z) < 0 && BEERML.indexOf(z) < 0; })) : have);
+      if (!e) h += '<div class="row" style="gap:8px;align-items:center"><span class="muted small">New name · it is</span><span class="snk">' + [['liquor', '🥃 Liquor'], ['beer', '🍺 Beer']].map(function (kd) { return '<button type="button" data-nmk="' + kd[0] + '" class="' + (kind === kd[0] ? 'on' : '') + '">' + kd[1] + '</button>'; }).join('') + '</span></div>';
       h += '<span class="muted small">ml · tap more than one when the rows below are the same name, in the order of the rows</span><div class="nmml">' + list.map(function (s) { var at = ml.indexOf(s); return '<button type="button" data-nml="' + s + '" class="' + (at >= 0 ? 'on' : '') + '">' + s + (at >= 0 && ml.length > 1 ? '<sup>' + (at + 1) + '</sup>' : '') + '</button>'; }).join('') + (sp.nmAll ? '' : '<button type="button" id="nmMore" class="g">+ other</button>') + '</div>';
       var cov = rows.slice(i, i + ml.length);
       if (ml.length) h += '<span class="nmcov">→ ' + (ml.length > 1 ? 'rows ' + (i + 1) + '–' + (i + cov.length) : 'this row') + ': ' + esc(sp.nmName) + ' ' + ml.slice(0, cov.length).join(' · ') + '</span>';
@@ -6032,13 +6086,15 @@
   function nmNext(d, after) {
     var rows = nmRows(d), i = rows.indexOf(after), left = nmLeft(d), nx = left.filter(function (rr) { return rows.indexOf(rr) > i; })[0];
     if (nx == null) nx = left[0];
-    sp.nmName = null; sp.nmMl = null; sp.nmQ = ''; sp.nmAll = false; sp.sqz = false;
+    sp.nmName = null; sp.nmMl = null; sp.nmQ = ''; sp.nmAll = false; sp.sqz = false; sp.nmKind = null;
     if (nx == null) { sp.step = 'check'; toast('All rows named · now the checks'); } else sp.nr = nx;
     drawShopDay(); var ov = document.getElementById('overlay'); if (ov) ov.scrollTop = 0;
   }
   function nmSave(d) {
     var g = d.grid, rows = nmRows(d), i = rows.indexOf(sp.nr), name = titleCase(sp.nmName), ml = (sp.nmMl || []).slice(); if (!name || !ml.length || i < 0) return;
     spSnap(d); d.named = d.named || {}; d.rid = d.rid || {};
+    var s2n = shop(); if (s2n.delNames) delete s2n.delNames[normName(name)];
+    var isNew = !regAll().some(function (x) { return normName(x.item) === normName(name); }), cf = ncfg(name, true, [], []); if (isNew && sp.nmKind) cf.kind = sp.nmKind;
     var cov = rows.slice(i, i + ml.length);
     cov.forEach(function (rr, j) {
       var s = ml[j]; g[rr][SC.item] = name; g[rr][SC.size] = s; var k = regAdd(name, s, 'sheet'); if (!k) return; d.rid[rr] = k; d.named[rr] = 1;
@@ -6051,7 +6107,7 @@
   function bindNm(o, d) {
     var g = d.grid, r = sp.nr, q = function (x) { return o.querySelector(x); }, rows = nmRows(d), i = rows.indexOf(r);
     var bindSug = function () { o.querySelectorAll('[data-nmn]').forEach(function (b) { b.onclick = function () { pick(b.dataset.nmn); }; }); };
-    var pick = function (name) { sp.nmName = titleCase(name); sp.nmQ = ''; sp.nmMl = nmDefaultMl(d, r, sp.nmName); sp.nmAll = false; drawShopDay(); };
+    var pick = function (name) { sp.nmName = titleCase(name); sp.nmQ = ''; sp.nmKind = null; sp.nmMl = nmDefaultMl(d, r, sp.nmName); sp.nmAll = false; drawShopDay(); };
     if (!INK) inkLoad().then(function () { var s = document.getElementById('nmSug'); if (s && sp && sp.step === 'nm' && !sp.nmName) { s.innerHTML = nmSugHtml(d, r); bindSug(); } });
     bindSug();
     var inp = q('#nmQ');
@@ -6063,6 +6119,7 @@
     inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); var f = o.querySelector('[data-nmn]'); if (f) pick(f.dataset.nmn); } });
     o.querySelectorAll('[data-nml]').forEach(function (b) { b.onclick = function () { var s = b.dataset.nml, a = sp.nmMl = sp.nmMl || [], at = a.indexOf(s); if (at >= 0) a.splice(at, 1); else a.push(s); drawShopDay(); }; });
     var mo = q('#nmMore'); if (mo) mo.onclick = function () { sp.nmAll = true; drawShopDay(); };
+    o.querySelectorAll('[data-nmk]').forEach(function (b) { b.onclick = function () { sp.nmKind = b.dataset.nmk; drawShopDay(); }; });
     q('#nmNums').onclick = function () { openRowEd(r, 'open', 'nm'); };
     q('#nmPrev').onclick = function () { if (i > 0) { sp.nr = rows[i - 1]; sp.nmName = null; sp.nmMl = null; sp.nmQ = ''; drawShopDay(); } };
     q('#nmGo').onclick = function () { nmSave(d); };

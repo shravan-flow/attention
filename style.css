@@ -1094,7 +1094,7 @@ code{font-family:var(--mono);font-size:12px;background:var(--sand2);padding:1px 
 .frh{font-size:14px;color:#0F4D40}.frh.x{color:#B3372B}
 .snc{display:flex;flex-direction:column;gap:6px;background:#fff;border:0;border-radius:18px;padding:12px 14px;font:inherit;color:inherit;text-align:left;cursor:pointer;width:100%}
 .snc>span>b{font-size:16px}.snc small{font-size:11px;color:var(--sub);line-height:1.4}
-.snml{display:flex;gap:6px;flex-wrap:wrap}.snml i{font-style:normal;font-size:12px;font-weight:700;padding:5px 10px;border-radius:999px;background:#0F4D40;color:#fff}
+.snml{display:flex;gap:5px;flex-wrap:wrap}.snml i{font-style:normal;font-size:12px;font-weight:700;padding:5px 10px;border-radius:999px;background:#0F4D40;color:#fff}
 .nmday{font-size:12px;font-weight:700;color:#0F4D40;background:#CDEFEA;padding:5px 10px;border-radius:999px}
 .nmbar{height:6px;border-radius:3px;background:#E3D5C0;overflow:hidden}.nmbar i{display:block;height:6px;background:#12A39A;border-radius:3px}
 .nmph{position:sticky;top:0;z-index:3;height:200px;overflow:auto;background:#fff;border-radius:14px;box-shadow:0 6px 16px rgba(22,48,42,.12),inset 0 0 0 1px #d6d6d6;cursor:zoom-in}
@@ -1118,3 +1118,9 @@ code{font-family:var(--mono);font-size:12px;background:var(--sand2);padding:1px 
 .ckr .ckm{font-size:15px;color:#12A39A;width:14px}.ckr.bad .ckm{color:#B3372B}.ckr span{display:flex;flex-direction:column;gap:2px}.ckr span b{font-size:13px}.ckr small{font-size:11.5px;color:var(--sub);line-height:1.4}
 .shtiles>div.ok{background:#CDEFEA}.shtiles>div.bad{background:#FFE0DA}
 .indl small{font-size:11.5px;color:var(--sub)}.indl b{font-size:15px}
+/* v51: sizes per name, liquor or beer */
+.snn{display:flex;align-items:center;gap:8px;border:0;background:none;padding:0;font:inherit;color:inherit;cursor:pointer;text-align:left;min-width:0}.snn b{font-size:16px}
+.snk{display:inline-flex;background:#F1E6D6;border-radius:999px;padding:3px;gap:2px;flex-shrink:0}
+.snk button{border:0;background:none;border-radius:999px;padding:6px 10px;font:inherit;font-size:12px;font-weight:600;color:#6F7D74;cursor:pointer}.snk button.on{background:#fff;color:#16302A;box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.snml button{min-width:44px;border:0;border-radius:999px;padding:7px 9px;font:inherit;font-size:12.5px;font-weight:700;cursor:pointer;background:#F6F1E8;color:#A79C8A}
+.snml button.on{background:#fff;color:#0F4D40;box-shadow:inset 0 0 0 2px #12A39A}.snml button.real{background:#0F4D40;color:#fff}
