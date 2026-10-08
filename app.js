@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '52';
+  var APP_VERSION = '53';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -5095,8 +5095,9 @@
     else h += inkSummary(d);
     h += asksHtml(d) + (d.learn && nmLeft(d).length ? '' : missingHtml(d));
     var bad = Object.keys(ck.bad).length;
-    h += '<div class="row between"><button type="button" class="nib sm' + (sp.lph ? ' on' : '') + '" id="lsPh">📷 ' + (sp.lph ? 'Hide photo' : 'Show photo') + '</button><span class="cap">' + (bad ? '<span style="color:#B3372B">' + ck.msgs.filter(function (m) { return m.r != null; }).length + ' to check</span>' : '✓ adds up') + '</span></div>';
-    if (sp.lph && d.photos.length) h += '<div class="shphoto" id="spPh"><img id="spImg" alt="Sheet photo" style="width:' + (sp.zoom * 100) + '%"></div>';
+    var pinOn = sp.lph !== false && d.photos.length;
+    if (pinOn) h = pinHtml(d) + h;
+    h += '<div class="row between"><button type="button" class="nib sm' + (pinOn ? ' on' : '') + '" id="lsPh">📷 ' + (pinOn ? 'Hide photo' : 'Show photo') + '</button><span class="cap">' + (bad ? '<span style="color:#B3372B">' + ck.msgs.filter(function (m) { return m.r != null; }).length + ' to check</span>' : '✓ adds up') + '</span></div>';
     var groups = [], cur = null;
     dataRows(g).forEach(function (r) {
       var it = String(g[r][SC.item] || '').trim(), any = it || String(g[r][SC.size] || '').trim() || [SC.open, SC.sales, SC.close].some(function (c) { return isNum(g[r][c]); });
@@ -5129,7 +5130,8 @@
   }
   function bindShopList(o, d) {
     var q = function (x) { return o.querySelector(x); };
-    q('#lsPh').onclick = function () { sp.lph = !sp.lph; drawShopDay(); };
+    q('#lsPh').onclick = function () { sp.lph = sp.lph === false; drawShopDay(); };
+    if (o.querySelector('#pinPh')) { bindPin(o, d, function () { sp.lph = false; drawShopDay(); }); pinFollow(o, d); }
     var mv = q('#lsMove'); if (mv) mv.onclick = function () { var to = d.sheetDate; if (!moveShopDay(sp.k, to)) return; closeShopDay(); openShopDay(to); toast('Moved to ' + new Date(to + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' })); };
     var kp2 = q('#lsKeep'); if (kp2) kp2.onclick = function () { d.sheetDate = null; save(); drawShopDay(); };
     bindAsks(o, d); fillInk(o);
@@ -5153,7 +5155,7 @@
   }
   function rowEdHtml(d) {
     var g = d.grid, r = sp.row, rows = dataRows(g), idx = rows.indexOf(r), nm = String(g[r][SC.item] || '').trim(), raw = d.ai && d.ai[r] ? String(d.ai[r][SC.item] || '').trim() : '';
-    var h = '<div class="red"><button type="button" class="redname" id="reName"><b>' + (nm ? esc(nm) : '<span class="hw">pick a name</span>') + '</b><small>' + (g[r][SC.size] ? esc(g[r][SC.size]) + ' ml' : 'no size') + (raw && raw !== nm ? ' · <span class="hw">' + esc(raw) + '</span> on the sheet' : '') + ' · change ✎</small></button><span class="cap">row ' + (idx + 1) + ' of ' + rows.length + '</span></div>';
+    var h = (sp.lph !== false ? pinHtml(d) : '') + '<div class="red"><button type="button" class="redname" id="reName"><b>' + (nm ? esc(nm) : '<span class="hw">pick a name</span>') + '</b><small>' + (g[r][SC.size] ? esc(g[r][SC.size]) + ' ml' : 'no size') + (raw && raw !== nm ? ' · <span class="hw">' + esc(raw) + '</span> on the sheet' : '') + ' · change ✎</small></button><span class="cap">row ' + (idx + 1) + ' of ' + rows.length + '</span></div>';
     h += '<div class="recost" id="reCost">' + recostHtml(g, r) + '</div>';
     h += '<div class="refs">' + REF.map(function (f) { return '<button type="button" class="ref' + (sp.fld === f[0] ? ' on' : '') + '" data-ref="' + f[0] + '"><small>' + f[2] + '</small><b id="rev-' + f[0] + '"></b></button>'; }).join('') + '</div>';
     h += '<div class="rehint" id="reHint" hidden></div>';
@@ -5165,6 +5167,7 @@
   }
   function bindRowEd(o, d) {
     var g = d.grid, r = sp.row, q = function (x) { return o.querySelector(x); };
+    if (q('#pinPh')) { sp.pinR = null; bindPin(o, d, function () { sp.lph = false; drawShopDay(); }); pinFocus(o, d, r); }
     var col = function (f) { return REF.filter(function (x) { return x[0] === f; })[0][1]; };
     var autoAmt = function () { var s = cellVal(g, r, SC.sales), rt = cellVal(g, r, SC.rate); return isNum(s) && isNum(rt) && String(g[r][SC.sales]).trim() !== '' && String(g[r][SC.rate]).trim() !== '' ? Math.round(num(s) * num(rt) * 100) / 100 : null; };
     var paint = function () {
@@ -6415,6 +6418,49 @@
     if (hasAI() && !navigator.onLine) { d.status = 'queued'; save(); drawShopDay(); toast('Saved. It’s read as soon as you’re back online'); }
     else if (hasAI()) shopRead(key); else { if (!d.grid) { d.grid = blankGrid(); save(); } drawShopDay(); }
   }
+  // ---------- v53: the photo pinned on top, following the row you are on ----------
+  function pinHtml(d) {
+    if (!d.photos || !d.photos.length) return '';
+    return '<div class="pinph"><div class="pinsc" id="pinPh"><div class="pinin" id="pinIn" style="width:' + Math.round((sp.pinZ || 1) * 100) + '%"><img id="pinImg" alt="Sheet photo"><i class="pinband" id="pinBand"></i><svg class="nmsvg" id="pinSvg" viewBox="0 0 1000 1000" preserveAspectRatio="none"></svg></div></div><button type="button" class="pinx" id="pinX" aria-label="Hide photo">×</button><span class="pincap">original photo · follows the row · pinch to zoom</span></div>';
+  }
+  function pinFocus(o, d, r) {
+    var ph = o.querySelector('#pinPh'), img = o.querySelector('#pinImg'); if (!ph || !img || r == null || !d.grid[r]) return;
+    var bp = bandPoly(d, r), band = bp ? { p: bp.p, y: [bp.y0 * 1000, bp.y1 * 1000] } : rowBand(d, r), p = band ? band.p || 0 : 0, id = d.photos[p] || d.photos[0];
+    var show = function () {
+      if (!sp) return;
+      var svg = o.querySelector('#pinSvg'), be = o.querySelector('#pinBand');
+      if (bp) { svg.innerHTML = '<polygon points="' + bp.pts + '"/>'; be.style.display = 'none'; }
+      else { svg.innerHTML = ''; if (band) { be.style.top = (band.y[0] / 10) + '%'; be.style.height = Math.max(1.5, (band.y[1] - band.y[0]) / 10) + '%'; be.style.display = 'block'; } else be.style.display = 'none'; }
+      if (band && img.clientHeight) { var top = img.clientHeight * band.y[0] / 1000 - ph.clientHeight * .38; ph.scrollTo ? ph.scrollTo({ top: Math.max(0, top), behavior: sp.pinR != null ? 'smooth' : 'auto' }) : ph.scrollTop = Math.max(0, top); }
+      sp.pinR = r;
+    };
+    if (img.dataset.id !== id) { img.dataset.id = id; var c = sp.pinSrc; if (c && c.id === id) { img.onload = show; img.src = c.u; } else idbGet('shopimg-' + id).then(function (u) { if (!u) return; sp.pinSrc = { id: id, u: u }; img.onload = show; img.src = u; }); }
+    else if (img.complete && img.naturalHeight) show(); else img.onload = show;
+  }
+  function bindPin(o, d, onHide) {
+    var ph = o.querySelector('#pinPh'); if (!ph) return; var inn = o.querySelector('#pinIn');
+    o.querySelector('#pinX').onclick = function (e) { e.stopPropagation(); onHide(); };
+    // pinch to zoom the pinned photo
+    var pts = {}, pd = null;
+    ph.addEventListener('pointerdown', function (e) { pts[e.pointerId] = e; var ids = Object.keys(pts); if (ids.length === 2) { var a = pts[ids[0]], b = pts[ids[1]]; pd = { d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), z: sp.pinZ || 1 }; } });
+    ph.addEventListener('pointermove', function (e) { if (!pts[e.pointerId]) return; pts[e.pointerId] = e; var ids = Object.keys(pts); if (pd && ids.length === 2) { var a = pts[ids[0]], b = pts[ids[1]], dd = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY); sp.pinZ = Math.max(1, Math.min(4, pd.z * dd / pd.d)); inn.style.width = (sp.pinZ * 100) + '%'; } });
+    var pu = function (e) { delete pts[e.pointerId]; if (Object.keys(pts).length < 2) { if (pd && sp && sp.pinR != null) { var r0 = sp.pinR; sp.pinR = null; pinFocus(o, d, r0); } pd = null; } };
+    ph.addEventListener('pointerup', pu); ph.addEventListener('pointercancel', pu);
+  }
+  // follow the list: the row just below the pinned photo is the one shown
+  function pinFollow(o, d) {
+    var ph = o.querySelector('#pinPh'); if (!ph) return; var busy = false;
+    var pick = function () {
+      busy = false; if (!sp || !ph.isConnected) { o.onscroll = null; return; } var lim = ph.getBoundingClientRect().bottom + 6, rows = o.querySelectorAll('[data-lsrow]'), r = null;
+      for (var i = 0; i < rows.length; i++) { var rc = rows[i].getBoundingClientRect(); if (rc.bottom > lim) { r = +rows[i].dataset.lsrow; break; } }
+      if (r == null && rows.length) r = +rows[rows.length - 1].dataset.lsrow;
+      o.querySelectorAll('.lsrow.pinon').forEach(function (x) { x.classList.remove('pinon'); });
+      var el = o.querySelector('[data-lsrow="' + r + '"]'); if (el) el.classList.add('pinon');
+      if (r != null && r !== sp.pinR) pinFocus(o, d, r);
+    };
+    o.onscroll = function () { if (!busy) { busy = true; requestAnimationFrame(pick); } };
+    sp.pinR = null; pick();
+  }
   // --- the day screen: photos + sheet + close the day ---
   function openShopDay(k) {
     if (!PL) loadPL().then(function () { if (sp && sp.k === k) drawShopDay(); });
@@ -6423,9 +6469,9 @@
     sp = { k: k, view: d.grid ? 'list' : 'photo', sel: null, anchor: null, range: false, ph: 0, zoom: 1, step: 'sheet', hist: [] };
     drawShopDay(); showOverlay('spo');
   }
-  function closeShopDay() { sp = null; closeOverlayEl(); if (ui.tab === 'shop') render(); }
+  function closeShopDay() { sp = null; var ov0 = document.getElementById('overlay'); if (ov0) ov0.onscroll = null; closeOverlayEl(); if (ui.tab === 'shop') render(); }
   function drawShopDay() {
-    var o = document.getElementById('overlay'), d = shopDay(sp.k, true), keepY = o.scrollTop;
+    var o = document.getElementById('overlay'), d = shopDay(sp.k, true), keepY = o.scrollTop; o.onscroll = null;
     var gridBox = o.querySelector('.shgrid'), keepGX = gridBox ? gridBox.scrollLeft : 0, keepGY = gridBox ? gridBox.scrollTop : 0;
     var dl = new Date(sp.k + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' });
     var h = '<div class="inner shd"><div class="row between"><button type="button" class="btn ghost small" id="spBack">‹ Shop</button><span class="cap">' + dl + '</span><span class="row" style="gap:6px">' + (sp.step === 'sheet' ? '<button type="button" class="nib sm" id="spDelDay" aria-label="Delete this day">🗑</button>' : '') + '<button type="button" class="btn ghost small" id="spClose">Done</button></span></div>';
