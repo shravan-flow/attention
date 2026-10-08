@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '48';
+  var APP_VERSION = '50';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -3111,6 +3111,10 @@
       case 'shopitems': return shopItemsSheet();
       case 'shopitem': return shopItemSheet(arg);
       case 'shopsame': return shopSameSheet();
+      case 'shopdupes': return shopDupesSheet();
+      case 'shopfresh': return shopFreshSheet();
+      case 'shopnames': return shopNamesSheet();
+      case 'shopname': return shopNameSheet(arg);
       case 'shopindent': return shopIndentSheet();
       case 'shopreset': return shopResetSheet();
       case 'breath': return breathSheet();
@@ -4416,7 +4420,7 @@
     var d = shopDay(k), g = d && d.grid, bad = {}, msgs = [];
     if (!g) return { bad: bad, msgs: msgs };
     var pk = prevDayKey(k), prevClose = {};
-    if (pk) { var pg = shop().days[pk].grid; dataRows(pg).forEach(function (r) { if (isNum(cellVal(pg, r, SC.close))) prevClose[rowKey(pg, r)] = num(cellVal(pg, r, SC.close)); }); }
+    if (pk) { var pd0 = shop().days[pk], pg = pd0.grid; dataRows(pg).forEach(function (r) { if (isNum(cellVal(pg, r, SC.close)) && String(pg[r][SC.close]).trim() !== '') prevClose[dayKeyOf(pd0, r)] = num(cellVal(pg, r, SC.close)); }); }
     dataRows(g).forEach(function (r) {
       var v = function (c) { return cellVal(g, r, c); }, has = function (c) { var x = g[r][c]; return x !== '' && x != null; };
       var nm = (g[r][SC.item] || 'Row ' + (r + 1)) + (g[r][SC.size] ? ' ' + g[r][SC.size] : '');
@@ -4425,8 +4429,8 @@
       if (has(SC.total) && Math.abs(num(v(SC.total)) - (o + rc)) > .01) { bad[r + ',' + SC.total] = 1; msgs.push({ r: r, c: SC.total, t: '<b>' + esc(nm) + '</b>: total ' + fmtCell(num(v(SC.total))) + ' ≠ opening ' + o + ' + received ' + rc }); }
       if (has(SC.sales) && has(SC.rate) && has(SC.amt) && Math.abs(sl * rt - am) > .5) { bad[r + ',' + SC.amt] = 1; msgs.push({ r: r, c: SC.amt, t: '<b>' + esc(nm) + '</b>: ' + sl + ' × ' + rt + ' = ' + fmtCell(sl * rt) + ', but amount says ' + fmtCell(am) }); }
       if (has(SC.close) && has(SC.open) && Math.abs(o + rc - sl - cl) > .01) { bad[r + ',' + SC.close] = 1; msgs.push({ r: r, c: SC.close, t: '<b>' + esc(nm) + '</b>: ' + o + (rc ? ' + ' + rc : '') + ' − ' + sl + ' = ' + (o + rc - sl) + ', but closing says ' + cl }); }
-      var pc = prevClose[rowKey(g, r)];
-      if (pc != null && has(SC.open) && Math.abs(pc - o) > .01) { bad[r + ',' + SC.open] = 1; msgs.push({ r: r, c: SC.open, t: '<b>' + esc(nm) + '</b>: opening ' + o + ', but yesterday closed at ' + pc }); }
+      var pc = prevClose[dayKeyOf(d, r)];
+      if (pc != null && has(SC.open) && Math.abs(pc - o) > .01) { bad[r + ',' + SC.open] = 1; msgs.push({ r: r, c: SC.open, t: '<b>' + esc(nm) + '</b>: yesterday closed ' + pc + ', today opens ' + o + '. Tap the row to fix the number.' }); }
     });
     if (d.written && d.written.sales && Math.abs(daySales(d) - d.written.sales) > .5) msgs.push({ r: null, t: 'Amounts add up to <b>' + inr(daySales(d)) + '</b>, but the sheet’s written total is <b>' + inr(d.written.sales) + '</b>' });
     return { bad: bad, msgs: msgs };
@@ -4462,7 +4466,8 @@
       var d = s2.days[k], st = d.status === 'closed' ? ['closed', '#CDEFEA'] : d.status === 'reading' ? ['reading…', '#FFE6B8'] : d.status === 'queued' ? ['waiting', '#F1E6D6'] : d.grid ? ['to check', '#FFE0D9'] : ['photos only', '#F1E6D6'];
       return '<button type="button" class="r" data-shday="' + k + '"><span class="t">' + new Date(k + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + '<small>' + (d.status === 'closed' ? 'sales ' + inr(d.sales) + ' · net ' + inr(d.net) : d.grid ? 'sales ' + inr(daySales(d)) + ' so far' : d.photos.length + ' photo' + (d.photos.length === 1 ? '' : 's')) + '</small></span><span class="tkpill" style="background:' + st[1] + '">' + st[0] + '</span>' + CHEV + '</button>';
     }).join('') + '</div>';
-    h += '<div class="list">' + row({ t: '🏷 Your items', sub: regAll().length + ' items' + ((s2.askq || []).length ? ' · <b>' + s2.askq.length + ' to confirm</b>' : ' · his short names, stock, margins'), sheet: 'shopitems' }) + row({ t: '📦 Past KSBCL indents', sub: Object.keys(s2.indents || {}).length ? Object.keys(s2.indents).length + ' indents · used for costs' : 'upload them: your real stock and latest costs', sheet: 'shopindent' }) + row({ t: '📋 KSBCL name list', sub: PL && PL.asOf ? fmtN(PL.items.length) + ' names · as on ' + new Date(PL.asOf + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short', year: 'numeric' }) : 'the supplier-wise list: used only for exact names', sheet: 'shopprices' }) + row({ t: '📊 Month file', sub: 'share ' + md.toLocaleDateString('en', { month: 'long' }) + ' as Excel or PDF', sheet: 'shopmonth:' + m }) + row({ t: '📚 Teach from old sheets', sub: teachSub(), sheet: 'shopteach' }) + row({ t: '🧠 Learning your handwriting', sub: Object.keys(s2.gloss).length + ' words learnt · ' + s2.fixes + ' corrections', sheet: 'shoplearn' }) + row({ t: 'Shop settings', sub: 'name, usual profit %', sheet: 'shopset' }) + '</div>';
+    if (s2.fresh) h += '<div class="list">' + row({ t: '🏷 Your short names', sub: myNames().length + ' names · ' + (freshInfo().learn ? 'learning day ' + freshInfo().day + ' of ' + freshInfo().of : 'names filled in from his writing'), sheet: 'shopnames' }) + row({ t: '📦 Stock and margins', sub: regAll().length + ' items with sizes', sheet: 'shopitems' }) + row({ t: '📦 Past KSBCL indents', sub: Object.keys(s2.indents || {}).length ? Object.keys(s2.indents).length + ' indents · costs and stock received' : 'upload them: your real stock and latest costs', sheet: 'shopindent' }) + row({ t: '📊 Month file', sub: 'share ' + md.toLocaleDateString('en', { month: 'long' }) + ' as Excel or PDF', sheet: 'shopmonth:' + m }) + row({ t: 'Shop settings', sub: 'name, usual profit %, start fresh', sheet: 'shopset' }) + '</div>';
+    else h += '<div class="list">' + row({ t: '🏷 Your items', sub: regAll().length + ' items' + ((s2.askq || []).length ? ' · <b>' + s2.askq.length + ' to confirm</b>' : ' · his short names, stock, margins'), sheet: 'shopitems' }) + row({ t: '📦 Past KSBCL indents', sub: Object.keys(s2.indents || {}).length ? Object.keys(s2.indents).length + ' indents · used for costs' : 'upload them: your real stock and latest costs', sheet: 'shopindent' }) + row({ t: '📋 KSBCL name list', sub: PL && PL.asOf ? fmtN(PL.items.length) + ' names · as on ' + new Date(PL.asOf + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short', year: 'numeric' }) : 'the supplier-wise list: used only for exact names', sheet: 'shopprices' }) + row({ t: '📊 Month file', sub: 'share ' + md.toLocaleDateString('en', { month: 'long' }) + ' as Excel or PDF', sheet: 'shopmonth:' + m }) + row({ t: '📚 Teach from old sheets', sub: teachSub(), sheet: 'shopteach' }) + row({ t: '🧠 Learning your handwriting', sub: Object.keys(s2.gloss).length + ' words learnt · ' + s2.fixes + ' corrections', sheet: 'shoplearn' }) + row({ t: 'Shop settings', sub: 'name, usual profit %', sheet: 'shopset' }) + '</div>';
     if (!hasAI()) h += '<div class="notice">Reading photos needs your free Gemini key (Settings → Visualization). Without it you can still type the sheet in.</div>';
     return h + '</div>';
   }
@@ -4502,14 +4507,16 @@
       'Some pages also have a list of expenses (names with amounts, usually with a total) and written day totals like "Sale 74085", "Exp 9850" and a balance. Return those too.\n' +
       shopHints() +
       'Also read the date written on the sheet (Indian day/month/year order) as "date": "YYYY-MM-DD", or null if none.\n' +
-      'For every row that has its OWN handwritten brand name, also give "box": where that handwritten NAME is on its photo, as [ymin, xmin, ymax, xmax] scaled 0–1000, and "page": which of the new photos it is on (0 = the first new photo). Rows without their own name: "box": null.\n' +
-      'Reply JSON: {"date":"YYYY-MM-DD"|null,"rows":[{"sl":1,"item":"brand","box":[120,40,160,300],"page":0,"size":"750","open":number|null,"recv":number|null,"total":number|null,"sales":number|null,"rate":number|null,"amount":number|null,"close":number|null,"remarks":"text"}],"expenses":[{"name":"text","amount":number}],"written":{"sales":number|null,"expenses":number|null,"balance":number|null}}';
+      'For every row that has its OWN handwritten brand name, also give "box": where that handwritten NAME is on its photo, as [ymin, xmin, ymax, xmax] scaled 0–1000, and "page": which of the new photos it is on (0 = the first new photo). Rows without their own name: "box": null. For EVERY row also give "ry": [ymin, ymax], the top and bottom of that whole line on its photo, scaled 0–1000. For rows with their own handwritten name, also give "letters": the 2–4 letters of that name you can see most clearly, in order, as written (e.g. "OC", "RCW").\n' +
+      'Reply JSON: {"date":"YYYY-MM-DD"|null,"rows":[{"sl":1,"item":"brand","box":[120,40,160,300],"page":0,"ry":[118,162],"letters":"OC","size":"750","open":number|null,"recv":number|null,"total":number|null,"sales":number|null,"rate":number|null,"amount":number|null,"close":number|null,"remarks":"text"}],"expenses":[{"name":"text","amount":number}],"written":{"sales":number|null,"expenses":number|null,"balance":number|null}}';
     shopPhotos(d).then(function (imgs) {
       if (!imgs.length) throw new Error('no photos');
       return geminiImagesEx(prompt, imgs, .1);
     }).then(function (r) {
-      var g = [SHCOLS.slice()], fixed = 0, boxes = {};
+      var g = [SHCOLS.slice()], fixed = 0, boxes = {}, rowy = {}, letters = {};
       (r.rows || []).forEach(function (x, xi) {
+        if (x && x.letters && String(x.item || '').trim()) letters[xi + 1] = String(x.letters).replace(/[^A-Za-z0-9.]/g, '').slice(0, 5);
+        if (x && Array.isArray(x.ry) && x.ry.length === 2 && x.ry[1] > x.ry[0]) rowy[xi + 1] = { p: +x.page || 0, y: x.ry.map(Number) };
         if (x && Array.isArray(x.box) && x.box.length === 4 && String(x.item || '').trim() && x.box[2] > x.box[0] && x.box[3] > x.box[1]) boxes[xi + 1] = { p: +x.page || 0, b: x.box.map(Number) };
         var ss = splitSize(x.item, x.size), item = ss[0]; x.size = ss[1];
         var nv2 = function (v) { return v == null || v === '' ? '' : String(v); };
@@ -4521,14 +4528,16 @@
       fillDownNames(g);
       d.grid = withTotalRow(g); d.ai = withTotalRow(aiRows);
       dataRows(d.grid).forEach(function (rr) { var gk = String(d.grid[rr][SC.item] || '').trim().toLowerCase(); if (gk && s2.gloss[gk]) { d.grid[rr][SC.item] = s2.gloss[gk].to; fixed++; } });
-      var cy = regAssign(key);
+      var fiR = freshInfo(), learnNow = !!(fiR && fiR.learn && key >= fiR.from), cy = null;
+      d.letters = letters;
+      if (learnNow) { d.learn = true; d.named = {}; d.rid = {}; d.ask = []; d.tie = {}; d.carried = null; } else { d.learn = false; cy = regAssign(key); }
       d.exp = (r.expenses || []).filter(function (e) { return e && (e.name || e.amount); }).map(function (e) { return { t: String(e.name || ''), v: num(e.amount) }; });
       d.written = r.written || {}; d.status = 'draft';
       d.sheetDate = /^\d{4}-\d{2}-\d{2}$/.test(r.date || '') && r.date !== key && r.date <= dkey(new Date()) ? r.date : null;
-      d.boxes = boxes; d.ink = {}; d.inkm = null; save();
+      d.boxes = boxes; d.rowy = rowy; d.ink = {}; d.inkm = null; save();
       inkProcess(key).catch(function () {});
       applyPendingBills(key);
-      if (sp && sp.k === key) { sp.view = 'list'; sp.step = 'sheet'; drawShopDay(); }
+      if (sp && sp.k === key) { sp.view = 'list'; sp.step = 'sheet'; if (learnNow) openNm(); else drawShopDay(); }
       var ck = shopChecks(key);
       toast('Read ' + (d.grid.length - 2) + ' rows' + (ck.msgs.length ? ' · ' + ck.msgs.length + ' to check' : '') + (cy && cy.n ? ' · ' + cy.n + ' matched to your items' : fixed ? ' · ' + fixed + ' names auto-fixed' : ''));
       if (ui.tab === 'shop') render();
@@ -5082,8 +5091,10 @@
   function shopListHtml(d) {
     var g = d.grid, ck = shopChecks(sp.k), h = '';
     if (d.sheetDate && d.sheetDate !== sp.k) h += '<div class="notice">📅 The sheet says <b>' + new Date(d.sheetDate + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + '</b>, but it’s saved under ' + new Date(sp.k + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + '. <button type="button" class="link" id="lsMove">Move it to ' + new Date(d.sheetDate + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) + '</button> · <button type="button" class="link" id="lsKeep">It’s right</button></div>';
-    if (d.carried && d.carried.n) h += '<div class="lsban"><span>↺</span><p>' + (d.carried.reg ? '<b>' + d.carried.n + ' of ' + d.carried.of + ' rows matched to your items</b><br>by his short name, size and yesterday’s closing; the order on the page doesn’t matter' : '<b>Names from ' + new Date(d.carried.k + 'T00:00:00').toLocaleDateString('en', { weekday: 'long' }) + '’s sheet</b><br>' + d.carried.n + ' of ' + d.carried.of + ' rows matched') + '</p></div>';
-    h += inkSummary(d) + asksHtml(d) + missingHtml(d);
+    if (d.carried && d.carried.n) h += '<div class="lsban"><span>↺</span><p>' + (d.carried.reg ? '<b>' + d.carried.n + ' of ' + d.carried.of + ' rows matched to your items</b><br>' + (d.carried.tied != null ? (d.tie ? Object.keys(d.tie).length : d.carried.tied) + ' tied to yesterday by closing = today’s opening, the rest by his short name, size and writing. Row order and spelling don’t matter.' : 'by his short name, size and yesterday’s closing; the order on the page doesn’t matter') : '<b>Names from ' + new Date(d.carried.k + 'T00:00:00').toLocaleDateString('en', { weekday: 'long' }) + '’s sheet</b><br>' + d.carried.n + ' of ' + d.carried.of + ' rows matched') + '</p></div>';
+    if (d.learn) { var nl = nmLeft(d).length, fi2 = freshInfo(); h += '<div class="nmban"><span><b>' + (nl ? nl + ' row' + (nl > 1 ? 's' : '') + ' to name' : '✓ All rows named') + '</b><small>' + (fi2 && fi2.learn ? 'learning day ' + fi2.day + ' of ' + fi2.of + ' · you type the names, the AI copies the numbers' : 'you type the names, the AI copies the numbers') + '</small></span><button type="button" class="btn jungle small" id="lsNm">' + (nl ? 'Name them ›' : 'Check the day ›') + '</button></div>'; }
+    else h += inkSummary(d);
+    h += asksHtml(d) + (d.learn && nmLeft(d).length ? '' : missingHtml(d));
     var bad = Object.keys(ck.bad).length;
     h += '<div class="row between"><button type="button" class="nib sm' + (sp.lph ? ' on' : '') + '" id="lsPh">📷 ' + (sp.lph ? 'Hide photo' : 'Show photo') + '</button><span class="cap">' + (bad ? '<span style="color:#B3372B">' + ck.msgs.filter(function (m) { return m.r != null; }).length + ' to check</span>' : '✓ adds up') + '</span></div>';
     if (sp.lph && d.photos.length) h += '<div class="shphoto" id="spPh"><img id="spImg" alt="Sheet photo" style="width:' + (sp.zoom * 100) + '%"></div>';
@@ -5097,14 +5108,16 @@
     var labs = [[SC.open, 'open'], [SC.recv, 'in'], [SC.sales, 'sold'], [SC.rate, 'rate'], [SC.amt, 'amt'], [SC.close, 'close']];
     h += groups.map(function (G) {
       var r0 = G.rows[0], inPL = !PL || !PL.items.length || !G.name || plFind(G.name, g[r0][SC.size]), raw = d.ai && d.ai[r0] ? String(d.ai[r0][SC.item] || '').trim() : '';
-      var tag = !G.name ? '<span class="lstag bad">pick a name</span>' : d.from && d.from[r0] ? '<span class="lstag">from yesterday</span>' : !inPL ? '<span class="lstag warn">not in price list</span>' : '';
-      var ik = d.ink && d.ink[r0], im = d.inkm && d.inkm[r0];
-      var hh = '<div class="lsg' + (im && im.st === 'conflict' ? ' cf' : '') + '"><button type="button" class="lshead" data-lsname="' + r0 + '">' + (ik ? inkImg(ik.id) : '') + (G.name ? '<b>' + esc(G.name) + '</b>' : '<span class="hw">' + esc(raw || '?') + '</span>') + (im ? inkBadge(im) : tag) + '<span class="lsed" aria-hidden="true">✎</span></button>';
+      var askA = (d.ask || []).filter(function (a) { return a.r === r0; })[0] || asksShown(d).filter(function (a) { return G.rows.indexOf(a.r) >= 0; })[0], askd = !!askA, unnm = d.learn && G.rows.some(function (x) { return !(d.named || {})[x]; });
+      var tag = unnm ? '<span class="lstag warn">to name</span>' : askd ? '<span class="lstag warn">can’t match · tap to pick</span>' : !G.name ? '<span class="lstag bad">pick a name</span>' : d.from && d.from[r0] ? '<span class="lstag">from yesterday</span>' : !inPL ? '<span class="lstag warn">not in price list</span>' : '';
+      var ik = d.ink && d.ink[r0], im = d.learn ? null : d.inkm && d.inkm[r0];
+      var hh = '<div class="lsg' + (im && im.st === 'conflict' ? ' cf' : '') + '"><button type="button" class="lshead" ' + (unnm ? 'data-nmr="' + G.rows.filter(function (x) { return !(d.named || {})[x]; })[0] + '"' : d.learn ? 'data-nmr="' + r0 + '"' : askd ? 'data-ask="' + askA.r + '"' : 'data-lsname="' + r0 + '"') + '>' + (ik ? inkImg(ik.id) : '') + (G.name ? '<b>' + esc(G.name) + (raw && !askd && normName(raw) !== normName(G.name) ? '<small class="rdas">read as “' + esc(raw) + '”</small>' : '') + '</b>' : '<span class="hw">' + esc(raw || '?') + '</span>') + (askd ? tag : im ? inkBadge(im) : tag) + '<span class="lsed" aria-hidden="true">✎</span></button>';
       if (im && im.st === 'conflict') hh += '<button type="button" class="ikmsg" data-ikw="' + r0 + '">Writing looks like <b>' + esc(inkBrandName(im.alt)) + '</b> (' + im.ap + '%), but it was read as ' + esc(G.name || raw) + '. Tap to choose.</button>';
       G.rows.forEach(function (r) {
         hh += '<button type="button" class="lsrow" data-lsrow="' + r + '" aria-label="Edit ' + esc((G.name || 'row') + ' ' + (g[r][SC.size] || '')) + '"><span class="lssz">' + esc(g[r][SC.size] || '—') + '</span>' + labs.map(function (l) {
           var v = g[r][l[0]], show = v === '' || v == null ? '' : fmtCell(cellVal(g, r, l[0]));
-          return '<span class="lsc' + (ck.bad[r + ',' + l[0]] ? ' bad' : '') + (show === '' ? ' em' : '') + '"><b>' + esc(show) + '</b><small>' + l[1] + '</small></span>';
+          var tie = l[0] === SC.open && d.tie && d.tie[r] && !ck.bad[r + ',' + l[0]];
+          return '<span class="lsc' + (ck.bad[r + ',' + l[0]] ? ' bad' : '') + (tie ? ' tie' : '') + (show === '' ? ' em' : '') + '"><b>' + esc(show) + '</b><small>' + (tie ? '= yday ✓' : l[1]) + '</small></span>';
         }).join('') + '</button>';
         ck.msgs.filter(function (m) { return m.r === r; }).forEach(function (m) { hh += '<span class="lsmsg">' + m.t.replace(/<b>[^<]*<\/b>: /, '') + '</span>'; });
       });
@@ -5121,6 +5134,8 @@
     var mv = q('#lsMove'); if (mv) mv.onclick = function () { var to = d.sheetDate; if (!moveShopDay(sp.k, to)) return; closeShopDay(); openShopDay(to); toast('Moved to ' + new Date(to + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' })); };
     var kp2 = q('#lsKeep'); if (kp2) kp2.onclick = function () { d.sheetDate = null; save(); drawShopDay(); };
     bindAsks(o, d); fillInk(o);
+    o.querySelectorAll('[data-nmr]').forEach(function (b) { b.onclick = function () { openNm(+b.dataset.nmr); }; });
+    var lnm = q('#lsNm'); if (lnm) lnm.onclick = function () { if (nmLeft(d).length) openNm(); else { sp.step = 'check'; drawShopDay(); } };
     o.querySelectorAll('[data-ikw]').forEach(function (b) { b.onclick = function () { sp.step = 'ink'; sp.inkRow = b.dataset.ikw; drawShopDay(); document.getElementById('overlay').scrollTop = 0; }; });
     o.querySelectorAll('[data-lsrow]').forEach(function (b) { b.onclick = function () { openRowEd(+b.dataset.lsrow); }; });
     o.querySelectorAll('[data-lsname]').forEach(function (b) { b.onclick = function () { openNamePick(+b.dataset.lsname, 'sheet'); }; });
@@ -5132,7 +5147,7 @@
   }
   // --- row editor ---
   var REF = [['size', SC.size, 'Size ml'], ['open', SC.open, 'Opening'], ['recv', SC.recv, 'Received'], ['sales', SC.sales, 'Sold'], ['rate', SC.rate, 'Rate ₹'], ['amt', SC.amt, 'Amount ₹'], ['close', SC.close, 'Closing']];
-  function openRowEd(r, f) { sp.step = 'row'; sp.row = r; sp.fld = f || 'open'; sp.fresh = true; var o = document.getElementById('overlay'); drawShopDay(); o.scrollTop = 0; }
+  function openRowEd(r, f, back) { sp.step = 'row'; sp.row = r; sp.fld = f || 'open'; sp.fresh = true; sp.rowBack = back || null; var o = document.getElementById('overlay'); drawShopDay(); o.scrollTop = 0; }
   function recostHtml(g, r) {
     var nm = String(g[r][SC.item] || '').trim(), cst = nm ? costFor(nm, g[r][SC.size], sp.k) : null, rt0 = num(cellVal(g, r, SC.rate));
     return cst ? 'Cost ' + inr(cst.c, 2) + ' a bottle <small>(' + cst.src + (cst.d ? ' ' + new Date(cst.d + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) : '') + (cst.tcs ? ', incl. TCS' : '') + ')</small>' + (rt0 ? ' · margin <b class="' + (rt0 < cst.c ? 'neg' : '') + '">' + ((rt0 - cst.c) / rt0 * 100).toFixed(1) + '%</b>' : '') : '<span class="muted">No cost yet: link this item to a KSBCL bill or indent</span>';
@@ -5212,7 +5227,7 @@
     });
     q('#rePrev').onclick = function () { goRow(-1); };
     q('#reNext').onclick = function () { goRow(1); };
-    q('#reList').onclick = function () { commitField(); sp.step = 'sheet'; sp.view = 'list'; drawShopDay(); var el = document.querySelector('[data-lsrow="' + r + '"]'); if (el) el.scrollIntoView({ block: 'center' }); };
+    q('#reList').onclick = function () { commitField(); if (sp.rowBack) { sp.step = sp.rowBack; sp.rowBack = null; drawShopDay(); return; } sp.step = 'sheet'; sp.view = 'list'; drawShopDay(); var el = document.querySelector('[data-lsrow="' + r + '"]'); if (el) el.scrollIntoView({ block: 'center' }); };
     q('#reName').onclick = function () { commitField(); openNamePick(r, 'row'); };
     var rs = q('#reSplit'); if (rs) rs.onclick = function () { commitField(); openNamePick(r, 'row', 'down'); };
     q('#reDel').onclick = function () { if (!confirm('Delete this row?')) return; spSnap(d); g.splice(r, 1); if (d.ai) d.ai.splice(r, 1); d.from = null; d.grid = withTotalRow(g); save(); sp.step = 'sheet'; sp.view = 'list'; drawShopDay(); };
@@ -5315,14 +5330,14 @@
     var s2 = shop(); from = resolveKey(from); to = resolveKey(to); if (from === to) return to;
     var a = s2.items[from], b = s2.items[to]; if (!a || !b) return to;
     b.alias = b.alias || {}; Object.keys(a.alias || {}).forEach(function (k) { b.alias[k] = (b.alias[k] || 0) + a.alias[k]; });
-    regAlias(to, a.item, 2); if (!b.full && a.full) b.full = a.full;
+    regAlias(to, a.item, 2); if (!b.full && a.full) b.full = a.full; if (a.fulls) { b.fulls = b.fulls || []; a.fulls.forEach(function (f) { if (b.fulls.indexOf(f) < 0) b.fulls.push(f); }); }
     delete s2.items[from]; repoint(from, to); return to;
   }
   // every name on a sheet becomes an item, and what was learnt before carries over
   function regSync(skip) {
     var s2 = shop(); bills();
     // names from the sheets, except rows still waiting for an answer and the sheet being read right now
-    Object.keys(s2.days).forEach(function (k) { var d = s2.days[k], g = d.grid; if (!g || k === skip || d.status === 'reading') return; var pend = {}; (d.ask || []).forEach(function (a) { pend[a.r] = 1; }); dataRows(g).forEach(function (r) { if (pend[r]) return; var n = String(g[r][SC.item] || '').trim(), sz = String(g[r][SC.size] || '').replace(/[^0-9]/g, ''); if (n && sz && !s2.items[regKey(n, sz)]) regAdd(n, sz, 'sheet'); }); });
+    Object.keys(s2.days).forEach(function (k) { var d = s2.days[k], g = d.grid; if (!g || k === skip || d.status === 'reading') return; var pend = {}; (d.ask || []).forEach(function (a) { pend[a.r] = 1; }); dataRows(g).forEach(function (r) { if (pend[r] || (d.learn && !(d.named || {})[r])) return; var n = String(g[r][SC.item] || '').trim(), sz = String(g[r][SC.size] || '').replace(/[^0-9]/g, ''); if (n && sz && !s2.items[regKey(n, sz)]) regAdd(n, sz, 'sheet'); }); });
     if (!s2.regv) {
       s2.regv = 1;
       Object.keys(s2.gloss || {}).forEach(function (raw) { var to = s2.gloss[raw].to; regAll().forEach(function (x) { if (normName(x.item) === normName(to)) regAlias(x.key, raw, s2.gloss[raw].n); }); });
@@ -5346,47 +5361,96 @@
     return regAll().filter(function (x) { return !sz || !x.size || x.size === sz; }).map(function (x) { return { key: x.key, x: x, s: fitScore(raw, x, BA) }; })
       .filter(function (c) { return c.s > .5; }).sort(function (a, b) { return b.s - a.s; }).slice(0, max || 4);
   }
-  // match every row of a day to your items: his short name, size, yesterday's closing, place on the page
-  function regAssign(k) {
+  // a misread digit: same length with one digit different, or one digit dropped/added
+  function digitNear(a, b) {
+    a = String(a); b = String(b); if (a === b) return false;
+    if (a.length === b.length) { var n = 0; for (var i = 0; i < a.length; i++) if (a[i] !== b[i]) n++; return n === 1; }
+    var L = a.length > b.length ? a : b, S = L === a ? b : a; if (L.length - S.length !== 1) return false;
+    for (var j = 0; j < L.length; j++) if (L.slice(0, j) + L.slice(j + 1) === S) return true; return false;
+  }
+  // which item a row of a day is: the one it was matched to, else its name
+  function dayKeyOf(d, r) { var g = d.grid; return d.rid && d.rid[r] && regItem(d.rid[r]) ? resolveKey(d.rid[r]) : rowKey(g, r); }
+  // yesterday's closing for each item, and where it was on the page
+  function yChain(k) {
+    var pk = prevDayKey(k), out = { k: pk, close: {}, pos: {}, cnt: {} }; if (!pk) return out;
+    var pd = shop().days[pk], pg = pd.grid, i = 0, pend = {}; (pd.ask || []).forEach(function (a) { pend[a.r] = 1; });
+    dataRows(pg).forEach(function (r) {
+      var n = String(pg[r][SC.item] || '').trim(); if (!n || pend[r] || (pd.learn && !(pd.named || {})[r])) return; var kk = dayKeyOf(pd, r); out.pos[kk] = i++;
+      if (isNum(cellVal(pg, r, SC.close)) && String(pg[r][SC.close]).trim() !== '') { var c = num(cellVal(pg, r, SC.close)); out.close[kk] = c; var ck = ((regItem(kk) || {}).size || '') + '|' + c; out.cnt[ck] = (out.cnt[ck] || 0) + 1; }
+    });
+    return out;
+  }
+  // match every row of a day to your items. The strongest tie is the numbers: yesterday's closing = today's opening.
+  // Then his short name, his handwriting and the place on the page. A row it can't tie is asked, never added as a new item.
+  function regAssign(k, only) {
     var d = shopDay(k), g = d && d.grid; if (!g) return null;
-    regSync(k); var BA = brandAliases(), all = regAll(), pk = prevDayKey(k), pc = {}, pp = {};
-    if (pk) { var pg = shop().days[pk].grid, pi = 0; dataRows(pg).forEach(function (r) { var n = String(pg[r][SC.item] || '').trim(); if (!n) return; var kk = regKey(n, pg[r][SC.size]); if (isNum(cellVal(pg, r, SC.close))) pc[kk] = num(cellVal(pg, r, SC.close)); pp[kk] = pi++; }); }
-    var rows = dataRows(g).filter(function (r) { return String(g[r][SC.size] || '').trim() || String(g[r][SC.item] || '').trim(); });
-    var used = {}, n = 0; d.rid = {}; d.ask = [];
-    rows.forEach(function (r, i) {
+    regSync(k); var BA = brandAliases(), all = regAll(), Y = yChain(k), thr = inkThr();
+    var allRows = dataRows(g).filter(function (r) { return String(g[r][SC.size] || '').trim() || String(g[r][SC.item] || '').trim(); });
+    var pos = {}; allRows.forEach(function (r, i) { pos[r] = i; });
+    var used = {}, rows = allRows;
+    if (only) {
+      rows = allRows.filter(function (r) { return only.indexOf(r) >= 0; });
+      allRows.forEach(function (r) { if (only.indexOf(r) < 0 && d.rid && d.rid[r]) used[resolveKey(d.rid[r])] = 1; });
+      d.ask = (d.ask || []).filter(function (a) { return only.indexOf(a.r) < 0; }); d.rid = d.rid || {}; d.tie = d.tie || {};
+    } else { d.rid = {}; d.ask = []; d.tie = {}; }
+    var info = {}, pairs = [];
+    rows.forEach(function (r) {
       var raw = d.ai && d.ai[r] ? String(d.ai[r][SC.item] || '').trim() : '', filled = String(g[r][SC.item] || '').trim(), q = raw || filled;
       var sz = String(g[r][SC.size] || '').replace(/[^0-9]/g, ''), o = isNum(g[r][SC.open]) && String(g[r][SC.open]).trim() !== '' ? num(g[r][SC.open]) : null;
-      var sc = all.filter(function (x) { return !sz || !x.size || x.size === sz; }).map(function (x) {
-        var s = fitScore(q, x, BA); if (o != null && pc[x.key] === o) s += 1.5; if (pp[x.key] != null && Math.abs(pp[x.key] - i) <= 3) s += .3; if (used[x.key]) s -= 1.2; return { key: x.key, x: x, s: s };
-      }).sort(function (a, b) { return b.s - a.s; });
-      var b1 = sc[0], b2 = sc[1];
-      if (b1 && b1.s >= 2.6 && (!b2 || b1.s - b2.s >= .4)) { g[r][SC.item] = b1.x.item; d.rid[r] = b1.key; used[b1.key] = 1; n++; if (raw) regAlias(b1.key, raw); return; }
-      var top = sc.filter(function (c) { return c.s >= .9; }).slice(0, 3).map(function (c) { return c.key; });
-      if (b1 && b1.s >= 1.6) { g[r][SC.item] = b1.x.item; d.rid[r] = b1.key; used[b1.key] = 1; }
-      if (raw || top.length) d.ask.push({ r: r, raw: q, size: sz, cands: top, guess: b1 && b1.s >= 1.6 ? b1.key : null, child: !raw });
+      var I = info[r] = { raw: raw, q: q, sz: sz, o: o, sc: [] };
+      all.forEach(function (x) {
+        if (sz && x.size && x.size !== sz) return;
+        var nm = fitScore(q, x, BA), s = nm, ch = 0, yc = Y.close[x.key], ik = null;
+        if (o != null && yc != null) { if (yc === o) ch = 2; else if (digitNear(yc, o)) ch = .6; }
+        s += ch;
+        if (Y.pos[x.key] != null && Math.abs(Y.pos[x.key] - pos[r]) <= 3) s += .3;
+        if (INK && d.ink && d.ink[r] && d.ink[r].d) { ik = inkBest(d.ink[r].d, brandKey(x.item)); if (ik != null) s += ik >= thr ? 1 : ik >= 60 ? .4 : ik < 40 ? -.4 : 0; }
+        var c = { r: r, key: x.key, x: x, s: s, nm: nm, ch: ch, ik: ik, uniq: ch === 2 && o > 1 && Y.cnt[(x.size || '') + '|' + o] === 1 };
+        I.sc.push(c); pairs.push(c);
+      });
+      I.sc.sort(function (a, b) { return b.s - a.s; });
     });
-    // a brand's size rows wait for the answer on the brand row
+    pairs.sort(function (a, b) { return b.s - a.s; });
+    var done = {};
+    pairs.forEach(function (c) {
+      if (done[c.r] || used[c.key]) return;
+      var alt = info[c.r].sc.filter(function (y) { return y !== c && !used[y.key]; })[0], margin = alt ? c.s - alt.s : 9;
+      if (alt && alt.s > c.s) return;
+      if (!((c.s >= 2.6 && margin >= .4) || (c.uniq && margin >= .2))) return;
+      done[c.r] = 1; used[c.key] = 1; g[c.r][SC.item] = c.x.item; d.rid[c.r] = c.key; if (c.ch === 2) d.tie[c.r] = 1; else delete d.tie[c.r];
+      var raw = info[c.r].raw; if (raw && (c.nm >= 1.6 || c.uniq) && !inkRawOther(raw, info[c.r].sz, c.key)) regAlias(c.key, raw);
+    });
+    rows.forEach(function (r) {
+      if (done[r]) return; var I = info[r]; delete d.tie[r];
+      var top = I.sc.filter(function (c) { return !used[c.key] && c.s >= .9; }).slice(0, 3), b1 = top[0];
+      if (b1 && b1.s >= 1.6) { g[r][SC.item] = b1.x.item; d.rid[r] = b1.key; } else delete d.rid[r];
+      d.ask.push({ r: r, raw: I.q, size: I.sz, cands: top.map(function (c) { return c.key; }), guess: b1 && b1.s >= 1.6 ? b1.key : null, child: !I.raw });
+    });
+    // a brand's size rows wait for the answer on the brand row (hidden, but still kept out of your items)
     var heads = {}; d.ask.forEach(function (a) { if (!a.child) heads[a.raw.toLowerCase()] = 1; });
-    d.ask = d.ask.filter(function (a) { return !a.child || !heads[a.raw.toLowerCase()]; });
-    d.carried = { n: n, of: rows.length, k: pk, reg: true };
+    d.ask.forEach(function (a) { a.hide = !!(a.child && heads[a.raw.toLowerCase()]); });
+    var pend = {}; d.ask.forEach(function (a) { pend[a.r] = 1; });
+    d.carried = { n: allRows.filter(function (r) { return d.rid[r] && !pend[r]; }).length, of: allRows.length, k: Y.k, reg: true, tied: Object.keys(d.tie).length };
     return d.carried;
   }
   // answer "is this one of your items?"
-  function answerAsk(d, a, key, mode) {
+  function answerAsk(d, a, key, mode, newName) {
     var g = d.grid, s2 = shop(), raw = a.raw;
     var rowsOf = [a.r]; // the size rows under a brand row follow it
     if (!a.child) { var rs = dataRows(g), i = rs.indexOf(a.r) + 1; while (i < rs.length && !(d.ai && d.ai[rs[i]] && String(d.ai[rs[i]][SC.item] || '').trim()) && String(g[rs[i]][SC.item] || '').trim().toLowerCase() === String(g[a.r][SC.item] || '').trim().toLowerCase()) rowsOf.push(rs[i++]); }
     var brand = null;
-    if (mode === 'new') brand = raw;
+    if (mode === 'new') brand = String(newName || '').trim() || raw;
     else { var x = regItem(key); if (!x) return; brand = x.item; }
     rowsOf.forEach(function (r) {
       var sz = String(g[r][SC.size] || '').replace(/[^0-9]/g, ''), k2 = r === a.r && mode !== 'new' ? resolveKey(key) : null;
       if (!k2) { var same = regAll().filter(function (y) { return normName(y.item) === normName(brand) && y.size === sz; })[0]; k2 = same ? same.key : regAdd(brand, sz, 'sheet'); }
       g[r][SC.item] = regItem(k2).item; d.rid = d.rid || {}; d.rid[r] = k2;
-      if (raw && mode !== 'new') regAlias(k2, raw, 2);
+      if (raw && mode !== 'new' && !inkRawOther(raw, sz, k2)) regAlias(k2, raw, 2);
+      if (d.tie) delete d.tie[r];
     });
-    if (raw && mode !== 'new') { var gk = raw.toLowerCase(); s2.gloss[gk] = { to: brand, n: ((s2.gloss[gk] || {}).n || 0) + 1 }; }
+    if (raw && mode !== 'new' && !inkRawOther(raw, g[a.r][SC.size], resolveKey(key))) { var gk = raw.toLowerCase(); s2.gloss[gk] = { to: brand, n: ((s2.gloss[gk] || {}).n || 0) + 1 }; }
     d.ask = (d.ask || []).filter(function (y) { return y !== a && rowsOf.indexOf(y.r) < 0; });
+    if (d.carried) d.carried.n = Math.min(d.carried.of, (d.carried.n || 0) + rowsOf.length);
     if (d.ink && d.ink[a.r]) { var nm3 = String(g[a.r][SC.item] || '').trim(); inkLoad().then(function () { inkLearn(nm3, d.ink[a.r]); inkMatch(sp ? sp.k : null); return inkSave(); }); }
     d.edited = true; save();
   }
@@ -5401,13 +5465,15 @@
     });
     return out;
   }
+  function asksShown(d) { return (d.ask || []).filter(function (a) { return !a.hide; }); }
   function asksHtml(d) {
-    var h = '';
-    (d.ask || []).slice(0, 6).forEach(function (a, i) {
-      h += '<div class="askc"><span class="cap">On the sheet</span><b><span class="hw">' + esc(a.raw || '?') + '</span> ' + esc(a.size || '') + ' is…</b><div class="askb">' + a.cands.map(function (key) { var x = regItem(key); if (!x) return ''; var al = Object.keys(x.alias || {}).slice(0, 2); return '<button type="button" data-ask="' + i + '" data-ak="' + esc(key) + '" class="' + (a.guess === key ? 'on' : '') + '"><b>' + esc(x.item) + ' ' + esc(x.size || '') + '</b>' + (al.length ? '<small>he writes ' + al.map(esc).join(', ') + '</small>' : x.src !== 'sheet' ? '<small>from your ' + x.src + 's</small>' : '') + '</button>'; }).join('') +
-        '<button type="button" data-ask="' + i + '" data-ak="__new"><b>A new item</b><small>add “' + esc(a.raw) + ' ' + esc(a.size) + '” to your items</small></button><button type="button" data-ask="' + i + '" data-ak="__pick"><b>Something else…</b><small>search your items and the name list</small></button></div></div>';
-    });
-    if ((d.ask || []).length > 6) h += '<span class="muted small">+ ' + (d.ask.length - 6) + ' more after these</span>';
+    var A = asksShown(d); if (!A.length) return '';
+    var g = d.grid, none = A.filter(function (a) { return !a.cands.length && a.raw; }), h = '<div class="sqban"><b>' + A.length + ' row' + (A.length > 1 ? 's' : '') + ' not matched</b> · nothing is added as a new item until you say so' + (none.length > 1 ? '<button type="button" class="btn line small" id="sqAllNew" style="margin-top:8px;width:100%">' + none.length + ' look nothing like your items: add them as new</button>' : '') + '</div>';
+    h += A.slice(0, 8).map(function (a) {
+      var ik = d.ink && d.ink[a.r], o = g[a.r] ? g[a.r][SC.open] : '', gx = a.guess && regItem(a.guess);
+      return '<button type="button" class="sqrow" data-ask="' + a.r + '">' + (ik ? inkImg(ik.id) : '<span class="hw sqhw">' + esc(a.raw || '?') + '</span>') + '<span class="sqt"><b>' + (gx ? 'Maybe ' + esc(gx.item) + '?' : 'Can’t match · tap to pick') + '</b><small>read as “' + esc(a.raw || '?') + '” · ' + esc(a.size || '—') + ' ml' + (String(o).trim() !== '' ? ' · opening ' + esc(o) : '') + '</small></span><span class="lstag warn">pick</span></button>';
+    }).join('');
+    if (A.length > 8) h += '<span class="muted small">+ ' + (A.length - 8) + ' more after these</span>';
     return h;
   }
   function missingHtml(d) {
@@ -5418,17 +5484,97 @@
     return h + '</div>';
   }
   function bindAsks(o, d) {
-    o.querySelectorAll('[data-ask]').forEach(function (b) { b.onclick = function () {
-      var a = d.ask[+b.dataset.ask], k = b.dataset.ak; if (!a) return; spSnap(d);
-      if (k === '__pick') { openNamePick(a.r, 'sheet', a.child ? 'one' : 'all'); return; }
-      answerAsk(d, a, k === '__new' ? null : k, k === '__new' ? 'new' : 'same'); drawShopDay();
-    }; });
+    o.querySelectorAll('[data-ask]').forEach(function (b) { b.onclick = function () { openSame(+b.dataset.ask); }; });
+    var an = o.querySelector('#sqAllNew'); if (an) an.onclick = function () {
+      var none = asksShown(d).filter(function (a) { return !a.cands.length && a.raw; }); if (!confirm('Add ' + none.length + ' new items: ' + none.map(function (a) { return a.raw + ' ' + a.size; }).join(', ') + '?')) return;
+      spSnap(d); none.forEach(function (a) { if ((d.ask || []).indexOf(a) >= 0) answerAsk(d, a, null, 'new'); }); save(); drawShopDay(); toast(none.length + ' new items added');
+    };
     o.querySelectorAll('[data-madd]').forEach(function (b) { b.onclick = function () {
       var m = missingToday(sp.k, d).miss.filter(function (x) { return x.key === b.dataset.madd; })[0]; if (!m) return; spSnap(d);
       var g = d.grid, nr = SHCOLS.map(function () { return ''; }); nr[SC.item] = m.name; nr[SC.size] = m.size; if (m.close != null) nr[SC.open] = String(m.close);
       g.splice(g.length - 1, 0, nr); if (d.ai) d.ai.splice(d.ai.length - 1, 0, SHCOLS.map(function () { return ''; })); d.grid = withTotalRow(g); save(); openRowEd(g.length - 2, 'sales');
     }; });
     o.querySelectorAll('[data-mgone]').forEach(function (b) { b.onclick = function () { d.gone = d.gone || {}; d.gone[b.dataset.mgone] = 1; save(); drawShopDay(); }; });
+  }
+  // ---------- "Is this the same item?": the row cut from the photo, his writing beside each choice ----------
+  function openSame(r) { sp.step = 'same'; sp.sqr = r; sp.sq = ''; sp.sqz = false; drawShopDay(); var ov = document.getElementById('overlay'); if (ov) ov.scrollTop = 0; }
+  // the whole line of the sheet: its own band if the AI gave one, else the name box, else between its neighbours
+  function rowBand(d, r) {
+    if (d.boxes && d.boxes[r]) return { p: d.boxes[r].p, y: [d.boxes[r].b[0], d.boxes[r].b[2]] };
+    if (d.rowy && d.rowy[r]) return d.rowy[r];
+    var known = {}; Object.keys(d.rowy || {}).forEach(function (x) { known[x] = d.rowy[x]; }); Object.keys(d.boxes || {}).forEach(function (x) { if (!known[x]) known[x] = { p: d.boxes[x].p, y: [d.boxes[x].b[0], d.boxes[x].b[2]] }; });
+    var ks = Object.keys(known).map(Number).sort(function (a, b) { return a - b; }); if (!ks.length) return null;
+    var lo = null, hi = null; ks.forEach(function (x) { if (x < r) lo = x; if (x > r && hi == null) hi = x; });
+    if (lo != null && hi != null && known[lo].p === known[hi].p) { var f = (r - lo) / (hi - lo), a = known[lo].y, b = known[hi].y, h0 = a[1] - a[0]; var mid = (a[0] + a[1]) / 2 + f * ((b[0] + b[1]) / 2 - (a[0] + a[1]) / 2); return { p: known[lo].p, y: [mid - h0 / 2, mid + h0 / 2] }; }
+    var n = lo != null ? lo : hi, kb = known[n], hh = kb.y[1] - kb.y[0]; return { p: kb.p, y: [kb.y[0] + (r - n) * hh, kb.y[1] + (r - n) * hh] };
+  }
+  function rowCrop(d, r) {
+    var band = rowBand(d, r); if (!band) return Promise.resolve(null);
+    return shopPhotos(d).then(function (imgs) {
+      var src = imgs[band.p || 0] || imgs[0]; if (!src) return null;
+      return new Promise(function (res) {
+        var im = new Image(); im.onload = function () {
+          var H = im.height, W = im.width, y0 = band.y[0] / 1000 * H, y1 = band.y[1] / 1000 * H, pad = Math.max(6, (y1 - y0) * .35);
+          y0 = Math.max(0, y0 - pad); y1 = Math.min(H, y1 + pad); var ch = y1 - y0; if (ch < 6) { res(null); return; }
+          var k = Math.min(1, 1200 / W), c = document.createElement('canvas'); c.width = Math.round(W * k); c.height = Math.max(8, Math.round(ch * k));
+          c.getContext('2d').drawImage(im, 0, y0, W, ch, 0, 0, c.width, c.height); res(c.toDataURL('image/jpeg', .8));
+        }; im.onerror = function () { res(null); }; im.src = src;
+      });
+    });
+  }
+  // the last day before k this item was on a sheet, and what it closed at
+  function lastSeen(key, k) {
+    var s2 = shop(), ks = Object.keys(s2.days).filter(function (x) { return x < k && s2.days[x].grid; }).sort().reverse();
+    for (var i = 0; i < ks.length && i < 60; i++) { var d = s2.days[ks[i]], g = d.grid, rs = dataRows(g); for (var j = 0; j < rs.length; j++) { var r = rs[j]; if (!String(g[r][SC.item] || '').trim() || dayKeyOf(d, r) !== key) continue; var c = String(g[r][SC.close]).trim() !== '' && isNum(cellVal(g, r, SC.close)) ? num(cellVal(g, r, SC.close)) : null; return { k: ks[i], c: c }; } }
+    return null;
+  }
+  function sameOpt(d, r, key, i, on) {
+    var x = regItem(key); if (!x) return ''; var ls = lastSeen(resolveKey(key), sp.k), smp = ((INK || {})[brandKey(x.item)] || []).slice(-2);
+    var ik = INK && d.ink && d.ink[r] && d.ink[r].d ? inkBest(d.ink[r].d, brandKey(x.item)) : null;
+    var sub = []; if (ls) sub.push((ls.c != null ? 'closed ' + fmtN(ls.c) + ' on ' : 'on the sheet ') + new Date(ls.k + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' })); else sub.push('not on a sheet yet');
+    if (ik != null) sub.push('writing ' + ik + '%');
+    return '<button type="button" class="inkopt' + (on ? ' on' : '') + '" data-sqk="' + esc(key) + '"><span class="row between" style="gap:8px"><b>' + esc(x.item) + ' ' + esc(x.size || '') + '</b>' + (ik != null ? '<span class="ikb ' + (ik >= inkThr() ? 'ok' : ik >= 60 ? 'lk' : 'lo') + '">' + (ik >= inkThr() ? '✓ ' : '') + ik + '%</span>' : '') + '</span><small>' + sub.join(' · ') + '</small>' + (smp.length ? '<span class="row" style="gap:6px">' + smp.map(function (s) { return inkImg(s.id, 'inkimg sm'); }).join('') + '</span>' : '') + '</button>';
+  }
+  function sameResults(d, r, a) {
+    var q = (sp.sq || '').trim().toLowerCase(), sz = a.size, today = {}, h = '';
+    dataRows(d.grid).forEach(function (x) { if (x !== r && d.rid && d.rid[x]) today[resolveKey(d.rid[x])] = 1; });
+    var list = regAll().filter(function (x) { return a.cands.indexOf(x.key) < 0; });
+    if (q) list = list.filter(function (x) { var n = x.item.toLowerCase(); return n.indexOf(q) >= 0 || normName(x.item).indexOf(normName(q)) >= 0 || nameScore(q, x.item) > .5 || Object.keys(x.alias).some(function (al) { return al.indexOf(q) >= 0; }) || (x.full && x.full.toLowerCase().indexOf(q) >= 0); });
+    else list = list.filter(function (x) { return (!sz || x.size === sz) && !today[x.key]; });
+    list.sort(function (a2, b2) { return ((b2.size === sz) - (a2.size === sz)) || a2.item.localeCompare(b2.item); });
+    h += list.slice(0, q ? 10 : 8).map(function (x) { var smp = ((INK || {})[brandKey(x.item)] || []).slice(-1)[0]; var al = Object.keys(x.alias)[0]; return '<button type="button" class="sqpick" data-sqk="' + esc(x.key) + '">' + (smp ? inkImg(smp.id, 'inkimg sm') : al ? '<span class="hw sqhw">' + esc(al) + '</span>' : '<span class="sqhw"></span>') + '<b>' + esc(x.item) + '</b><small>' + esc(x.size || '') + '</small></button>'; }).join('');
+    if (!list.length) h += '<p class="muted small">' + (q ? 'None of your items match “' + esc(sp.sq) + '”.' : 'No other ' + esc(sz) + ' ml items left.') + '</p>';
+    return (q ? '' : '<span class="muted small">' + esc(sz || '') + (sz ? ' ml items' : 'Items') + ' not yet on today’s sheet</span>') + h;
+  }
+  function sameHtml(d) {
+    var r = sp.sqr, g = d.grid, a = (d.ask || []).filter(function (y) { return y.r === r; })[0], v = function (c) { var x = g[r][c]; return x === '' || x == null ? '–' : esc(x); };
+    var cands = a.cands.slice(); var m = (d.inkm || {})[r];
+    if (m && m.alt) regAll().filter(function (x) { return brandKey(x.item) === m.alt && (!a.size || x.size === a.size); }).forEach(function (x) { if (cands.indexOf(x.key) < 0) cands.unshift(x.key); });
+    var h = '<h1 class="display" style="font-size:28px;margin:0">Is this the same item?</h1>';
+    h += '<div class="sqcrop"><span class="cap">Cut from the photo · row ' + (dataRows(g).indexOf(r) + 1) + '</span><div class="sqimg' + (sp.sqz ? ' z' : '') + '" id="sqImg"><span class="muted small">Cutting the row out of the photo…</span></div><small>read as “' + esc(a.raw || '?') + '” · ' + esc(g[r][SC.size] || '—') + ' ml · opening ' + v(SC.open) + ' · sold ' + v(SC.sales) + ' · closing ' + v(SC.close) + '</small></div>';
+    if (cands.length) h += '<span class="cap">Most likely</span>' + cands.slice(0, 3).map(function (key, i) { return sameOpt(d, r, key, i, key === a.guess || (!a.guess && i === 0)); }).join('');
+    h += '<span class="cap">Or pick it yourself</span><input class="text" id="sqQ" placeholder="🔍 Type a few letters…" autocomplete="off" autocapitalize="off" value="' + esc(sp.sq || '') + '"><div class="stack" style="gap:6px" id="sqRes">' + sameResults(d, r, a) + '</div>';
+    h += '<button type="button" class="btn line" id="sqNew">' + (sp.sq ? 'New item: “' + esc(sp.sq) + ' ' + esc(a.size || '') + '”' : 'It’s a new item') + '</button><button type="button" class="btn ghost small" id="sqBack">‹ List</button>';
+    h += '<p class="muted small">His writing for each item is shown beside it, so you can match by eye. Your choice is saved as a sample, so next time it knows.</p>';
+    return h;
+  }
+  function bindSame(o, d) {
+    var r = sp.sqr, a = (d.ask || []).filter(function (y) { return y.r === r; })[0], q = function (x) { return o.querySelector(x); };
+    if (!INK) inkLoad().then(function () { if (sp && sp.step === 'same') drawShopDay(); });
+    var back = function () { sp.step = 'sheet'; sp.view = 'list'; drawShopDay(); };
+    var pick = function (key, mode) {
+      spSnap(d); answerAsk(d, a, key, mode, mode === 'new' ? sp.sq : null);
+      inkLoad().then(function () { inkMatch(sp.k); save(); }); save(); back();
+      toast(mode === 'new' ? 'Added as a new item' : 'Matched · saved as a sample of his writing');
+    };
+    var bindPick = function () { o.querySelectorAll('[data-sqk]').forEach(function (b) { b.onclick = function () { pick(b.dataset.sqk, 'same'); }; }); fillInk(o); };
+    bindPick();
+    var inp = q('#sqQ'); inp.addEventListener('input', function () { sp.sq = inp.value; q('#sqRes').innerHTML = sameResults(d, r, a); q('#sqNew').textContent = sp.sq ? 'New item: “' + sp.sq + ' ' + (a.size || '') + '”' : 'It’s a new item'; bindPick(); });
+    q('#sqNew').onclick = function () { if (!sp.sq && !a.raw) { toast('Type the name first'); inp.focus(); return; } pick(null, 'new'); };
+    q('#sqBack').onclick = back;
+    var box = q('#sqImg'); box.onclick = function () { sp.sqz = !sp.sqz; box.classList.toggle('z', sp.sqz); };
+    var paint = function (u) { var bx = document.getElementById('sqImg'); if (!bx) return; bx.innerHTML = u ? '<img alt="This row on the photo" src="' + u + '">' : '<span class="muted small">No photo for this row</span>'; };
+    if (sp.sqc && sp.sqc.k === sp.k && sp.sqc.r === r) paint(sp.sqc.u); else rowCrop(d, r).then(function (u) { sp.sqc = { k: sp.k, r: r, u: u }; paint(u); }).catch(function () { paint(null); });
   }
   // cost per bottle: the latest KSBCL bill or indent for that item (old price lists are ignored)
   // cost per bottle (TCS included) from the KSBCL bill or indent that applied on that date; the latest one if no date
@@ -5477,6 +5623,7 @@
     var list = all.filter(function (x) { return !q || x.item.toLowerCase().indexOf(q) >= 0 || Object.keys(x.alias).some(function (a) { return a.indexOf(q) >= 0; }); }).sort(function (a, b) { return a.item.localeCompare(b.item) || (+b.size - +a.size); });
     var h = '';
     if (aq.length) h += '<button type="button" class="r askban" data-sheet="shopsame"><span class="t">' + aq.length + ' name' + (aq.length > 1 ? 's' : '') + ' to confirm<small>from your KSBCL indents: are they items you already have?</small></span>' + CHEV + '</button>';
+    var dp = dupPairs().length; if (dp) h += '<button type="button" class="r askban" data-sheet="shopdupes"><span class="t">' + dp + ' pair' + (dp > 1 ? 's' : '') + ' of items look like the same item<small>double entries from misread names · tap to clean up</small></span>' + CHEV + '</button>';
     h += '<input class="text" id="iiq" placeholder="Search your ' + all.length + ' items" value="' + esc(shopUi.iq || '') + '">';
     h += '<div class="stack" style="gap:8px">' + list.slice(0, 150).map(function (x) {
       var sk = st[x.key], qty = sk ? sk.qty : null, al = Object.keys(x.alias).sort(function (a, b) { return x.alias[b] - x.alias[a]; }).slice(0, 4), c = costFor(x.item, x.size), rt = c ? lastRate(x.key) : null, pc = c && rt ? (rt - c.c) / rt * 100 : null;
@@ -5511,6 +5658,73 @@
     } };
   }
   // the queue of "same item?" questions from indents
+  // ---------- clean up double entries: two items that are really one ----------
+  // never on the same day, and one's opening carries on from the other's closing (plus a similar name or the same writing)
+  function dupPairs() {
+    var s2 = shop(), ks = Object.keys(s2.days).filter(function (k) { return s2.days[k].grid; }).sort(), app = {}, nd = s2.notDup || {};
+    ks.forEach(function (k, ki) {
+      var d = s2.days[k], g = d.grid, pend = {}; (d.ask || []).forEach(function (a) { pend[a.r] = 1; });
+      dataRows(g).forEach(function (r) {
+        if (pend[r] || (d.learn && !(d.named || {})[r]) || !String(g[r][SC.item] || '').trim()) return;
+        var v = function (c) { return String(g[r][c]).trim() !== '' && isNum(cellVal(g, r, c)) ? num(cellVal(g, r, c)) : null; };
+        var kk = dayKeyOf(d, r), e = app[kk] = app[kk] || { days: {}, n: 0 }; e.days[k] = { o: v(SC.open), c: v(SC.close), ki: ki }; e.n++;
+      });
+    });
+    var by = {}; regAll().forEach(function (x) { if (app[x.key]) (by[x.size || ''] = by[x.size || ''] || []).push(x); });
+    var chain = function (A, B) { var n = 0; Object.keys(A.days).forEach(function (k) { var c = A.days[k].c, nk = ks[A.days[k].ki + 1]; if (c == null || c <= 0 || !nk || A.days[nk] || !B.days[nk]) return; if (B.days[nk].o === c) n++; }); return n; };
+    var out = [];
+    Object.keys(by).forEach(function (sz) {
+      var L = by[sz];
+      for (var i = 0; i < L.length; i++) for (var j = i + 1; j < L.length; j++) {
+        var a = L[i], b = L[j], A = app[a.key], B = app[b.key], pk = [a.key, b.key].sort().join('~'); if (nd[pk]) continue;
+        if (Object.keys(A.days).some(function (k) { return B.days[k]; })) continue;
+        var ch = chain(A, B) + chain(B, A);
+        var la = a.item.toLowerCase(), lb = b.item.toLowerCase(), nm = Math.max(nameScore(a.item, b.item), nameScore(b.item, a.item), a.alias[lb] || b.alias[la] ? 1 : 0);
+        Object.keys(a.alias).forEach(function (al) { nm = Math.max(nm, nameScore(al, b.item) * .9); }); Object.keys(b.alias).forEach(function (al) { nm = Math.max(nm, nameScore(al, a.item) * .9); });
+        var ik = null, sa = (INK || {})[brandKey(a.item)] || [], sb = (INK || {})[brandKey(b.item)] || [];
+        if (sa.length && sb.length && brandKey(a.item) !== brandKey(b.item)) { ik = 0; sa.slice(-6).forEach(function (x) { sb.slice(-6).forEach(function (y) { var v2 = inkSim(x, y); if (v2 > ik) ik = v2; }); }); }
+        if (ik != null && ik < 45 && ch < 2) continue;
+        if (!(ch >= 2 || (ch >= 1 && (nm >= .3 || (ik != null && ik >= 60))) || (nm >= .75 && (ik == null || ik >= 60)))) continue;
+        // keep the one with the KSBCL name, else the one on more sheets
+        var keepA = dupKeep(a, A) >= dupKeep(b, B);
+        var to = keepA ? a : b, from = keepA ? b : a;
+        out.push({ to: to.key, from: from.key, chain: ch, nm: nm, ik: ik, days: (keepA ? B : A).n, s: ch + nm * 2 + (ik || 0) / 50, pk: pk });
+      }
+    });
+    return out.sort(function (x, y) { return y.s - x.s; });
+  }
+  // which name to keep: the KSBCL-linked one, then one on the price list, then the fuller name, then the one on more sheets
+  function dupKeep(x, A) { var inPL = false; try { inPL = !!(PL && PL.items && PL.items.length && plFind(x.item, x.size)); } catch (e) {} return (x.full ? 8 : 0) + (inPL ? 4 : 0) + Math.min(2, normName(x.item).length / 10) + Math.min(1, A.n / 20); }
+  function mergeDup(from, to) {
+    var s2 = shop(), fx = regItem(from), tx = regItem(to); if (!fx || !tx) return 0;
+    from = resolveKey(from); to = resolveKey(to); var fName = fx.item, fb = brandKey(fName), tb = brandKey(tx.item), changed = {};
+    Object.keys(s2.days).forEach(function (k) {
+      var d = s2.days[k], g = d.grid; if (!g) return;
+      dataRows(g).forEach(function (r) { if (!String(g[r][SC.item] || '').trim()) return; if (dayKeyOf(d, r) === from) { g[r][SC.item] = tx.item; d.rid = d.rid || {}; d.rid[r] = to; changed[k] = 1; } });
+    });
+    regMerge(from, to);
+    // his writing samples go with it, unless another size still uses that name
+    if (fb !== tb && INK && INK[fb] && !regAll().some(function (y) { return brandKey(y.item) === fb; })) { INK[tb] = (INK[tb] || []).concat(INK[fb]).slice(-12); delete INK[fb]; inkSave(); }
+    Object.keys(changed).forEach(function (k) { var d = s2.days[k]; if (d.status !== 'closed') return; var pr = profitRows(d, k); if (pr.avg == null) return; d.pct = Math.round(pr.avg * 10) / 10; d.profit = (d.sales || 0) * d.pct / 100; d.net = d.profit - (d.expTotal || 0); });
+    save(); return Object.keys(changed).length;
+  }
+  function dupSnip(x) { var smp = ((INK || {})[brandKey(x.item)] || []).slice(-1)[0], al = Object.keys(x.alias || {})[0]; return smp ? inkImg(smp.id, 'inkimg sm') : '<span class="hw sqhw">' + esc(al || x.item.split(' ')[0]) + '</span>'; }
+  function shopDupesSheet() {
+    if (!INK) inkLoad().then(function () { if (ui.sheet && ui.sheet.kind === 'shopdupes') drawSheet(); });
+    var P = dupPairs(), h = '';
+    if (!P.length) h = '<div class="notice">✓ No double entries found. Every item looks like a different one.</div>';
+    h += P.slice(0, 30).map(function (p, i) {
+      var a = regItem(p.to), b = regItem(p.from); if (!a || !b) return '';
+      var why = ['never on the same day']; if (p.chain) why.push(esc(b.item) + '’s numbers carry on from ' + esc(a.item) + (p.chain > 1 ? ' on ' + p.chain + ' days' : ' once')); if (p.ik != null) why.push('writing ' + p.ik + '%'); else if (p.nm >= .5) why.push('similar name');
+      return '<div class="card stack dupc" style="gap:8px"><div class="dupn">' + dupSnip(a) + '<b>' + esc(a.item) + ' ' + esc(a.size || '') + '</b></div><span class="muted small">and</span><div class="dupn">' + dupSnip(b) + '<b>' + esc(b.item) + ' ' + esc(b.size || '') + '</b></div><span class="muted small">' + why.join(' · ') + '</span><div class="row" style="gap:8px"><button type="button" class="btn jungle" style="flex:1" data-dupm="' + i + '">Merge · fix ' + p.days + ' day' + (p.days === 1 ? '' : 's') + '</button><button type="button" class="btn line" style="flex:1" data-dupk="' + i + '">Keep apart</button></div></div>';
+    }).join('');
+    h += '<p class="muted small">Merging joins the two into one item (the first name is kept, the other becomes one of his short names) and recalculates stock and profit for those days.</p>';
+    return { title: 'Double entries', cap: P.length ? P.length + ' pair' + (P.length > 1 ? 's' : '') + ' look like the same item' : 'all clear', html: '<div class="stack" style="gap:10px">' + h + '</div>', bind: function (r) {
+      fillInk(r);
+      r.querySelectorAll('[data-dupm]').forEach(function (b) { b.onclick = function () { var p = P[+b.dataset.dupm]; var n = mergeDup(p.from, p.to); drawSheet(); toast('Merged · ' + n + ' day' + (n === 1 ? '' : 's') + ' fixed'); }; });
+      r.querySelectorAll('[data-dupk]').forEach(function (b) { b.onclick = function () { var p = P[+b.dataset.dupk], s2 = shop(); s2.notDup = s2.notDup || {}; s2.notDup[p.pk] = 1; save(); drawSheet(); }; });
+    } };
+  }
   function shopSameSheet() {
     var s2 = shop(), aq = s2.askq = (s2.askq || []).filter(function (a) { return a && a.name; }), a = aq[0];
     if (!a) return { title: 'All confirmed', cap: '', html: '<div class="notice ok">✓ Nothing left to confirm.</div><button type="button" class="btn jungle" data-sheet="shopitems">Your items</button>', bind: function () {} };
@@ -5532,6 +5746,20 @@
   function indentLinkAll() {
     var s2 = shop(), ind = s2.indents || {}, seen = {}; s2.askq = s2.askq || []; regSync();
     Object.keys(ind).forEach(function (id) { var n = ind[id]; (n.items || []).forEach(function (it) { var mk = normName(it.name) + '|' + it.ml; var e = seen[mk] = seen[mk] || { name: it.name, ml: it.ml, n: 0, last: '' }; e.n++; if ((n.date || '') > e.last) e.last = n.date || ''; }); });
+    if (s2.fresh) {
+      // each new indent line joins one of your short names, or adds a size or a new name
+      var lst = [], ad = 0, lk = 0;
+      Object.keys(seen).forEach(function (mk) {
+        if (s2.map[mk] && regItem(s2.map[mk])) return; var e = seen[mk];
+        var byFull = regAll().filter(function (x) { return (x.fulls || []).concat(x.full ? [x.full] : []).some(function (f) { return normName(f) === normName(e.name); }); })[0];
+        var short = byFull ? byFull.item : shortFor(e.name), same = regAll().filter(function (x) { return normName(x.item) === normName(short); }), hit = same.filter(function (x) { return x.size === e.ml; })[0];
+        var kind = hit ? 'yours' : same.length ? 'size' : 'new', k = hit ? hit.key : regAdd(short, e.ml, 'indent', { full: e.name });
+        var x = regItem(k); if (!x) return; x.fulls = x.fulls || []; if (x.fulls.indexOf(e.name) < 0) x.fulls.push(e.name); if (!x.full) x.full = e.name;
+        s2.map[mk] = k; if (kind === 'yours') lk++; else ad++;
+        lst.push({ full: e.name, ml: e.ml, key: k, kind: kind });
+      });
+      return { added: ad, linked: lk, ask: 0, list: lst };
+    }
     var asked = {}; s2.askq.forEach(function (a) { asked[normName(a.name) + '|' + a.ml] = 1; });
     var added = 0, linked = 0, ask = 0;
     Object.keys(seen).forEach(function (mk) {
@@ -5586,6 +5814,7 @@
     h += '<div class="shtiles ttq"><div><b class="display">' + ids.length + '</b><small>indents</small></div><div><b class="display">' + Object.keys(items).length + '</b><small>items</small></div><div><b class="display" style="font-size:16px">' + (dates.length ? fmt(dates[0]) + '–' + fmt(dates[dates.length - 1]) : '—') + '</b><small>dates</small></div></div>';
     if (indJob) h += '<div class="' + (indJob.err ? 'notice' : 'shreading') + '">' + (indJob.err ? '' : '<span class="wpulse"></span>') + '<b>' + esc(indJob.stage) + '</b></div>';
     if (indRes && !indJob) h += '<div class="notice ok">✓ ' + indRes.linked + ' linked to your items · ' + indRes.added + ' added as new' + (indRes.ask ? ' · <b>' + indRes.ask + ' to confirm</b>' : '') + '</div>';
+    if (indRes && !indJob && indRes.list && indRes.list.length) h += '<span class="cap">New stock in the indent</span><div class="stack" style="gap:8px">' + indRes.list.map(function (x, i) { var it = regItem(x.key); if (!it) return ''; return '<div class="card stack indl" style="gap:6px"><small>' + esc(x.full) + ' · ' + esc(x.ml) + ' ml</small><div class="row between" style="gap:8px"><b>→ ' + esc(it.item) + ' ' + esc(it.size) + '</b><span class="ikb ' + (x.kind === 'yours' ? 'ok' : 'lk') + '">' + (x.kind === 'yours' ? 'yours ✓' : x.kind === 'size' ? 'new size' : 'new name') + '</span></div>' + (x.kind !== 'yours' ? '<button type="button" class="link" data-indr="' + i + '" style="align-self:flex-start">✎ Rename or join another name</button>' : '') + '</div>'; }).join('') + '</div>';
     if ((s2.askq || []).length) h += '<button type="button" class="btn coral" data-sheet="shopsame">Confirm ' + s2.askq.length + ' name' + (s2.askq.length > 1 ? 's' : '') + ' →</button>';
     h += '<input type="file" id="indFile" accept=".pdf,.xlsx,.xls,.csv,image/*,application/pdf" multiple hidden><button type="button" class="btn jungle" id="indUp"' + (indJob && !indJob.err ? ' disabled' : '') + '>⤒ Upload indent file' + (ids.length ? 's (adds to these)' : '') + '</button>';
     if (!hasAI()) h += '<div class="notice">Reading indents needs your free Gemini key (Settings → Visualization).</div>';
@@ -5593,9 +5822,319 @@
     return { title: 'Past indents', cap: ids.length ? ids.length + ' indents' : '', html: '<div class="stack" style="gap:12px">' + h + '</div>', bind: function (r) {
       var f = r.querySelector('#indFile'); r.querySelector('#indUp').onclick = function () { if (!hasAI()) { toast('Add your Gemini key first'); return; } f.click(); };
       f.onchange = function () { var fs = [].slice.call(f.files); f.value = ''; if (fs.length) importIndents(fs); };
+      r.querySelectorAll('[data-indr]').forEach(function (b) { b.onclick = function () { var x = indRes.list[+b.dataset.indr], it = regItem(x.key); if (!it) return; var nn = prompt('Short name for “' + x.full + '” (2–3 words). Type one of your names to join it:', it.item); if (!nn || !nn.trim()) return; var old = it.item, nk = regRename(x.key, titleCase(nn.trim())); x.key = nk; relabelDays(nk); if (old !== regItem(nk).item) inkLoad().then(function () { inkMove(old, regItem(nk).item); }); var ex = regAll().some(function (y) { return y.key !== nk && normName(y.item) === normName(regItem(nk).item); }); x.kind = ex ? 'size' : 'new'; save(); drawSheet(); }; });
     } };
   }
 
+  // ---------- v50: start fresh with his own 2–3 word names; you name the rows, the AI copies the numbers ----------
+  var FTYPES = { whisky: 1, whiskey: 1, brandy: 1, rum: 1, vodka: 1, gin: 1, beer: 1, wine: 1, lager: 1, feni: 1, liqueur: 1 };
+  var FGEN = { premium: 1, deluxe: 1, classic: 1, special: 1, fine: 1, rare: 1, reserve: 1, blended: 1, matured: 1, luxury: 1, superior: 1, extra: 1, select: 1, selection: 1, finest: 1, smooth: 1, the: 1, and: 1, of: 1 };
+  function titleCase(s) { s = String(s || '').trim().replace(/\s+/g, ' '); if (/[a-z]/.test(s) && /[A-Z]/.test(s)) return s; return s.toLowerCase().split(' ').map(function (w) { return w.length <= 2 && /^[a-z]+$/.test(w) && !/^(of|no|la|de|el)$/.test(w) ? w.toUpperCase() : w.replace(/(^|[.'’-])([a-z])/g, function (m, a, b) { return a + b.toUpperCase(); }); }).join(' '); }
+  function shortCore(full) {
+    var t = shortBillName(full).replace(/\(.*?\)/g, ' ').replace(/\b(pet|bottles?|cans?|tin|glass|packs?|tetra|aseptic|brick)\b/gi, ' ').replace(/\s+/g, ' ').trim();
+    var w = t.split(' ').filter(Boolean), type = '', core = [];
+    w.forEach(function (x) { var l = x.toLowerCase().replace(/[^a-z0-9]/g, ''); if (FTYPES[l]) { if (!type) type = l; return; } if (FGEN[l] || !l) return; core.push(x); });
+    if (!core.length) core = w.slice(0, 2);
+    return { short: core.slice(0, 2).join(' '), type: type };
+  }
+  // short names for many indent names at once: the kind (Whisky, Brandy…) is added only when two kinds would share a name
+  function shortNames(fulls) {
+    var m = {}, by = {}, out = {};
+    fulls.forEach(function (f) { var c = m[f] = shortCore(f), k = normName(c.short); (by[k] = by[k] || {})[c.type] = 1; });
+    fulls.forEach(function (f) { var c = m[f], clash = Object.keys(by[normName(c.short)]).length > 1; out[f] = titleCase(c.short) + (clash && c.type ? ' ' + titleCase(c.type) : ''); });
+    return out;
+  }
+  function shortFor(full) {
+    var c = shortCore(full), s = titleCase(c.short);
+    var clash = c.type && regAll().some(function (x) { var t = x.full ? shortCore(x.full).type : ''; return normName(x.item) === normName(s) && t && t !== c.type; });
+    return clash ? s + ' ' + titleCase(c.type) : s;
+  }
+  function freshInfo() {
+    var s2 = shop(), f = s2.fresh; if (!f) return null;
+    var n = Object.keys(s2.days).filter(function (k) { return k >= f.from && s2.days[k].status === 'closed'; }).length, of = f.learn || 15;
+    return { n: n, day: n + 1, learn: n < of, of: of, from: f.from };
+  }
+  function freshStart(from) {
+    var s2 = shop(); bills();
+    var drop = function (ids) { (ids || []).forEach(function (id) { idbDel('shopimg-' + id).catch(function () {}); }); };
+    Object.keys(s2.days).forEach(function (k) { drop(s2.days[k].photos); });
+    Object.keys(s2.bills).forEach(function (id) { drop(s2.bills[id].photos); });
+    try { learnt().examples.forEach(function (e) { drop([e.id]); }); } catch (e) {}
+    var t = s2.teach; if (t && t.jobs) t.jobs.forEach(function (j) { drop([j.id]); idbDel('teachth-' + j.id).catch(function () {}); });
+    s2.days = {}; s2.bills = {}; s2.gloss = {}; s2.alias = {}; s2.fixes = 0; s2.learn = { digits: {}, notes: {}, usual: [], examples: [] };
+    s2.teach = { jobs: [], backfill: true, stage: 'pick', pick: {} }; if (typeof TT !== 'undefined') TT.names = null;
+    s2.askq = []; s2.notDup = {}; s2.seen = {}; s2.orderAdj = {};
+    INK = {}; inkVecCache = {}; idbDel('inkf').catch(function () {});
+    idbKeys().then(function (ks) { ks.forEach(function (k) { if (/^ink-/.test(k)) idbDel(k).catch(function () {}); }); }).catch(function () {});
+    PL = { items: [], asOf: null }; idbDel('pricelist').catch(function () {});
+    // your items: only what your indents had, under short names
+    s2.items = {}; s2.map = {}; s2.rekey = {};
+    var fulls = {}; Object.keys(s2.indents || {}).forEach(function (id) { (s2.indents[id].items || []).forEach(function (it) { fulls[it.name] = 1; }); });
+    var sn = shortNames(Object.keys(fulls));
+    Object.keys(s2.indents || {}).sort(function (a, b) { return (s2.indents[a].date || '') < (s2.indents[b].date || '') ? -1 : 1; }).forEach(function (id) {
+      (s2.indents[id].items || []).forEach(function (it) {
+        var mk = normName(it.name) + '|' + it.ml, k = regAdd(sn[it.name] || shortBillName(it.name), it.ml, 'indent', { full: it.name }); if (!k) return;
+        var x = s2.items[k]; x.fulls = x.fulls || []; if (x.fulls.indexOf(it.name) < 0) x.fulls.push(it.name); s2.map[mk] = k;
+      });
+    });
+    s2.fresh = { from: from, at: dkey(new Date()), learn: 15 };
+    shopUi.month = from.slice(0, 7); save();
+  }
+  function shopFreshSheet() {
+    var s2 = shop(), nd = Object.keys(s2.days).length, ni = Object.keys(s2.indents || {}).length, fulls = {};
+    Object.keys(s2.indents || {}).forEach(function (id) { (s2.indents[id].items || []).forEach(function (it) { fulls[it.name] = 1; }); });
+    var sn = shortNames(Object.keys(fulls)), names = {}; Object.keys(sn).forEach(function (f) { names[normName(sn[f])] = 1; });
+    var y = dkey(new Date(Date.now() - 864e5)); ui.frFrom = ui.frFrom || y; if (ui.frBk == null) ui.frBk = true;
+    var li = function (ok, t, sub) { return '<div class="frli"><i class="' + (ok ? 'ok' : 'x') + '">' + (ok ? '✓' : '×') + '</i><span><b>' + t + '</b>' + (sub ? '<small>' + sub + '</small>' : '') + '</span></div>'; };
+    var h = '<div class="card stack" style="gap:10px"><b class="frh x">Cleared</b>' + li(false, 'All daily sheets, totals and profit', nd + ' day' + (nd === 1 ? '' : 's') + ', open or closed, with their photos') + li(false, 'His handwriting samples and learning', 'snippets, short names, examples') + li(false, 'The KSBCL excise name list', 'the long price list with every brand') + li(false, 'Old bills and the items made from sheets', '') + '</div>';
+    h += '<div class="card stack" style="gap:10px"><b class="frh">Kept</b>' + li(true, 'Your past KSBCL indents', ni ? ni + ' indents · costs per bottle incl. TCS, dates, stock received' : 'none uploaded yet: you can add them any time') + li(true, Object.keys(names).length + ' short names from those indents', 'made from the words on the indent, 2–3 words each; you can rename them') + li(true, 'Settings, backups and the rest of the app', '') + '</div>';
+    h += '<label class="lab rng">First sheet you’ll enter<input class="text" type="date" id="frFrom" value="' + esc(ui.frFrom) + '" max="' + dkey(new Date()) + '"></label>';
+    h += '<label class="ttsw"><span><b>Save a backup file first</b><small>so nothing is lost if you change your mind</small></span><input type="checkbox" id="frBk"' + (ui.frBk ? ' checked' : '') + '><i></i></label>';
+    h += '<button type="button" class="btn coral" id="frGo">Clear and start from ' + new Date(ui.frFrom + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) + '</button>';
+    h += '<p class="muted small">For the first 15 days you type a short name for each row while the app learns his writing. After that it fills the names in and you just check them.</p>';
+    return { title: 'Start fresh', cap: esc(s2.name), html: '<div class="stack" style="gap:12px">' + h + '</div>', bind: function (r) {
+      var f = r.querySelector('#frFrom'); f.onchange = function () { if (f.value) { ui.frFrom = f.value; drawSheet(); } };
+      r.querySelector('#frBk').onchange = function (e) { ui.frBk = e.target.checked; };
+      r.querySelector('#frGo').onclick = function () {
+        if (!confirm('Clear all shop sheets, bills, handwriting learning and the price list, and start from ' + ui.frFrom + '? Your indents and their items are kept.')) return;
+        var go = function () { freshStart(ui.frFrom); ui.tab = 'shop'; render(); openSheet('shopnames'); toast('Fresh start · check your short names'); };
+        if (!ui.frBk) { go(); return; }
+        toast('Saving the backup…');
+        makeBackup().then(function (blob) { var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'attention-before-fresh-start-' + dkey(new Date()) + '.json'; a.click(); state.lastBackup = new Date().toISOString(); go(); }).catch(function () { if (confirm('Couldn’t save the backup. Clear anyway?')) go(); });
+      };
+    } };
+  }
+  // your names: one short name per brand, with its ml sizes
+  function myNames() {
+    var m = {};
+    regAll().forEach(function (x) { var k = normName(x.item); var e = m[k] = m[k] || { name: x.item, sizes: [], fulls: [], keys: [] }; if (x.size && e.sizes.indexOf(x.size) < 0) e.sizes.push(x.size); e.keys.push(x.key); (x.fulls || (x.full ? [x.full] : [])).forEach(function (f) { if (e.fulls.indexOf(f) < 0) e.fulls.push(f); }); });
+    return Object.keys(m).map(function (k) { var e = m[k]; e.sizes.sort(function (a, b) { return a - b; }); return e; }).sort(function (a, b) { return a.name.localeCompare(b.name); });
+  }
+  function relabelDays(key) {
+    var s2 = shop(), x = regItem(key); if (!x) return; key = resolveKey(key);
+    Object.keys(s2.days).forEach(function (k) { var d = s2.days[k], g = d.grid; if (!g) return; dataRows(g).forEach(function (r) { if (!String(g[r][SC.item] || '').trim()) return; if (d.learn && !(d.named || {})[r]) return; if (dayKeyOf(d, r) === key) { g[r][SC.item] = x.item; d.rid = d.rid || {}; d.rid[r] = key; } }); });
+  }
+  function inkMove(oldName, newName) {
+    var a = brandKey(oldName), b = brandKey(newName); if (a === b || !INK || !INK[a]) return;
+    if (regAll().some(function (y) { return brandKey(y.item) === a; })) return;
+    INK[b] = (INK[b] || []).concat(INK[a]).slice(-12); delete INK[a]; inkSave();
+  }
+  function renameName(oldName, newName) {
+    newName = titleCase(newName); if (!newName) return;
+    var xs = regAll().filter(function (x) { return normName(x.item) === normName(oldName); });
+    xs.forEach(function (x) { var nk = regRename(x.key, newName); var y = regItem(nk); if (y && x.fulls) { y.fulls = y.fulls || []; x.fulls.forEach(function (f) { if (y.fulls.indexOf(f) < 0) y.fulls.push(f); }); } relabelDays(nk); });
+    inkLoad().then(function () { inkMove(oldName, newName); });
+    save();
+  }
+  function shopNamesSheet() {
+    var N = myNames(), q = (shopUi.nq || '').toLowerCase().trim(), fi = freshInfo();
+    var list = N.filter(function (e) { return !q || e.name.toLowerCase().indexOf(q) >= 0 || e.fulls.some(function (f) { return f.toLowerCase().indexOf(q) >= 0; }); });
+    var h = '';
+    if (fi) h += '<div class="notice ok">' + (fi.learn ? 'Learning day ' + fi.day + ' of ' + fi.of + ': you type the name of each row, it learns his writing.' : 'Learning done: names are filled in from his writing. Check them on each sheet.') + '</div>';
+    h += '<input class="text" id="snq" placeholder="Search your ' + N.length + ' names" value="' + esc(shopUi.nq || '') + '">';
+    h += '<div class="stack" style="gap:8px">' + list.map(function (e) {
+      return '<button type="button" class="snc" data-sheet="shopname:' + esc(e.name) + '"><span class="row between"><b>' + esc(e.name) + '</b><span class="lstag">✎ edit</span></span><span class="snml">' + e.sizes.map(function (s) { return '<i>' + esc(s) + '</i>'; }).join('') + '</span>' + (e.fulls.length ? '<small>from ' + e.fulls.slice(0, 3).map(esc).join(' · ') + (e.fulls.length > 3 ? ' · +' + (e.fulls.length - 3) : '') + '</small>' : '<small>added from a sheet</small>') + '</button>';
+    }).join('') + '</div>';
+    if (!N.length) h += '<p class="muted small">No names yet. Upload your past indents (Shop → Past KSBCL indents), or type names while you enter a sheet.</p>';
+    h += '<p class="muted small">Brands with small name changes (pack, edition) share one name, since you sell them the same way. Keep names to 2–3 words. Tap a name to rename it, or merge it into another.</p>';
+    return { title: 'Your short names', cap: N.length + ' names', html: '<div class="stack" style="gap:10px">' + h + '</div>', bind: function (r) { var i = r.querySelector('#snq'); i.addEventListener('input', function () { shopUi.nq = i.value; var pos = i.selectionStart; drawSheet(); var j = document.getElementById('snq'); if (j) { j.focus(); j.setSelectionRange(pos, pos); } }); } };
+  }
+  function shopNameSheet(name) {
+    var e = myNames().filter(function (x) { return normName(x.name) === normName(name); })[0];
+    if (!e) return { title: 'Name', cap: '', html: '<p class="muted">This name was renamed or merged.</p><button type="button" class="btn line" data-sheet="shopnames">‹ Your names</button>', bind: function () {} };
+    var st = regStock(), smp = ((INK || {})[brandKey(e.name)] || []).slice(-6);
+    if (!INK) inkLoad().then(function () { if (ui.sheet && ui.sheet.kind === 'shopname') drawSheet(); });
+    var h = '<label class="lab rng">Short name (2–3 words)<input class="text" id="snName" value="' + esc(e.name) + '" autocapitalize="words"></label>';
+    h += '<div class="card stack" style="gap:6px"><b style="font-size:14px">Sizes</b>' + e.keys.map(function (k) { var x = regItem(k); if (!x) return ''; var c = costFor(x.item, x.size), s = st[resolveKey(k)]; return '<div class="row between"><span><b>' + esc(x.size || '—') + ' ml</b>' + (x.fulls && x.fulls.length ? '<small class="muted" style="display:block">' + x.fulls.map(esc).join(' · ') + '</small>' : '') + '</span><span class="muted small" style="text-align:right">' + (s ? 'stock ' + fmtN(s.qty) : '') + (c ? '<br>cost ' + inr(c.c, 2) : '') + '</span></div>'; }).join('') + '</div>';
+    if (smp.length) h += '<div class="card stack" style="gap:6px"><b style="font-size:14px">How he writes it</b><div class="inkgal">' + smp.map(function (s) { return '<span class="inkg">' + inkImg(s.id) + '</span>'; }).join('') + '</div></div>';
+    var others = myNames().filter(function (x) { return x !== e && normName(x.name) !== normName(e.name); });
+    h += '<label class="lab rng">Same as another name? Merge into<select class="text" id="snMerge"><option value="">— pick a name —</option>' + others.map(function (x) { return '<option value="' + esc(x.name) + '">' + esc(x.name) + ' (' + x.sizes.join(', ') + ')</option>'; }).join('') + '</select></label>';
+    h += '<button type="button" class="btn jungle" id="snSave">Save</button><button type="button" class="btn line" data-sheet="shopnames">‹ Your names</button>';
+    return { title: e.name, cap: e.sizes.join(' · ') + ' ml', html: '<div class="stack" style="gap:12px">' + h + '</div>', bind: function (r) {
+      fillInk(r);
+      r.querySelector('#snSave').onclick = function () {
+        var mg = r.querySelector('#snMerge').value, nn = mg || r.querySelector('#snName').value.trim(); if (!nn) { toast('Type a name'); return; }
+        if (nn.split(/\s+/).length > 4 && !confirm('That’s ' + nn.split(/\s+/).length + ' words. Keep it anyway?')) return;
+        renameName(e.name, nn); toast(mg ? 'Merged into ' + mg : 'Saved'); openSheet('shopnames');
+      };
+    } };
+  }
+  // ---------- naming the rows one by one ----------
+  var STDML = ['60', '90', '180', '275', '330', '375', '500', '650', '750', '1000'];
+  function nmRows(d) { var g = d.grid; return dataRows(g).filter(function (r) { return String(g[r][SC.size] || '').trim() || String(g[r][SC.item] || '').trim() || [SC.open, SC.recv, SC.sales, SC.close].some(function (c) { return String(g[r][c] == null ? '' : g[r][c]).trim() !== ''; }); }); }
+  function nmLeft(d) { var nm = d.named || {}; return nmRows(d).filter(function (r) { return !nm[r]; }); }
+  function openNm(r) {
+    var d = shopDay(sp.k); if (!d || !d.grid) return; var left = nmLeft(d);
+    sp.step = 'nm'; sp.nr = r != null ? r : left.length ? left[0] : nmRows(d)[0]; sp.nmName = null; sp.nmMl = null; sp.nmQ = ''; sp.nmAll = false;
+    drawShopDay(); var ov = document.getElementById('overlay'); if (ov) ov.scrollTop = 0;
+  }
+  function initials(s) { return normName(s).split(' ').map(function (w) { return w.charAt(0); }).join(''); }
+  function nmSuggest(d, r) {
+    var q = (sp.nmQ || '').trim().toLowerCase(), names = myNames(), g = d.grid, out = [], seen = {};
+    var push = function (n, why) { var k = normName(n); if (!k || seen[k]) return; seen[k] = 1; out.push({ name: n, why: why || '' }); };
+    if (q) {
+      var qq = q.replace(/[^a-z0-9]/g, '');
+      names.map(function (e) { var l = e.name.toLowerCase(); return { e: e, s: l.indexOf(q) === 0 ? 3 : l.split(' ').some(function (w) { return w.indexOf(q) === 0; }) ? 2 : qq && initials(e.name).indexOf(qq) === 0 ? 1.5 : l.indexOf(q) >= 0 ? 1 : 0 }; })
+        .filter(function (x) { return x.s; }).sort(function (a, b) { return b.s - a.s; }).slice(0, 6).forEach(function (x) { push(x.e.name, x.e.sizes.join(' · ')); });
+      return out;
+    }
+    var raw = d.ai && d.ai[r] ? String(d.ai[r][SC.item] || '').trim().toLowerCase() : '';
+    if (raw) regAll().forEach(function (x) { if (x.alias[raw]) push(x.item, 'you named “' + raw + '” before'); });
+    var o = String(g[r][SC.open] == null ? '' : g[r][SC.open]).trim(), sz = String(g[r][SC.size] || '').replace(/[^0-9]/g, '');
+    if (o !== '' && isNum(o)) { var Y = yChain(sp.k); Object.keys(Y.close).forEach(function (k) { var x = regItem(k); if (x && Y.close[k] === num(o) && (!sz || x.size === sz)) push(x.item, x.size + ' closed ' + fmtN(num(o)) + ' yesterday'); }); }
+    if (INK && d.ink && d.ink[r] && d.ink[r].d) names.map(function (e) { return { e: e, p: inkBest(d.ink[r].d, brandKey(e.name)) }; }).filter(function (x) { return x.p != null && x.p >= 60; }).sort(function (a, b) { return b.p - a.p; }).slice(0, 2).forEach(function (x) { push(x.e.name, 'his writing ' + x.p + '%'); });
+    var L = String((d.letters || {})[r] || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (L) names.filter(function (e) { var ini = initials(e.name), nn = normName(e.name).replace(/ /g, ''); return ini.indexOf(L) === 0 || (L.length >= 2 && ini.indexOf(L.slice(0, 2)) === 0) || nn.indexOf(L) === 0; }).slice(0, 3).forEach(function (e) { push(e.name, 'letters ' + L.toUpperCase()); });
+    return out.slice(0, 6);
+  }
+  function nmSugHtml(d, r) {
+    var S = nmSuggest(d, r), q = (sp.nmQ || '').trim();
+    var h = S.map(function (s) { return '<button type="button" data-nmn="' + esc(s.name) + '"><b>' + esc(s.name) + '</b>' + (s.why ? '<small>' + esc(s.why) + '</small>' : '') + '</button>'; }).join('');
+    if (q && !S.some(function (s) { return normName(s.name) === normName(q); })) h += '<button type="button" data-nmn="' + esc(q) + '" class="new"><b>+ ' + esc(titleCase(q)) + '</b><small>new name</small></button>';
+    return h || '<span class="muted small">Type the name: your names appear here as you type</span>';
+  }
+  function nmDefaultMl(d, r, name) {
+    var g = d.grid, rows = nmRows(d), i = rows.indexOf(r), out = [], e = myNames().filter(function (x) { return normName(x.name) === normName(name); })[0];
+    var s0 = String(g[r][SC.size] || '').replace(/[^0-9]/g, ''); if (!s0) return e && e.sizes.length === 1 ? e.sizes.slice() : [];
+    out.push(s0);
+    // the rows below with no name of their own are the same brand in other sizes
+    for (var j = i + 1; j < rows.length; j++) { var rr = rows[j], own = d.ai && d.ai[rr] ? String(d.ai[rr][SC.item] || '').trim() : ''; if (own || (d.named || {})[rr]) break; var s = String(g[rr][SC.size] || '').replace(/[^0-9]/g, ''); if (!s) break; out.push(s); }
+    return out;
+  }
+  function nmHtml(d) {
+    var g = d.grid, r = sp.nr, rows = nmRows(d), i = rows.indexOf(r), fi = freshInfo(), left = nmLeft(d).length, named = (d.named || {})[r];
+    var h = '<div class="row between"><span class="nmday">' + (fi && fi.learn ? 'Learning day ' + fi.day + ' of ' + fi.of : 'Naming rows') + '</span><span class="cap">Row ' + (i + 1) + ' of ' + rows.length + ' · ' + left + ' to name</span></div><div class="nmbar"><i style="width:' + Math.round((rows.length - left) / Math.max(1, rows.length) * 100) + '%"></i></div>';
+    h += '<div class="nmph' + (sp.nmZ ? ' z' : '') + '" id="nmPh"><div class="nmphin"><img id="nmImg" alt="Sheet photo"><i class="nmband" id="nmBand"></i></div><span class="nmphcap">black &amp; white · tap to zoom · scroll it</span></div>';
+    h += '<div class="card stack" style="gap:10px"><span class="cap">This row, cut from the photo</span><div class="sqimg bw' + (sp.sqz ? ' z' : '') + '" id="nmCrop"><span class="muted small">Cutting the row out…</span></div>';
+    var L = String((d.letters || {})[r] || '').trim(), raw = d.ai && d.ai[r] ? String(d.ai[r][SC.item] || '').trim() : '';
+    if (L || raw) h += '<div class="nmlet">' + (L ? '<span>Letters that stand out:</span><b class="hw">' + esc(L.replace(/\s+/g, '').split('').join(' ')) + '</b>' : '') + (raw ? '<small>AI read “' + esc(raw) + '”</small>' : '') + '</div>';
+    if (named && !sp.nmName) h += '<div class="notice ok">Named: <b>' + esc(g[r][SC.item]) + ' ' + esc(g[r][SC.size] || '') + '</b> · type to change it</div>';
+    h += '<input class="text nmq" id="nmQ" placeholder="Type the short name (2–3 words)" autocomplete="off" autocapitalize="words" enterkeyhint="done" value="' + esc(sp.nmName || sp.nmQ || '') + '">';
+    h += '<div class="nmsug" id="nmSug">' + (sp.nmName ? '' : nmSugHtml(d, r)) + '</div>';
+    if (sp.nmName) {
+      var e = myNames().filter(function (x) { return normName(x.name) === normName(sp.nmName); })[0], have = e ? e.sizes.slice() : [], ml = sp.nmMl = sp.nmMl || [];
+      ml.forEach(function (s) { if (have.indexOf(s) < 0) have.push(s); });
+      var s0 = String(g[r][SC.size] || '').replace(/[^0-9]/g, ''); if (s0 && have.indexOf(s0) < 0) have.push(s0);
+      var list = sp.nmAll || !have.length ? STDML.concat(have.filter(function (s) { return STDML.indexOf(s) < 0; })) : have; list = list.slice().sort(function (a, b) { return a - b; });
+      h += '<span class="muted small">ml · tap more than one when the rows below are the same name, in the order of the rows</span><div class="nmml">' + list.map(function (s) { var at = ml.indexOf(s); return '<button type="button" data-nml="' + s + '" class="' + (at >= 0 ? 'on' : '') + '">' + s + (at >= 0 && ml.length > 1 ? '<sup>' + (at + 1) + '</sup>' : '') + '</button>'; }).join('') + (sp.nmAll ? '' : '<button type="button" id="nmMore" class="g">+ other</button>') + '</div>';
+      var cov = rows.slice(i, i + ml.length);
+      if (ml.length) h += '<span class="nmcov">→ ' + (ml.length > 1 ? 'rows ' + (i + 1) + '–' + (i + cov.length) : 'this row') + ': ' + esc(sp.nmName) + ' ' + ml.slice(0, cov.length).join(' · ') + '</span>';
+      if (cov.length < ml.length) h += '<span class="lsmsg">Only ' + cov.length + ' row' + (cov.length > 1 ? 's' : '') + ' left on the sheet</span>';
+    }
+    var v = function (c) { var x = g[r][c]; return x === '' || x == null ? '–' : esc(fmtCell(cellVal(g, r, c))); }, ck = shopChecks(sp.k), bad = Object.keys(ck.bad).some(function (k) { return +k.split(',')[0] === r; });
+    h += '<button type="button" class="nmnums" id="nmNums"><span>open <b>' + v(SC.open) + '</b></span><span>in <b>' + v(SC.recv) + '</b></span><span>sold <b>' + v(SC.sales) + '</b></span><span>rate <b>' + v(SC.rate) + '</b></span><span>close <b>' + v(SC.close) + '</b></span><b class="' + (bad ? 'bad' : 'ok') + '">' + (bad ? '!' : '✓') + '</b></button></div>';
+    var last = left - (named ? 0 : Math.max(1, (sp.nmMl || []).length)) <= 0;
+    h += '<div class="row" style="gap:8px"><button type="button" class="btn line" id="nmPrev"' + (i > 0 ? '' : ' disabled') + '>‹ Back</button><button type="button" class="btn jungle" style="flex:1" id="nmGo"' + (sp.nmName && (sp.nmMl || []).length ? '' : ' disabled') + '>' + (last ? 'Save · check the day ›' : 'Save · next row ›') + '</button></div>';
+    h += '<div class="row between"><button type="button" class="link" id="nmList">See all rows</button>' + (named ? '<button type="button" class="link" id="nmSkip">Next ›</button>' : '') + '<button type="button" class="link" id="nmDel">Not a liquor row: remove</button></div>';
+    h += '<p class="muted small">The numbers are copied by the AI: tap them to correct one. You type only the names' + (fi && fi.learn ? '. After ' + fi.of + ' days the names are filled in from his writing and you just check them.' : '.') + '</p>';
+    return h;
+  }
+  function nmNext(d, after) {
+    var rows = nmRows(d), i = rows.indexOf(after), left = nmLeft(d), nx = left.filter(function (rr) { return rows.indexOf(rr) > i; })[0];
+    if (nx == null) nx = left[0];
+    sp.nmName = null; sp.nmMl = null; sp.nmQ = ''; sp.nmAll = false; sp.sqz = false;
+    if (nx == null) { sp.step = 'check'; toast('All rows named · now the checks'); } else sp.nr = nx;
+    drawShopDay(); var ov = document.getElementById('overlay'); if (ov) ov.scrollTop = 0;
+  }
+  function nmSave(d) {
+    var g = d.grid, rows = nmRows(d), i = rows.indexOf(sp.nr), name = titleCase(sp.nmName), ml = (sp.nmMl || []).slice(); if (!name || !ml.length || i < 0) return;
+    spSnap(d); d.named = d.named || {}; d.rid = d.rid || {};
+    var cov = rows.slice(i, i + ml.length);
+    cov.forEach(function (rr, j) {
+      var s = ml[j]; g[rr][SC.item] = name; g[rr][SC.size] = s; var k = regAdd(name, s, 'sheet'); if (!k) return; d.rid[rr] = k; d.named[rr] = 1;
+      var raw = d.ai && d.ai[rr] ? String(d.ai[rr][SC.item] || '').trim() : ''; if (raw && !inkRawOther(raw, s, k)) regAlias(k, raw, 1);
+    });
+    var ikr = cov.filter(function (rr) { return d.ink && d.ink[rr]; });
+    if (ikr.length) inkLoad().then(function () { ikr.forEach(function (rr) { inkLearn(name, d.ink[rr]); }); return inkSave(); });
+    d.edited = true; save(); nmNext(d, cov[cov.length - 1]);
+  }
+  function bindNm(o, d) {
+    var g = d.grid, r = sp.nr, q = function (x) { return o.querySelector(x); }, rows = nmRows(d), i = rows.indexOf(r);
+    var bindSug = function () { o.querySelectorAll('[data-nmn]').forEach(function (b) { b.onclick = function () { pick(b.dataset.nmn); }; }); };
+    var pick = function (name) { sp.nmName = titleCase(name); sp.nmQ = ''; sp.nmMl = nmDefaultMl(d, r, sp.nmName); sp.nmAll = false; drawShopDay(); };
+    if (!INK) inkLoad().then(function () { var s = document.getElementById('nmSug'); if (s && sp && sp.step === 'nm' && !sp.nmName) { s.innerHTML = nmSugHtml(d, r); bindSug(); } });
+    bindSug();
+    var inp = q('#nmQ');
+    inp.addEventListener('input', function () {
+      sp.nmQ = inp.value;
+      if (sp.nmName) { sp.nmName = null; sp.nmMl = null; var pos = inp.selectionStart; drawShopDay(); var j = document.getElementById('nmQ'); if (j) { j.focus(); j.setSelectionRange(pos, pos); } return; }
+      q('#nmSug').innerHTML = nmSugHtml(d, r); bindSug();
+    });
+    inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); var f = o.querySelector('[data-nmn]'); if (f) pick(f.dataset.nmn); } });
+    o.querySelectorAll('[data-nml]').forEach(function (b) { b.onclick = function () { var s = b.dataset.nml, a = sp.nmMl = sp.nmMl || [], at = a.indexOf(s); if (at >= 0) a.splice(at, 1); else a.push(s); drawShopDay(); }; });
+    var mo = q('#nmMore'); if (mo) mo.onclick = function () { sp.nmAll = true; drawShopDay(); };
+    q('#nmNums').onclick = function () { openRowEd(r, 'open', 'nm'); };
+    q('#nmPrev').onclick = function () { if (i > 0) { sp.nr = rows[i - 1]; sp.nmName = null; sp.nmMl = null; sp.nmQ = ''; drawShopDay(); } };
+    q('#nmGo').onclick = function () { nmSave(d); };
+    q('#nmList').onclick = function () { sp.step = 'sheet'; sp.view = 'list'; drawShopDay(); };
+    var sk = q('#nmSkip'); if (sk) sk.onclick = function () { var nx = rows[i + 1]; if (nx == null) { sp.step = 'check'; drawShopDay(); return; } sp.nr = nx; sp.nmName = null; sp.nmMl = null; sp.nmQ = ''; drawShopDay(); };
+    q('#nmDel').onclick = function () { if (!confirm('Remove this row from the sheet?')) return; spSnap(d); g[r] = SHCOLS.map(function () { return ''; }); if (d.named) delete d.named[r]; save(); nmNext(d, r); };
+    // the photo, in black and white, scrolled to this row
+    var band = rowBand(d, r), img = q('#nmImg'), ph = q('#nmPh'), be = q('#nmBand');
+    var place = function () { if (!band || !img.naturalHeight) return; be.style.top = (band.y[0] / 10) + '%'; be.style.height = Math.max(1.5, (band.y[1] - band.y[0]) / 10) + '%'; be.style.display = 'block'; ph.scrollTop = Math.max(0, img.clientHeight * band.y[0] / 1000 - ph.clientHeight * .38); ph.scrollLeft = 0; };
+    shopPhotos(d).then(function (imgs) { var src = imgs[(band && band.p) || 0] || imgs[0]; if (!src) { ph.style.display = 'none'; return; } img.onload = place; img.src = src; });
+    ph.onclick = function () { sp.nmZ = !sp.nmZ; ph.classList.toggle('z', sp.nmZ); setTimeout(place, 30); };
+    var cb = q('#nmCrop'); cb.onclick = function () { sp.sqz = !sp.sqz; cb.classList.toggle('z', sp.sqz); };
+    var paint = function (u) { var bx = document.getElementById('nmCrop'); if (bx) bx.innerHTML = u ? '<img alt="This row on the photo" src="' + u + '">' : '<span class="muted small">No photo for this row</span>'; };
+    if (sp.nmc && sp.nmc.k === sp.k && sp.nmc.r === r) paint(sp.nmc.u); else rowCrop(d, r).then(function (u) { sp.nmc = { k: sp.k, r: r, u: u }; paint(u); }).catch(function () { paint(null); });
+  }
+  // ---------- "Did he miss anything?": every bottle and rupee accounted for ----------
+  function indentRecv(k) {
+    var s2 = shop(), pk = prevDayKey(k), out = {}, ind = [];
+    Object.keys(s2.indents || {}).forEach(function (id) {
+      var n = s2.indents[id]; if (!n.date || n.date > k || (pk ? n.date <= pk : n.date < k)) return; ind.push(n);
+      (n.items || []).forEach(function (it) { var key = resolveKey((s2.map || {})[normName(it.name) + '|' + it.ml]); if (!key) return; out[key] = (out[key] || 0) + num(it.cases) * (num(it.per) || BPC[+it.ml] || 0) + num(it.loose); });
+    });
+    return { by: out, ind: ind };
+  }
+  function checkItems(d, k) {
+    var g = d.grid, ck = shopChecks(k), rows = nmRows(d), out = [], left = d.learn ? nmLeft(d).length : 0;
+    var it = function (ok, t, sub, act) { out.push({ ok: ok, t: t, sub: sub || '', act: act || '' }); };
+    var nm = function (key) { var x = regItem(key); return x ? x.item + ' ' + x.size : key; };
+    if (left) it(false, left + ' row' + (left > 1 ? 's' : '') + ' not named yet', 'tap to name them', 'nm');
+    var pk = prevDayKey(k), om = ck.msgs.filter(function (m) { return m.c === SC.open; });
+    if (!pk) it(true, 'First sheet: nothing to compare the opening with', '');
+    else if (!om.length) it(true, 'Opening = yesterday’s closing', left ? 'on the named rows' : 'every row');
+    else om.forEach(function (m) { it(false, m.t.replace(/ Tap the row to fix the number\./, ''), 'tap to fix the number', 'row:' + m.r); });
+    var cm = ck.msgs.filter(function (m) { return m.c === SC.close || m.c === SC.total; });
+    if (!cm.length) it(true, 'Opening + received − sold = closing', 'every row'); else cm.forEach(function (m) { it(false, m.t, 'tap to fix', 'row:' + m.r); });
+    var am = ck.msgs.filter(function (m) { return m.c === SC.amt; });
+    if (!am.length) it(true, 'Sold × rate = amount', 'every row'); else am.forEach(function (m) { it(false, m.t, 'tap to fix', 'row:' + m.r); });
+    // stock received against the indents since the last sheet
+    var IR = indentRecv(k), rv = {}, rowOf = {};
+    rows.forEach(function (r) { var x = cellVal(g, r, SC.recv); if (String(g[r][SC.recv] == null ? '' : g[r][SC.recv]).trim() !== '' && isNum(x) && num(x)) { var kk = dayKeyOf(d, r); rv[kk] = (rv[kk] || 0) + num(x); rowOf[kk] = r; } });
+    var ks = {}; Object.keys(rv).concat(Object.keys(IR.by)).forEach(function (x) { ks[x] = 1; });
+    var diffs = Object.keys(ks).filter(function (x) { return Math.abs((rv[x] || 0) - (IR.by[x] || 0)) > .01; });
+    var dts = IR.ind.map(function (n) { return new Date(n.date + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }); }).join(', ');
+    if (!Object.keys(ks).length) it(true, 'No stock received', IR.ind.length ? '' : 'and no indent since the last sheet');
+    else if (!IR.ind.length) it(false, 'Stock received, but no indent for these dates', Object.keys(rv).map(function (x) { return nm(x) + ': ' + fmtN(rv[x]); }).join(' · ') + ' · add the indent in Past indents to check it', 'indent');
+    else if (!diffs.length) it(true, 'Received = your indent of ' + dts, Object.keys(rv).map(function (x) { return nm(x) + ': ' + fmtN(rv[x]); }).join(' · '));
+    else diffs.forEach(function (x) { it(false, nm(x) + ': received ' + fmtN(rv[x] || 0) + ', the indent of ' + dts + ' says ' + fmtN(IR.by[x] || 0), rowOf[x] != null ? 'tap to fix the row' : 'not on today’s sheet', rowOf[x] != null ? 'row:' + rowOf[x] : ''); });
+    var tm = ck.msgs.filter(function (m) { return m.r == null; });
+    if (d.written && d.written.sales) { if (!tm.length) it(true, 'Amounts add up to his written total', inr(daySales(d))); else tm.forEach(function (m) { it(false, m.t, ''); }); }
+    else it(true, 'Total sales ' + inr(daySales(d)), 'no written total on the sheet to compare with');
+    if (pk && !left) { var ms = missingToday(k, d); ms.miss.forEach(function (x) { it(false, x.name + ' ' + x.size + ' is missing', (x.close != null ? 'had ' + fmtN(x.close) + ' yesterday' : 'on yesterday’s sheet') + ', not on this sheet · tap to add it', 'miss'); }); if (!ms.miss.length) it(true, 'Every item from yesterday is on the sheet', ms.zero ? ms.zero + ' sold out at 0' : ''); }
+    if (d.written && d.written.balance) { var et = (d.exp || []).reduce(function (a, e) { return a + num(e.v); }, 0), ex = daySales(d) - et, gap = d.written.balance - ex; it(Math.abs(gap) < 1, 'Cash in hand ' + inr(d.written.balance), Math.abs(gap) < 1 ? '= sales − expenses ✓' : 'sales − expenses = ' + inr(ex) + ' · ' + (gap < 0 ? 'short ' : 'over ') + inr(Math.abs(gap))); }
+    return { items: out, rows: rows, ck: ck };
+  }
+  function checkHtml(d) {
+    var C = checkItems(d, sp.k), badRows = {}; Object.keys(C.ck.bad).forEach(function (x) { badRows[x.split(',')[0]] = 1; });
+    var bad = C.items.filter(function (x) { return !x.ok; }).length, okRows = C.rows.filter(function (r) { return !badRows[r]; }).length;
+    var h = '<h1 class="display" style="font-size:30px;margin:0">Did he miss anything?</h1>';
+    h += '<div class="shtiles ttq"><div><b class="display">' + C.rows.length + '</b><small>rows</small></div><div class="ok"><b class="display">' + okRows + '</b><small>add up ✓</small></div><div class="' + (bad ? 'bad' : 'ok') + '"><b class="display">' + bad + '</b><small>to check</small></div></div>';
+    h += '<div class="stack" style="gap:8px">' + C.items.map(function (x, i) { return '<button type="button" class="ckr' + (x.ok ? '' : ' bad') + '" data-cka="' + esc(x.act) + '"' + (x.act ? '' : ' disabled') + '><b class="ckm">' + (x.ok ? '✓' : '!') + '</b><span><b>' + x.t.replace(/<\/?b>/g, '') + '</b>' + (x.sub ? '<small>' + x.sub + '</small>' : '') + '</span></button>'; }).join('') + '</div>';
+    h += '<div class="row" style="gap:10px"><button type="button" class="btn line" id="ckBack">‹ Rows</button><button type="button" class="btn coral" style="flex:1" id="ckGo">' + (bad ? 'Close the day anyway →' : 'Close the day →') + '</button></div>';
+    return h;
+  }
+  function bindCheck(o, d) {
+    o.querySelectorAll('[data-cka]').forEach(function (b) { b.onclick = function () {
+      var a = b.dataset.cka; if (!a) return;
+      if (a === 'nm') openNm(); else if (a === 'miss') { sp.step = 'sheet'; sp.view = 'list'; drawShopDay(); } else if (a === 'indent') { closeShopDay(); openSheet('shopindent'); }
+      else if (a.indexOf('row:') === 0) openRowEd(+a.slice(4), 'open', 'check');
+    }; });
+    o.querySelector('#ckBack').onclick = function () { if (d.learn) openNm(); else { sp.step = 'sheet'; sp.view = 'list'; drawShopDay(); } };
+    o.querySelector('#ckGo').onclick = function () { sp.step = 'profit'; drawShopDay(); };
+  }
   // --- the day screen: photos + sheet + close the day ---
   function openShopDay(k) {
     if (!PL) loadPL().then(function () { if (sp && sp.k === k) drawShopDay(); });
@@ -5613,6 +6152,11 @@
     var head = function () { o.querySelector('#spBack').onclick = closeShopDay; o.querySelector('#spClose').onclick = closeShopDay; };
     if (sp.step === 'ink' && d.ink && d.ink[sp.inkRow] && d.grid[sp.inkRow]) { o.innerHTML = h + inkWhichHtml(d) + '</div>'; head(); bindInkWhich(o, d); return; }
     if (sp.step === 'ink') sp.step = 'sheet';
+    if (sp.step === 'same' && d.grid && d.grid[sp.sqr] && (d.ask || []).some(function (a) { return a.r === sp.sqr; })) { o.innerHTML = h + sameHtml(d) + '</div>'; head(); bindSame(o, d); return; }
+    if (sp.step === 'same') sp.step = 'sheet';
+    if (sp.step === 'nm' && d.grid && d.grid[sp.nr]) { o.innerHTML = h + nmHtml(d) + '</div>'; head(); bindNm(o, d); return; }
+    if (sp.step === 'nm') sp.step = 'sheet';
+    if (sp.step === 'check' && d.grid) { o.innerHTML = h + checkHtml(d) + '</div>'; head(); bindCheck(o, d); o.scrollTop = 0; return; }
     if (sp.step === 'row' && d.grid && d.grid[sp.row]) { o.innerHTML = h + rowEdHtml(d) + '</div>'; head(); bindRowEd(o, d); return; }
     if (sp.step === 'name' && d.grid && d.grid[sp.nrow]) { o.innerHTML = h + namePickHtml(d) + '</div>'; head(); bindNamePick(o, d); return; }
     if (sp.step === 'row' || sp.step === 'name') sp.step = 'sheet';
@@ -5717,7 +6261,7 @@
     if (fi) fi.onchange = function () { var fs = [].slice.call(fi.files); if (!fs.length) return; Promise.all(fs.map(blobToDataURL)).then(function (us) { shopAddPhotos(us, sp.k); }); };
     var dp = q('#spDelPh'); if (dp) dp.onclick = function () { if (!confirm('Delete this photo?')) return; var id = d.photos.splice(sp.ph, 1)[0]; idbDel('shopimg-' + id).catch(function () {}); sp.ph = 0; save(); drawShopDay(); };
     var rd = q('#spRead'); if (rd) rd.onclick = function () { if (d.grid && d.grid.length > 3 && !confirm('Read the photos again? Your edits on this sheet will be replaced.')) return; shopRead(sp.k); };
-    q('#spNext').onclick = function () { if (!d.grid) return; sp.step = 'profit'; drawShopDay(); };
+    q('#spNext').onclick = function () { if (!d.grid) return; sp.step = 'check'; drawShopDay(); };
     var nb2 = q('#spNames2'); if (nb2) nb2.onclick = function () { sp.step = 'names'; drawShopDay(); };
     var nb = q('#spNames'); if (nb) nb.onclick = function () { sp.step = 'names'; drawShopDay(); };
     itemSuggest(o, d);
@@ -5852,7 +6396,7 @@
     var wa = q('#scWa'); if (wa) wa.onclick = function () { waShare(daySummaryText(sp.k)); };
     q('#scSave').onclick = function () {
       var c = calc(); if (c.pct == null) { toast('Type the profit percentage first'); q('#scPct').focus(); return; }
-      d.sales = c.sales; d.pct = c.pct; d.profit = c.profit; d.expTotal = c.et; d.net = c.profit - c.et; d.cash = c.sales - c.et; d.status = 'closed'; d.closedAt = new Date().toISOString(); d.ask = []; regSync(); inkLearnDay(sp.k);
+      d.sales = c.sales; d.pct = c.pct; d.profit = c.profit; d.expTotal = c.et; d.net = c.profit - c.et; d.cash = c.sales - c.et; d.status = 'closed'; d.closedAt = new Date().toISOString(); regSync(); inkLearnDay(sp.k);
       s2.pct = c.pct; save();
       var ck2 = sp.k; closeShopDay(); toast('Saved · net ' + inr(d.net));
       if (s2.waAsk !== false) openSheet('shopshare:' + ck2);
@@ -5971,7 +6515,7 @@
   }
   function shopSetSheet() {
     var s2 = shop();
-    var h = '<label class="lab rng">Shop name<input class="text" id="ssName" value="' + esc(s2.name) + '"></label><label class="lab rng">Usual profit %<input class="text" id="ssPct" inputmode="decimal" value="' + (s2.pct == null ? '' : s2.pct) + '" placeholder="e.g. 20"></label><label class="lab rng">Handwriting match needed (%)<input class="text" id="ssInk" inputmode="numeric" value="' + inkThr() + '"><small class="muted">80 = his writing must look at least 80% like earlier samples to count as the same name</small></label><button type="button" class="btn jungle" id="ssSave">Save</button><div class="list" style="margin-top:8px">' + row({ t: '🧹 Start fresh', sub: 'delete old sheets, bills or learning', sheet: 'shopreset' }) + '</div>';
+    var h = '<label class="lab rng">Shop name<input class="text" id="ssName" value="' + esc(s2.name) + '"></label><label class="lab rng">Usual profit %<input class="text" id="ssPct" inputmode="decimal" value="' + (s2.pct == null ? '' : s2.pct) + '" placeholder="e.g. 20"></label><label class="lab rng">Handwriting match needed (%)<input class="text" id="ssInk" inputmode="numeric" value="' + inkThr() + '"><small class="muted">80 = his writing must look at least 80% like earlier samples to count as the same name</small></label><button type="button" class="btn jungle" id="ssSave">Save</button><div class="list" style="margin-top:8px">' + row({ t: '🧹 Start fresh', sub: 'clear the sheets and learning, keep the items from your indents', sheet: 'shopfresh' }) + '</div>';
     return { title: 'Shop settings', cap: '', html: h, bind: function (r) { r.querySelector('#ssSave').onclick = function () { s2.name = r.querySelector('#ssName').value.trim() || 'My shop'; var p = r.querySelector('#ssPct').value.trim(); s2.pct = p === '' ? null : num(p); var ik = num(r.querySelector('#ssInk').value); s2.inkThr = ik >= 40 && ik <= 99 ? ik : 80; save(); closeSheet(); render(); }; } };
   }
 
@@ -7159,7 +7703,12 @@
           return inkCrop(img, bx.b).then(function (c) { if (!c || !c.d) return; var id = 'ik' + Date.now().toString(36) + r; d.ink[r] = { id: id, d: c.d }; return idbPut('ink-' + id, c.url); });
         });
       }, Promise.resolve());
-    }).then(function () { inkMatch(k); save(); if (sp && sp.k === k) drawShopDay(); });
+    }).then(function () {
+      // his writing can now settle rows that were waiting for an answer
+      var wait = (d.ask || []).map(function (a) { return a.r; });
+      if (wait.length && d.status !== 'closed' && Object.keys(INK || {}).length) regAssign(k, wait);
+      inkMatch(k); save(); if (sp && sp.k === k) drawShopDay();
+    });
   }
   function inkBest(desc, bk) { var ss = (INK || {})[bk] || []; var b = 0; ss.forEach(function (s) { var v = inkSim(desc, s); if (v > b) b = v; }); return ss.length ? b : null; }
   function inkMatch(k) {
@@ -7183,7 +7732,8 @@
   }
   function inkLearnDay(k) {
     var d = shopDay(k); if (!d || !d.ink || !d.grid) return Promise.resolve();
-    return inkLoad().then(function () { Object.keys(d.ink).forEach(function (r) { var m = (d.inkm || {})[r]; if (m && m.st === 'conflict') return; var nm = d.grid[r] && String(d.grid[r][SC.item] || '').trim(); if (nm) inkLearn(nm, d.ink[r]); }); return inkSave(); });
+    var pend = {}; (d.ask || []).forEach(function (a) { pend[a.r] = 1; });
+    return inkLoad().then(function () { Object.keys(d.ink).forEach(function (r) { var m = (d.inkm || {})[r]; if (pend[r] || (m && m.st === 'conflict')) return; var nm = d.grid[r] && String(d.grid[r][SC.item] || '').trim(); if (nm) inkLearn(nm, d.ink[r]); }); return inkSave(); });
   }
   function inkImg(id, cls) { return '<img class="' + (cls || 'inkimg') + '" data-ink="' + id + '" alt="his writing">'; }
   function fillInk(root) { root.querySelectorAll('img[data-ink]').forEach(function (im) { idbGet('ink-' + im.dataset.ink).then(function (u) { if (u) im.src = u; }).catch(function () {}); }); }
@@ -7223,7 +7773,8 @@
     q('#ikElse').onclick = function () { openNamePick(+r, 'sheet', 'all'); };
     o.querySelectorAll('[data-iko]').forEach(function (b) { b.onclick = function () {
       var op = sp.inkOpts[+b.dataset.iko], name = op.name || inkBrandName(op.bk), g = d.grid; spSnap(d);
-      groupRows(g, +r).forEach(function (x) { g[x][SC.item] = name; var rk = regAdd(name, g[x][SC.size], 'sheet'); var raw = d.ai && d.ai[x] ? String(d.ai[x][SC.item] || '').trim() : ''; if (rk && raw && !inkRawOther(raw, g[x][SC.size], rk)) regAlias(rk, raw, 2); });
+      var grpI = groupRows(g, +r); d.ask = (d.ask || []).filter(function (a) { return grpI.indexOf(+a.r) < 0; });
+      grpI.forEach(function (x) { g[x][SC.item] = name; var rk = regAdd(name, g[x][SC.size], 'sheet'); d.rid = d.rid || {}; if (rk) d.rid[x] = rk; var raw = d.ai && d.ai[x] ? String(d.ai[x][SC.item] || '').trim() : ''; if (rk && raw && !inkRawOther(raw, g[x][SC.size], rk)) regAlias(rk, raw, 2); });
       inkLoad().then(function () { inkLearn(name, d.ink[r]); return inkSave(); }).then(function () { inkMatch(sp.k); save(); sp.step = 'sheet'; sp.view = 'list'; drawShopDay(); toast('Saved · one more sample of his writing'); });
     }; });
   }
