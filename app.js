@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '51';
+  var APP_VERSION = '52';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -4485,13 +4485,12 @@
   }
   function shopAddPhotos(urls, key) {
     key = key || (sp && sp.k) || dkey(new Date());
-    var d = shopDay(key, true);
+    var d = shopDay(key, true), newIds = [];
     Promise.all(urls.map(function (u) { return shrinkImage(u, 2000); })).then(function (us) {
-      return Promise.all(us.map(function (u, i) { var id = 'sp' + Date.now().toString(36) + i; d.photos.push(id); return idbPut('shopimg-' + id, u); }));
+      return Promise.all(us.map(function (u, i) { var id = 'sp' + Date.now().toString(36) + i; d.photos.push(id); newIds.push(id); return idbPut('shopimg-' + id, u); }));
     }).then(function () {
-      save(); if (!sp || sp.k !== key) openShopDay(key); else drawShopDay();
-      if (hasAI() && !navigator.onLine) { d.status = 'queued'; save(); drawShopDay(); toast('Saved. It’s read as soon as you’re back online'); }
-      else if (hasAI()) shopRead(key); else { if (!d.grid) { d.grid = blankGrid(); save(); } drawShopDay(); }
+      save(); if (!sp || sp.k !== key) openShopDay(key);
+      startScan(newIds);
     }).catch(function (e) { toast('Couldn’t save the photos: ' + (e.message || e)); });
   }
   function shopPhotos(d) { return Promise.all(d.photos.map(function (id) { return idbGet('shopimg-' + id).catch(function () { return null; }); })).then(function (a) { return a.filter(Boolean); }); }
@@ -4534,7 +4533,7 @@
       d.exp = (r.expenses || []).filter(function (e) { return e && (e.name || e.amount); }).map(function (e) { return { t: String(e.name || ''), v: num(e.amount) }; });
       d.written = r.written || {}; d.status = 'draft';
       d.sheetDate = /^\d{4}-\d{2}-\d{2}$/.test(r.date || '') && r.date !== key && r.date <= dkey(new Date()) ? r.date : null;
-      d.boxes = boxes; d.rowy = rowy; d.ink = {}; d.inkm = null; save();
+      d.boxes = boxes; d.rowy = rowy; d.ink = {}; d.inkm = null; pinRows(d); save();
       inkProcess(key).catch(function () {});
       applyPendingBills(key);
       if (sp && sp.k === key) { sp.view = 'list'; sp.step = 'sheet'; if (learnNow) openNm(); else drawShopDay(); }
@@ -5500,6 +5499,7 @@
   function openSame(r) { sp.step = 'same'; sp.sqr = r; sp.sq = ''; sp.sqz = false; drawShopDay(); var ov = document.getElementById('overlay'); if (ov) ov.scrollTop = 0; }
   // the whole line of the sheet: its own band if the AI gave one, else the name box, else between its neighbours
   function rowBand(d, r) {
+    var bp = bandPoly(d, r); if (bp) return { p: bp.p, y: [bp.y0 * 1000, bp.y1 * 1000] };
     if (d.boxes && d.boxes[r]) return { p: d.boxes[r].p, y: [d.boxes[r].b[0], d.boxes[r].b[2]] };
     if (d.rowy && d.rowy[r]) return d.rowy[r];
     var known = {}; Object.keys(d.rowy || {}).forEach(function (x) { known[x] = d.rowy[x]; }); Object.keys(d.boxes || {}).forEach(function (x) { if (!known[x]) known[x] = { p: d.boxes[x].p, y: [d.boxes[x].b[0], d.boxes[x].b[2]] }; });
@@ -5509,6 +5509,7 @@
     var n = lo != null ? lo : hi, kb = known[n], hh = kb.y[1] - kb.y[0]; return { p: kb.p, y: [kb.y[0] + (r - n) * hh, kb.y[1] + (r - n) * hh] };
   }
   function rowCrop(d, r) {
+    if (bandOf(d, r)) return bandCrop(d, r);
     var band = rowBand(d, r); if (!band) return Promise.resolve(null);
     return shopPhotos(d).then(function (imgs) {
       var src = imgs[band.p || 0] || imgs[0]; if (!src) return null;
@@ -5856,7 +5857,7 @@
   }
   function freshStart(from) {
     var s2 = shop(); bills();
-    var drop = function (ids) { (ids || []).forEach(function (id) { idbDel('shopimg-' + id).catch(function () {}); }); };
+    var drop = function (ids) { (ids || []).forEach(function (id) { idbDel('shopimg-' + id).catch(function () {}); idbDel('shoporig-' + id).catch(function () {}); }); };
     Object.keys(s2.days).forEach(function (k) { drop(s2.days[k].photos); });
     Object.keys(s2.bills).forEach(function (id) { drop(s2.bills[id].photos); });
     try { learnt().examples.forEach(function (e) { drop([e.id]); }); } catch (e) {}
@@ -6055,7 +6056,7 @@
   function nmHtml(d) {
     var g = d.grid, r = sp.nr, rows = nmRows(d), i = rows.indexOf(r), fi = freshInfo(), left = nmLeft(d).length, named = (d.named || {})[r];
     var h = '<div class="row between"><span class="nmday">' + (fi && fi.learn ? 'Learning day ' + fi.day + ' of ' + fi.of : 'Naming rows') + '</span><span class="cap">Row ' + (i + 1) + ' of ' + rows.length + ' · ' + left + ' to name</span></div><div class="nmbar"><i style="width:' + Math.round((rows.length - left) / Math.max(1, rows.length) * 100) + '%"></i></div>';
-    h += '<div class="nmph' + (sp.nmZ ? ' z' : '') + '" id="nmPh"><div class="nmphin"><img id="nmImg" alt="Sheet photo"><i class="nmband" id="nmBand"></i></div><span class="nmphcap">black &amp; white · tap to zoom · scroll it</span></div>';
+    h += '<div class="nmph' + (sp.nmZ ? ' z' : '') + '" id="nmPh"><div class="nmphin"><img id="nmImg" alt="Sheet photo"><i class="nmband" id="nmBand"></i><svg class="nmsvg" id="nmSvg" viewBox="0 0 1000 1000" preserveAspectRatio="none"></svg></div><span class="nmphcap">black &amp; white · tap to zoom · scroll it</span></div>';
     h += '<div class="card stack" style="gap:10px"><span class="cap">This row, cut from the photo</span><div class="sqimg bw' + (sp.sqz ? ' z' : '') + '" id="nmCrop"><span class="muted small">Cutting the row out…</span></div>';
     var L = String((d.letters || {})[r] || '').trim(), raw = d.ai && d.ai[r] ? String(d.ai[r][SC.item] || '').trim() : '';
     if (L || raw) h += '<div class="nmlet">' + (L ? '<span>Letters that stand out:</span><b class="hw">' + esc(L.replace(/\s+/g, '').split('').join(' ')) + '</b>' : '') + (raw ? '<small>AI read “' + esc(raw) + '”</small>' : '') + '</div>';
@@ -6128,7 +6129,8 @@
     q('#nmDel').onclick = function () { if (!confirm('Remove this row from the sheet?')) return; spSnap(d); g[r] = SHCOLS.map(function () { return ''; }); if (d.named) delete d.named[r]; save(); nmNext(d, r); };
     // the photo, in black and white, scrolled to this row
     var band = rowBand(d, r), img = q('#nmImg'), ph = q('#nmPh'), be = q('#nmBand');
-    var place = function () { if (!band || !img.naturalHeight) return; be.style.top = (band.y[0] / 10) + '%'; be.style.height = Math.max(1.5, (band.y[1] - band.y[0]) / 10) + '%'; be.style.display = 'block'; ph.scrollTop = Math.max(0, img.clientHeight * band.y[0] / 1000 - ph.clientHeight * .38); ph.scrollLeft = 0; };
+    var bpl = bandPoly(d, r); if (bpl) q('#nmSvg').innerHTML = '<polygon points="' + bpl.pts + '"/>';
+    var place = function () { if (!band || !img.naturalHeight) return; if (bpl) { ph.scrollTop = Math.max(0, img.clientHeight * bpl.y0 - ph.clientHeight * .38); ph.scrollLeft = 0; return; } be.style.top = (band.y[0] / 10) + '%'; be.style.height = Math.max(1.5, (band.y[1] - band.y[0]) / 10) + '%'; be.style.display = 'block'; ph.scrollTop = Math.max(0, img.clientHeight * band.y[0] / 1000 - ph.clientHeight * .38); ph.scrollLeft = 0; };
     shopPhotos(d).then(function (imgs) { var src = imgs[(band && band.p) || 0] || imgs[0]; if (!src) { ph.style.display = 'none'; return; } img.onload = place; img.src = src; });
     ph.onclick = function () { sp.nmZ = !sp.nmZ; ph.classList.toggle('z', sp.nmZ); setTimeout(place, 30); };
     var cb = q('#nmCrop'); cb.onclick = function () { sp.sqz = !sp.sqz; cb.classList.toggle('z', sp.sqz); };
@@ -6192,6 +6194,227 @@
     o.querySelector('#ckBack').onclick = function () { if (d.learn) openNm(); else { sp.step = 'sheet'; sp.view = 'list'; drawShopDay(); } };
     o.querySelector('#ckGo').onclick = function () { sp.step = 'profit'; drawShopDay(); };
   }
+  // ---------- v52: flatten the sheet photo, then trace every printed row line ----------
+  function loadImg(src) { return new Promise(function (res, rej) { var im = new Image(); im.onload = function () { res(im); }; im.onerror = rej; im.src = src; }); }
+  function grayOf(im, maxW) {
+    var k = Math.min(1, maxW / im.width), w = Math.max(8, Math.round(im.width * k)), h = Math.max(8, Math.round(im.height * k));
+    var c = document.createElement('canvas'); c.width = w; c.height = h; var x = c.getContext('2d'); x.drawImage(im, 0, 0, w, h);
+    var px = x.getImageData(0, 0, w, h).data, g = new Uint8ClampedArray(w * h); for (var i = 0; i < w * h; i++) g[i] = px[i * 4] * .299 + px[i * 4 + 1] * .587 + px[i * 4 + 2] * .114;
+    return { g: g, w: w, h: h };
+  }
+  function otsuOf(g) {
+    var hist = new Array(256).fill(0), i, t; for (i = 0; i < g.length; i++) hist[g[i]]++;
+    var tot = g.length, sum = 0; for (t = 0; t < 256; t++) sum += t * hist[t];
+    var sB = 0, wB = 0, best = 0, thr = 128; for (t = 0; t < 256; t++) { wB += hist[t]; if (!wB) continue; var wF = tot - wB; if (!wF) break; sB += t * hist[t]; var mB = sB / wB, mF = (sum - sB) / wF, bt = wB * wF * (mB - mF) * (mB - mF); if (bt > best) { best = bt; thr = t; } }
+    return thr;
+  }
+  // the page is the biggest bright area; its corners are the points furthest towards each corner of the photo
+  function findCorners(im) {
+    var G = grayOf(im, 360), w = G.w, h = G.h, g = G.g, t = otsuOf(g), n = w * h, m = new Uint8Array(n), lab = new Int32Array(n), q = new Int32Array(n), i;
+    for (i = 0; i < n; i++) m[i] = g[i] > t ? 1 : 0;
+    // close small gaps (ink and lines) so the page stays one piece
+    var id = 0, best = 0, bestId = 0;
+    for (var s0 = 0; s0 < n; s0++) {
+      if (!m[s0] || lab[s0]) continue; id++; var qh = 0, qt = 0, cnt = 0; q[qt++] = s0; lab[s0] = id;
+      while (qh < qt) { var p = q[qh++], x = p % w, y = (p / w) | 0; cnt++;
+        if (x > 0 && m[p - 1] && !lab[p - 1]) { lab[p - 1] = id; q[qt++] = p - 1; } if (x < w - 1 && m[p + 1] && !lab[p + 1]) { lab[p + 1] = id; q[qt++] = p + 1; }
+        if (y > 0 && m[p - w] && !lab[p - w]) { lab[p - w] = id; q[qt++] = p - w; } if (y < h - 1 && m[p + w] && !lab[p + w]) { lab[p + w] = id; q[qt++] = p + w; } }
+      if (cnt > best) { best = cnt; bestId = id; }
+    }
+    var def = [[.03, .03], [.97, .03], [.97, .97], [.03, .97]];
+    if (best < n * .15) return { pts: def, auto: false };
+    var a = 1e9, b = -1e9, c = -1e9, dd = 1e9, tl, tr, br, bl;
+    for (i = 0; i < n; i++) { if (lab[i] !== bestId) continue; var xx = i % w, yy = (i / w) | 0, su = xx + yy, df = xx - yy; if (su < a) { a = su; tl = [xx, yy]; } if (su > b) { b = su; br = [xx, yy]; } if (df > c) { c = df; tr = [xx, yy]; } if (df < dd) { dd = df; bl = [xx, yy]; } }
+    var pts = [tl, tr, br, bl].map(function (p) { return [(p[0] + .5) / w, (p[1] + .5) / h]; });
+    // the page fills the whole photo: no edges to find
+    var edge = pts.every(function (p) { return p[0] < .02 || p[0] > .98 || p[1] < .02 || p[1] > .98; });
+    return { pts: pts, auto: !edge || best < n * .97 };
+  }
+  function solveLin(A, B) {
+    var n = B.length, M = A.map(function (r, i) { return r.concat([B[i]]); }), i, j, k;
+    for (i = 0; i < n; i++) { var mx = i; for (j = i + 1; j < n; j++) if (Math.abs(M[j][i]) > Math.abs(M[mx][i])) mx = j; var tmp = M[i]; M[i] = M[mx]; M[mx] = tmp; for (j = i + 1; j < n; j++) { var f = M[j][i] / M[i][i]; for (k = i; k <= n; k++) M[j][k] -= f * M[i][k]; } }
+    var x = new Array(n); for (i = n - 1; i >= 0; i--) { var s = M[i][n]; for (j = i + 1; j < n; j++) s -= M[i][j] * x[j]; x[i] = s / M[i][i]; } return x;
+  }
+  function homog(src, dst) { var A = [], B = []; for (var i = 0; i < 4; i++) { var x = src[i][0], y = src[i][1], u = dst[i][0], v = dst[i][1]; A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]); B.push(u); A.push([0, 0, 0, x, y, 1, -v * x, -v * y]); B.push(v); } var h = solveLin(A, B); h.push(1); return h; }
+  // flatten: map the 4 corners to a straight rectangle
+  function warpPage(im, pts) {
+    var W = im.width, H = im.height, P = pts.map(function (p) { return [p[0] * W, p[1] * H]; }), dist = function (a, b) { return Math.hypot(a[0] - b[0], a[1] - b[1]); };
+    var ow = Math.max(dist(P[0], P[1]), dist(P[3], P[2])), oh = Math.max(dist(P[0], P[3]), dist(P[1], P[2])), k = Math.min(1, 1800 / Math.max(ow, oh));
+    ow = Math.max(50, Math.round(ow * k)); oh = Math.max(50, Math.round(oh * k));
+    var h = homog([[0, 0], [ow, 0], [ow, oh], [0, oh]], P);
+    var sc = document.createElement('canvas'); sc.width = W; sc.height = H; var sx = sc.getContext('2d'); sx.drawImage(im, 0, 0); var S = sx.getImageData(0, 0, W, H).data;
+    var oc = document.createElement('canvas'); oc.width = ow; oc.height = oh; var ox = oc.getContext('2d'), out = ox.createImageData(ow, oh), O = out.data;
+    for (var y = 0; y < oh; y++) for (var x = 0; x < ow; x++) {
+      var dn = h[6] * x + h[7] * y + 1, u = (h[0] * x + h[1] * y + h[2]) / dn, v = (h[3] * x + h[4] * y + h[5]) / dn, o = (y * ow + x) * 4;
+      if (u < 0 || v < 0 || u >= W - 1 || v >= H - 1) { O[o] = O[o + 1] = O[o + 2] = 255; O[o + 3] = 255; continue; }
+      var u0 = u | 0, v0 = v | 0, fu = u - u0, fv = v - v0, i00 = (v0 * W + u0) * 4, i10 = i00 + 4, i01 = i00 + W * 4, i11 = i01 + 4;
+      for (var c = 0; c < 3; c++) O[o + c] = (S[i00 + c] * (1 - fu) + S[i10 + c] * fu) * (1 - fv) + (S[i01 + c] * (1 - fu) + S[i11 + c] * fu) * fv;
+      O[o + 3] = 255;
+    }
+    ox.putImageData(out, 0, 0); return oc.toDataURL('image/jpeg', .88);
+  }
+  // trace the printed horizontal lines of the form, strip by strip, so a bent line is followed along its bend
+  function findLines(im) {
+    var G = grayOf(im, 900), w = G.w, h = G.h, g = G.g, n = w * h, x, y, i;
+    var I = new Float64Array((w + 1) * (h + 1));
+    for (y = 0; y < h; y++) { var rs = 0; for (x = 0; x < w; x++) { rs += g[y * w + x]; I[(y + 1) * (w + 1) + x + 1] = I[y * (w + 1) + x + 1] + rs; } }
+    var R = 15, dark = new Uint8Array(n);
+    for (y = 0; y < h; y++) for (x = 0; x < w; x++) { var x0 = Math.max(0, x - R), x1 = Math.min(w, x + R + 1), y0 = Math.max(0, y - R), y1 = Math.min(h, y + R + 1); var mean = (I[y1 * (w + 1) + x1] - I[y0 * (w + 1) + x1] - I[y1 * (w + 1) + x0] + I[y0 * (w + 1) + x0]) / ((x1 - x0) * (y1 - y0)); dark[y * w + x] = g[y * w + x] < mean - 14 ? 1 : 0; }
+    var S = 14, sw = Math.floor(w / S), minGap = Math.max(4, Math.round(h / 160)), peaks = [];
+    for (var s = 0; s < S; s++) {
+      var xa = s * sw, xb = xa + sw, sc = new Float32Array(h);
+      for (y = 1; y < h - 1; y++) { var run = 0, br = 0; for (x = xa; x < xb; x++) { if (dark[y * w + x] || dark[(y - 1) * w + x] || dark[(y + 1) * w + x]) { run++; if (run > br) br = run; } else run = 0; } sc[y] = br / sw; }
+      var pk = []; for (y = 2; y < h - 2; y++) if (sc[y] >= .55 && sc[y] >= sc[y - 1] && sc[y] >= sc[y + 1]) { if (pk.length && y - pk[pk.length - 1].y < minGap) { if (sc[y] > pk[pk.length - 1].s) pk[pk.length - 1] = { y: y, s: sc[y] }; } else pk.push({ y: y, s: sc[y] }); }
+      peaks.push(pk);
+    }
+    var mid = Math.floor(S / 2), dif = []; peaks.forEach(function (pk) { for (var j = 1; j < pk.length; j++) { var dd = pk[j].y - pk[j - 1].y; if (dd >= minGap * 1.5) dif.push(dd); } });
+    if (dif.length < 3) return { lines: [], bands: [], xs: [], sp: 0 };
+    dif.sort(function (a, b) { return a - b; }); var spc = dif[Math.floor(dif.length * .4)];
+    var used = peaks.map(function (pk) { return pk.map(function () { return false; }); }), lines = [];
+    var order = []; for (s = 0; s < S; s++) order.push(s); order.sort(function (a, b) { return Math.abs(a - mid) - Math.abs(b - mid); });
+    order.forEach(function (s0) {
+      peaks[s0].forEach(function (p0, pi) {
+        if (used[s0][pi]) return; var arr = new Array(S).fill(null), hit = [[s0, pi]]; arr[s0] = p0.y;
+        [1, -1].forEach(function (dir) { var prev = p0.y, slope = 0, miss = 0; for (var s1 = s0 + dir; s1 >= 0 && s1 < S; s1 += dir) { var want = prev + slope, bi = -1, bd = spc * .3; peaks[s1].forEach(function (p, j) { if (used[s1][j]) return; var dd = Math.abs(p.y - want); if (dd < bd) { bd = dd; bi = j; } }); if (bi >= 0) { var ny = peaks[s1][bi].y; slope = slope * .5 + (ny - prev) * .5; prev = ny; arr[s1] = ny; hit.push([s1, bi]); miss = 0; } else if (++miss > 3) break; else prev += slope; } });
+        if (hit.length < S * .45) return;
+        hit.forEach(function (hp) { used[hp[0]][hp[1]] = true; });
+        // fill the gaps along the line
+        var known = []; arr.forEach(function (v, j) { if (v != null) known.push(j); });
+        for (var j = 0; j < S; j++) if (arr[j] == null) { var lo = null, hi = null; known.forEach(function (k) { if (k < j) lo = k; if (k > j && hi == null) hi = k; }); arr[j] = lo != null && hi != null ? arr[lo] + (arr[hi] - arr[lo]) * (j - lo) / (hi - lo) : arr[lo != null ? lo : hi]; }
+        lines.push({ ys: arr, n: hit.length });
+      });
+    });
+    var avg = function (L) { return L.ys.reduce(function (a, b) { return a + b; }, 0) / L.ys.length; };
+    lines.sort(function (a, b) { return avg(a) - avg(b); });
+    var keep = []; lines.forEach(function (L) { var last = keep[keep.length - 1]; if (last && avg(L) - avg(last) < spc * .5) { if (L.n > last.n) keep[keep.length - 1] = L; } else keep.push(L); });
+    var bands = []; for (i = 1; i < keep.length; i++) { var gap = avg(keep[i]) - avg(keep[i - 1]); if (gap >= spc * .55 && gap <= spc * 1.7) bands.push([i - 1, i]); }
+    return { lines: keep.map(function (L) { return L.ys.map(function (v) { return Math.round(v / h * 10000) / 10000; }); }), xs: Array.apply(null, Array(S)).map(function (_, j) { return (j + .5) * sw / w; }), sp: spc / h, bands: bands };
+  }
+  function lineY(sc, li, x) {
+    var L = sc.lines[li], xs = sc.xs; if (x <= xs[0]) return L[0] + (L[1] - L[0]) * (x - xs[0]) / (xs[1] - xs[0]);
+    for (var j = 1; j < xs.length; j++) if (x <= xs[j]) return L[j - 1] + (L[j] - L[j - 1]) * (x - xs[j - 1]) / (xs[j] - xs[j - 1]);
+    var m = xs.length - 1; return L[m] + (L[m] - L[m - 1]) * (x - xs[m]) / (xs[m] - xs[m - 1]);
+  }
+  // pin each row the AI read to one band, keeping the order of the rows
+  function pinRows(d) {
+    d.rband = {}; if (!d.scan || !d.grid) return;
+    var byP = {};
+    dataRows(d.grid).forEach(function (r) {
+      var bx = d.boxes && d.boxes[r], ry = d.rowy && d.rowy[r], p = bx ? bx.p : ry ? ry.p : null; if (p == null) return;
+      var x = bx ? (bx.b[1] + bx.b[3]) / 2000 : .2, y = bx ? (bx.b[0] + bx.b[2]) / 2000 : (ry.y[0] + ry.y[1]) / 2000;
+      (byP[p] = byP[p] || []).push({ r: r, x: x, y: y });
+    });
+    Object.keys(byP).forEach(function (p) {
+      var sc = d.scan[d.photos[+p]]; if (!sc || !sc.bands || !sc.bands.length) return;
+      var R = byP[p], B = sc.bands, N = R.length, M = B.length, skipR = 1.2, i, j;
+      R.sort(function (a, b) { return a.r - b.r; });
+      var cost = function (i, j) { var c = (lineY(sc, B[j][0], R[i].x) + lineY(sc, B[j][1], R[i].x)) / 2; return Math.min(3, Math.abs(R[i].y - c) / sc.sp); };
+      // align rows (in order) with bands (in order): a band may stay empty, a row may stay unpinned
+      var D = [], T = [];
+      for (i = 0; i <= N; i++) { D.push(new Float64Array(M + 1)); T.push(new Int8Array(M + 1)); }
+      for (i = 1; i <= N; i++) { D[i][0] = D[i - 1][0] + skipR; T[i][0] = 1; }
+      for (j = 1; j <= M; j++) { D[0][j] = 0; T[0][j] = 2; }
+      for (i = 1; i <= N; i++) for (j = 1; j <= M; j++) {
+        var m = D[i - 1][j - 1] + cost(i - 1, j - 1), u = D[i - 1][j] + skipR, l = D[i][j - 1];
+        if (m <= u && m <= l) { D[i][j] = m; T[i][j] = 0; } else if (u <= l) { D[i][j] = u; T[i][j] = 1; } else { D[i][j] = l; T[i][j] = 2; }
+      }
+      i = N; j = M;
+      while (i > 0 && j >= 0) { if (j === 0) { i--; continue; } var t = T[i][j]; if (t === 0) { if (cost(i - 1, j - 1) < 1.2) d.rband[R[i - 1].r] = { p: +p, i: j - 1 }; i--; j--; } else if (t === 1) i--; else j--; }
+    });
+  }
+  function bandOf(d, r) { var rb = d.rband && d.rband[r]; if (!rb) return null; var sc = d.scan && d.scan[d.photos[rb.p]]; if (!sc || !sc.bands[rb.i]) return null; return { p: rb.p, sc: sc, t: sc.bands[rb.i][0], b: sc.bands[rb.i][1] }; }
+  function bandPoly(d, r) {
+    var B = bandOf(d, r); if (!B) return null; var top = [], bot = [], y0 = 1, y1 = 0;
+    for (var x = 0; x <= 1.0001; x += .05) { var a = lineY(B.sc, B.t, x), b = lineY(B.sc, B.b, x); top.push([x, a]); bot.unshift([x, b]); y0 = Math.min(y0, a); y1 = Math.max(y1, b); }
+    return { p: B.p, pts: top.concat(bot).map(function (q) { return Math.round(q[0] * 1000) + ',' + Math.round(q[1] * 1000); }).join(' '), y0: y0, y1: y1 };
+  }
+  // the row straightened: each column of the photo between the row's own two lines
+  function bandCrop(d, r) {
+    var B = bandOf(d, r); if (!B) return Promise.resolve(null);
+    return idbGet('shopimg-' + d.photos[B.p]).then(function (src) { if (!src) return null; return loadImg(src); }).then(function (im) {
+      if (!im) return null;
+      var W = im.width, H = im.height, sc0 = document.createElement('canvas'); sc0.width = W; sc0.height = H; var c0 = sc0.getContext('2d'); c0.drawImage(im, 0, 0); var S = c0.getImageData(0, 0, W, H).data;
+      var ow = Math.min(1100, W), oh = Math.max(24, Math.round(B.sc.sp * H * (ow / W) * 1.2)), pad = .1;
+      var oc = document.createElement('canvas'); oc.width = ow; oc.height = oh; var ox = oc.getContext('2d'), out = ox.createImageData(ow, oh), O = out.data;
+      for (var x = 0; x < ow; x++) {
+        var nx = x / ow, t = lineY(B.sc, B.t, nx) * H, b = lineY(B.sc, B.b, nx) * H, hh = b - t; t -= hh * pad; b += hh * pad; var sx = Math.min(W - 2, nx * W);
+        for (var y = 0; y < oh; y++) { var sy = Math.max(0, Math.min(H - 2, t + (b - t) * y / (oh - 1))), u0 = sx | 0, v0 = sy | 0, fu = sx - u0, fv = sy - v0, i00 = (v0 * W + u0) * 4, i01 = i00 + W * 4, o = (y * ow + x) * 4;
+          for (var c = 0; c < 3; c++) O[o + c] = (S[i00 + c] * (1 - fu) + S[i00 + 4 + c] * fu) * (1 - fv) + (S[i01 + c] * (1 - fu) + S[i01 + 4 + c] * fu) * fv; O[o + 3] = 255; }
+      }
+      ox.putImageData(out, 0, 0); return oc.toDataURL('image/jpeg', .85);
+    }).catch(function () { return null; });
+  }
+  // ---- the straighten step ----
+  function startScan(ids) { sp.flat = { ids: ids.slice(), i: 0, pts: null }; sp.step = 'flat'; drawShopDay(); }
+  function scanSrc(id) { return idbGet('shoporig-' + id).then(function (u) { return u || idbGet('shopimg-' + id); }); }
+  function flatHtml(d) {
+    var F = sp.flat, n = F.ids.length;
+    var h = '<h1 class="display" style="font-size:28px;margin:0">Straighten the page</h1>' + (n > 1 ? '<span class="cap">Photo ' + (F.i + 1) + ' of ' + n + '</span>' : '');
+    h += '<div class="flbox" id="flBox"><img id="flImg" alt="Sheet photo"><svg viewBox="0 0 1000 1000" preserveAspectRatio="none"><polygon id="flPoly"/></svg>' + [0, 1, 2, 3].map(function (i) { return '<i class="flh" data-flh="' + i + '"></i>'; }).join('') + '</div>';
+    h += '<div class="notice' + (F.auto === false ? '' : ' ok') + '" id="flMsg">' + (F.busy ? '<span class="wpulse"></span> ' + esc(F.busy) : F.pts ? (F.auto === false ? 'Couldn’t see the page edges clearly. <b>Drag the 4 circles to the corners of the sheet.</b>' : '<b>Found the 4 corners of the page.</b> Drag a corner if it’s off the edge of the sheet.') : 'Finding the page…') + '</div>';
+    h += '<div class="row" style="gap:8px"><button type="button" class="btn line" id="flRetake">Retake</button><button type="button" class="btn jungle" style="flex:1" id="flGo"' + (F.pts && !F.busy ? '' : ' disabled') + '>Looks right · flatten ›</button></div>';
+    h += '<button type="button" class="link" id="flSkip" style="align-self:center">Use the photo as it is</button>';
+    h += '<p class="muted small">Tip: photograph from straight above with the whole page in view. Bends and tilt are straightened here; deep folds and shadows can’t be.</p>';
+    return h;
+  }
+  function bindFlat(o, d) {
+    var F = sp.flat, id = F.ids[F.i], q = function (x) { return o.querySelector(x); }, box = q('#flBox'), img = q('#flImg'), poly = q('#flPoly');
+    var place = function () { if (!F.pts) return; o.querySelectorAll('[data-flh]').forEach(function (hd) { var p = F.pts[+hd.dataset.flh]; hd.style.left = (p[0] * 100) + '%'; hd.style.top = (p[1] * 100) + '%'; hd.style.display = 'block'; }); poly.setAttribute('points', F.pts.map(function (p) { return Math.round(p[0] * 1000) + ',' + Math.round(p[1] * 1000); }).join(' ')); };
+    scanSrc(id).then(function (src) {
+      if (!src) return; img.src = src;
+      if (!F.pts) loadImg(src).then(function (im) { var c = findCorners(im); F.pts = c.pts; F.auto = c.auto; drawShopDay(); });
+      else place();
+    });
+    o.querySelectorAll('[data-flh]').forEach(function (hd) {
+      hd.addEventListener('pointerdown', function (e) { e.preventDefault(); hd.setPointerCapture(e.pointerId); hd.classList.add('drag'); });
+      hd.addEventListener('pointermove', function (e) { if (!hd.hasPointerCapture(e.pointerId)) return; var rc = box.getBoundingClientRect(); F.pts[+hd.dataset.flh] = [Math.max(0, Math.min(1, (e.clientX - rc.left) / rc.width)), Math.max(0, Math.min(1, (e.clientY - rc.top) / rc.height))]; place(); });
+      var up = function (e) { hd.classList.remove('drag'); try { hd.releasePointerCapture(e.pointerId); } catch (x) {} }; hd.addEventListener('pointerup', up); hd.addEventListener('pointercancel', up);
+    });
+    var next = function () { F.i++; F.pts = null; F.auto = null; F.busy = null; if (F.i >= F.ids.length) { sp.step = 'rows'; } drawShopDay(); var ov = document.getElementById('overlay'); if (ov) ov.scrollTop = 0; };
+    var finish = function (flat) {
+      F.busy = flat ? 'Flattening the page…' : 'Finding the rows…'; drawShopDay();
+      setTimeout(function () {
+        scanSrc(id).then(function (src) { return idbGet('shoporig-' + id).then(function (had) { return (had ? Promise.resolve() : idbPut('shoporig-' + id, src)).then(function () { return loadImg(src); }); }); })
+          .then(function (im) { if (!flat) return im; var u = warpPage(im, F.pts); return idbPut('shopimg-' + id, u).then(function () { return loadImg(u); }); })
+          .then(function (im) { if (!flat) return idbPut('shopimg-' + id, im.src).then(function () { return im; }); return im; })
+          .then(function (im) { var L = findLines(im); d.scan = d.scan || {}; d.scan[id] = L; d.corners = d.corners || {}; d.corners[id] = flat ? F.pts : null; save(); next(); })
+          .catch(function (e) { F.busy = null; toast('Couldn’t straighten it: ' + (e.message || e)); drawShopDay(); });
+      }, 30);
+    };
+    q('#flGo').onclick = function () { finish(true); };
+    q('#flSkip').onclick = function () { finish(false); };
+    q('#flRetake').onclick = function () {
+      var at = d.photos.indexOf(id); if (at >= 0) d.photos.splice(at, 1); idbDel('shopimg-' + id).catch(function () {}); idbDel('shoporig-' + id).catch(function () {}); if (d.scan) delete d.scan[id];
+      F.ids.splice(F.i, 1); F.pts = null; save();
+      if (!F.ids.length) { sp.flat = null; sp.step = 'sheet'; sp.view = 'photo'; drawShopDay(); setTimeout(function () { var f = document.getElementById('spFile'); if (f) f.click(); }, 50); return; }
+      if (F.i >= F.ids.length) sp.step = 'rows'; drawShopDay();
+    };
+  }
+  function rowsHtml(d) {
+    var F = sp.flat, tot = 0; F.ids.forEach(function (id) { var sc = (d.scan || {})[id]; if (sc) tot += sc.bands.length; });
+    var h = '<h1 class="display" style="font-size:30px;margin:0">' + (tot ? tot + ' rows found' : 'Rows not found') + '</h1>';
+    h += F.ids.map(function (id, i) { return '<div class="rwbox"><img data-rwimg="' + id + '" alt="Flattened page"><svg viewBox="0 0 1000 1000" preserveAspectRatio="none">' + rowsSvg((d.scan || {})[id]) + '</svg></div>'; }).join('');
+    h += tot ? '<div class="notice ok"><b>Tilt and bend straightened.</b> Each row is found from the printed lines of the form, so a row can’t spill into the next one, even where the paper curves.</div>' : '<div class="notice">Couldn’t find the printed lines on this photo. The AI will still read it; the row pictures may be less exact.</div>';
+    h += '<div class="row" style="gap:8px"><button type="button" class="btn line" id="rwBack">‹ Corners</button><button type="button" class="btn jungle" style="flex:1" id="rwGo">' + (d.grid && d.grid.length > 3 ? 'Read it again ›' : 'Read the sheet ›') + '</button></div>';
+    return h;
+  }
+  function rowsSvg(sc) {
+    if (!sc || !sc.bands.length) return '';
+    return sc.bands.map(function (B, i) { var top = [], bot = []; for (var x = 0; x <= 1.0001; x += .05) { top.push([x, lineY(sc, B[0], x)]); bot.unshift([x, lineY(sc, B[1], x)]); } return '<polygon class="' + (i % 2 ? 'b' : 'a') + '" points="' + top.concat(bot).map(function (q) { return Math.round(q[0] * 1000) + ',' + Math.round(q[1] * 1000); }).join(' ') + '"/>'; }).join('');
+  }
+  function bindRows(o, d) {
+    o.querySelectorAll('[data-rwimg]').forEach(function (im) { idbGet('shopimg-' + im.dataset.rwimg).then(function (u) { if (u) im.src = u; }); });
+    o.querySelector('#rwBack').onclick = function () { sp.flat.i = 0; sp.flat.pts = (d.corners || {})[sp.flat.ids[0]] || null; sp.step = 'flat'; drawShopDay(); };
+    o.querySelector('#rwGo').onclick = function () {
+      if (d.grid && d.grid.length > 3 && !confirm('Read the photos again? Your edits on this sheet will be replaced.')) return;
+      sp.flat = null; sp.step = 'sheet'; shopAfterPhotos(sp.k);
+    };
+  }
+  function shopAfterPhotos(key) {
+    var d = shopDay(key, true);
+    if (hasAI() && !navigator.onLine) { d.status = 'queued'; save(); drawShopDay(); toast('Saved. It’s read as soon as you’re back online'); }
+    else if (hasAI()) shopRead(key); else { if (!d.grid) { d.grid = blankGrid(); save(); } drawShopDay(); }
+  }
   // --- the day screen: photos + sheet + close the day ---
   function openShopDay(k) {
     if (!PL) loadPL().then(function () { if (sp && sp.k === k) drawShopDay(); });
@@ -6211,6 +6434,9 @@
     if (sp.step === 'ink') sp.step = 'sheet';
     if (sp.step === 'same' && d.grid && d.grid[sp.sqr] && (d.ask || []).some(function (a) { return a.r === sp.sqr; })) { o.innerHTML = h + sameHtml(d) + '</div>'; head(); bindSame(o, d); return; }
     if (sp.step === 'same') sp.step = 'sheet';
+    if (sp.step === 'flat' && sp.flat && sp.flat.ids[sp.flat.i]) { o.innerHTML = h + flatHtml(d) + '</div>'; head(); bindFlat(o, d); return; }
+    if (sp.step === 'rows' && sp.flat) { o.innerHTML = h + rowsHtml(d) + '</div>'; head(); bindRows(o, d); return; }
+    if (sp.step === 'flat' || sp.step === 'rows') sp.step = 'sheet';
     if (sp.step === 'nm' && d.grid && d.grid[sp.nr]) { o.innerHTML = h + nmHtml(d) + '</div>'; head(); bindNm(o, d); return; }
     if (sp.step === 'nm') sp.step = 'sheet';
     if (sp.step === 'check' && d.grid) { o.innerHTML = h + checkHtml(d) + '</div>'; head(); bindCheck(o, d); o.scrollTop = 0; return; }
@@ -6226,7 +6452,7 @@
     if (sp.view === 'both') sp.view = 'list';
     if (sp.view === 'photo') {
       h += '<div class="shphoto' + (sp.view === 'photo' ? ' big' : '') + '" id="spPh">' + (d.photos.length ? '<img id="spImg" alt="Sheet photo" style="width:' + (sp.zoom * 100) + '%">' : '<span class="muted small" style="padding:30px;display:block;text-align:center">No photo yet</span>') + '</div>';
-      h += '<div class="row between shphbar"><span class="row" style="gap:4px">' + (d.photos.length > 1 ? '<button type="button" class="nib" data-sph="-1" aria-label="Previous photo">‹</button><span class="cap">' + (sp.ph + 1) + ' / ' + d.photos.length + '</span><button type="button" class="nib" data-sph="1" aria-label="Next photo">›</button>' : '') + '<button type="button" class="nib sm" id="spAddPh">+ Photo</button>' + (d.photos.length ? '<button type="button" class="nib sm" id="spDelPh" aria-label="Delete this photo">🗑</button>' : '') + '</span>' +
+      h += '<div class="row between shphbar"><span class="row" style="gap:4px">' + (d.photos.length > 1 ? '<button type="button" class="nib" data-sph="-1" aria-label="Previous photo">‹</button><span class="cap">' + (sp.ph + 1) + ' / ' + d.photos.length + '</span><button type="button" class="nib" data-sph="1" aria-label="Next photo">›</button>' : '') + '<button type="button" class="nib sm" id="spAddPh">+ Photo</button>' + (d.photos.length ? '<button type="button" class="nib sm" id="spFlat">⤢ Straighten</button>' : '') + (d.photos.length ? '<button type="button" class="nib sm" id="spDelPh" aria-label="Delete this photo">🗑</button>' : '') + '</span>' +
         '<span class="row" style="gap:4px"><button type="button" class="nib" id="spZo" aria-label="Zoom out">−</button><span class="cap">' + Math.round(sp.zoom * 100) + '%</span><button type="button" class="nib" id="spZi" aria-label="Zoom in">+</button></span></div>';
       h += '<input type="file" id="spFile" accept="image/*" multiple hidden>';
     }
@@ -6315,8 +6541,9 @@
     }
     var fi = q('#spFile');
     var ap = q('#spAddPh'); if (ap) ap.onclick = function () { fi.click(); };
+    var sf = q('#spFlat'); if (sf) sf.onclick = function () { var id = d.photos[sp.ph]; startScan([id]); sp.flat.pts = (d.corners || {})[id] || null; drawShopDay(); };
     if (fi) fi.onchange = function () { var fs = [].slice.call(fi.files); if (!fs.length) return; Promise.all(fs.map(blobToDataURL)).then(function (us) { shopAddPhotos(us, sp.k); }); };
-    var dp = q('#spDelPh'); if (dp) dp.onclick = function () { if (!confirm('Delete this photo?')) return; var id = d.photos.splice(sp.ph, 1)[0]; idbDel('shopimg-' + id).catch(function () {}); sp.ph = 0; save(); drawShopDay(); };
+    var dp = q('#spDelPh'); if (dp) dp.onclick = function () { if (!confirm('Delete this photo?')) return; var id = d.photos.splice(sp.ph, 1)[0]; idbDel('shoporig-' + id).catch(function () {}); idbDel('shopimg-' + id).catch(function () {}); sp.ph = 0; save(); drawShopDay(); };
     var rd = q('#spRead'); if (rd) rd.onclick = function () { if (d.grid && d.grid.length > 3 && !confirm('Read the photos again? Your edits on this sheet will be replaced.')) return; shopRead(sp.k); };
     q('#spNext').onclick = function () { if (!d.grid) return; sp.step = 'check'; drawShopDay(); };
     var nb2 = q('#spNames2'); if (nb2) nb2.onclick = function () { sp.step = 'names'; drawShopDay(); };
@@ -7091,7 +7318,7 @@
   function shopPhotoInUse() { var keep = {}; (learnt().examples || []).forEach(function (e) { keep[e.id] = 1; }); return keep; }
   function shopDeleteDay(k) {
     var s2 = shop(), d = s2.days[k]; if (!d) return; var keep = shopPhotoInUse();
-    (d.photos || []).forEach(function (id) { if (!keep[id]) idbDel('shopimg-' + id).catch(function () {}); });
+    (d.photos || []).forEach(function (id) { if (!keep[id]) { idbDel('shopimg-' + id).catch(function () {}); idbDel('shoporig-' + id).catch(function () {}); } });
     Object.keys(bills()).forEach(function (id) { var b = s2.bills[id]; if (b.status === 'added' && b.applied === k) { b.status = 'pending'; b.applied = null; } });
     delete s2.days[k]; save();
   }
@@ -7116,7 +7343,7 @@
         if (!o.learn) learnt().examples.forEach(function (e) { keepImg[e.id] = 1; });
         if (!o.days) Object.keys(s2.days).forEach(function (k) { (s2.days[k].photos || []).forEach(function (id) { keepImg[id] = 1; }); });
         if (!o.bills) Object.keys(s2.bills).forEach(function (id) { (s2.bills[id].photos || []).forEach(function (pid) { keepImg[pid] = 1; }); });
-        var drop = function (ids) { ids.forEach(function (id) { if (!keepImg[id]) idbDel('shopimg-' + id).catch(function () {}); }); };
+        var drop = function (ids) { ids.forEach(function (id) { if (!keepImg[id]) { idbDel('shopimg-' + id).catch(function () {}); idbDel('shoporig-' + id).catch(function () {}); } }); };
         if (o.days) { Object.keys(s2.days).forEach(function (k) { drop(s2.days[k].photos || []); }); s2.days = {}; Object.keys(s2.bills).forEach(function (id) { var b = s2.bills[id]; if (b.status === 'added') { b.status = 'pending'; b.applied = null; } }); }
         if (o.bills) { Object.keys(s2.bills).forEach(function (id) { drop(s2.bills[id].photos || []); }); s2.bills = {}; s2.items = {}; s2.map = {}; }
         if (o.learn) { INK = {}; idbDel('inkf').catch(function () {}); learnt().examples.forEach(function (e) { drop([e.id]); }); s2.gloss = {}; s2.alias = {}; s2.fixes = 0; s2.learn = { digits: {}, notes: {}, usual: [], examples: [] }; }
@@ -7757,7 +7984,8 @@
       return rows.reduce(function (p, r) {
         return p.then(function () {
           var bx = d.boxes[r], img = imgs[bx.p || 0] || imgs[0]; if (!img) return;
-          return inkCrop(img, bx.b).then(function (c) { if (!c || !c.d) return; var id = 'ik' + Date.now().toString(36) + r; d.ink[r] = { id: id, d: c.d }; return idbPut('ink-' + id, c.url); });
+          var B = bandOf(d, +r), bb = bx.b.slice(); if (B) { var cx = (bb[1] + bb[3]) / 2000, t = lineY(B.sc, B.t, cx) * 1000, b2 = lineY(B.sc, B.b, cx) * 1000, pd = (b2 - t) * .06; bb[0] = Math.max(bb[0], t + pd); bb[2] = Math.min(bb[2], b2 - pd); if (bb[2] - bb[0] < 8) { bb[0] = t + pd; bb[2] = b2 - pd; } }
+          return inkCrop(img, bb).then(function (c) { if (!c || !c.d) return; var id = 'ik' + Date.now().toString(36) + r; d.ink[r] = { id: id, d: c.d }; return idbPut('ink-' + id, c.url); });
         });
       }, Promise.resolve());
     }).then(function () {
