@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '56';
+  var APP_VERSION = '57';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -4587,7 +4587,6 @@
       var b = s2.bills[no]; if (b.status !== 'pending' && b.status !== 'added') return;
       (b.items || []).forEach(function (it) {
         var key = resolveKey(it.key); if (!key || !st[key]) return;
-        if (b.status === 'pending' || (b.applied && b.applied > (last || ''))) st[key].qty += it.bottles;
         if (b.date === tk) st[key].inToday += it.bottles;
       });
     });
@@ -4760,8 +4759,7 @@
       });
       b.target = tgt;
       var d = shopDay(tgt);
-      if (d && d.grid && d.status !== 'reading') { billApply(b, tgt); toast('Added ' + billBottles(b) + ' bottles to the ' + new Date(tgt + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) + ' sheet'); }
-      else { b.status = 'pending'; toast('Saved. The bottles go in when the ' + new Date(tgt + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) + ' sheet is read'); }
+      b.status = 'ref'; toast('Saved as a reference: the ' + new Date(tgt + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) + ' sheet’s Received is checked against its ' + billBottles(b) + ' bottles');
       save(); drawBill();
     };
   }
@@ -4795,6 +4793,7 @@
   }
   // when a day's sheet is read, bills waiting for it are added
   function applyPendingBills(k) {
+    return; // v57: bills are only a reference now; the Received column comes from his sheet
     var n = 0; Object.keys(bills()).forEach(function (id) { var b = bills()[id]; if (b.status === 'pending' && (b.target || b.date) === k) { billApply(b, k); n += billBottles(b); } });
     if (n) toast(n + ' bottles from the KSBCL bill added to Received');
   }
@@ -5118,7 +5117,7 @@
       if (!cur || it !== cur.name || !it) { cur = { name: it, rows: [] }; groups.push(cur); }
       cur.rows.push(r);
     });
-    var labs = [[SC.open, 'open'], [SC.recv, 'in'], [SC.sales, 'sold'], [SC.rate, 'rate'], [SC.amt, 'amt'], [SC.close, 'close']];
+    var labs = [[SC.open, 'open'], [SC.recv, 'in'], [SC.sales, 'sold'], [SC.rate, 'rate'], [SC.amt, 'amt'], [SC.close, 'close']], REFR = recvRef(sp.k);
     h += groups.map(function (G) {
       var r0 = G.rows[0], inPL = !PL || !PL.items.length || !G.name || plFind(G.name, g[r0][SC.size]), raw = d.ai && d.ai[r0] ? String(d.ai[r0][SC.item] || '').trim() : '';
       var askA = (d.ask || []).filter(function (a) { return a.r === r0; })[0] || asksShown(d).filter(function (a) { return G.rows.indexOf(a.r) >= 0; })[0], askd = !!askA, unnm = d.learn && G.rows.some(function (x) { return !(d.named || {})[x]; });
@@ -5132,7 +5131,8 @@
           var tie = l[0] === SC.open && d.tie && d.tie[r] && !ck.bad[r + ',' + l[0]];
           return '<span class="lsc' + (ck.bad[r + ',' + l[0]] ? ' bad' : '') + (tie ? ' tie' : '') + (show === '' ? ' em' : '') + '"><b>' + esc(show) + '</b><small>' + (tie ? '= yday ✓' : l[1]) + '</small></span>';
         }).join('') + '</button>';
-        ck.msgs.filter(function (m) { return m.r === r; }).forEach(function (m) { hh += '<span class="lsmsg">' + m.t.replace(/<b>[^<]*<\/b>: /, '') + '</span>'; });
+        ck.msgs.filter(function (m) { return m.r === r; }).forEach(function (m) { hh += m.c === SC.open ? '<button type="button" class="lsmsg lsyd" data-ydr="' + r + '">' + m.t.replace(/<b>[^<]*<\/b>: /, '').replace(/ Tap the row to fix the number\./, '') + ' · <u>see yesterday’s row</u></button>' : '<span class="lsmsg">' + m.t.replace(/<b>[^<]*<\/b>: /, '') + '</span>'; });
+        hh += recvRowNote(d, sp.k, r, REFR);
       });
       return hh + '</div>';
     }).join('');
@@ -5149,6 +5149,7 @@
     var kp2 = q('#lsKeep'); if (kp2) kp2.onclick = function () { d.sheetDate = null; save(); drawShopDay(); };
     bindAsks(o, d); fillInk(o);
     o.querySelectorAll('[data-nmr]').forEach(function (b) { b.onclick = function () { openNm(+b.dataset.nmr); }; });
+    o.querySelectorAll('[data-ydr]').forEach(function (b) { b.onclick = function (e) { e.stopPropagation(); openYday(+b.dataset.ydr, 'sheet'); }; });
     var lnm = q('#lsNm'); if (lnm) lnm.onclick = function () { if (nmLeft(d).length) openNm(); else { sp.step = 'check'; drawShopDay(); } };
     o.querySelectorAll('[data-ikw]').forEach(function (b) { b.onclick = function () { sp.step = 'ink'; sp.inkRow = b.dataset.ikw; drawShopDay(); document.getElementById('overlay').scrollTop = 0; }; });
     o.querySelectorAll('[data-lsrow]').forEach(function (b) { b.onclick = function () { openRowEd(+b.dataset.lsrow); }; });
@@ -6210,21 +6211,24 @@
     var pk = prevDayKey(k), om = ck.msgs.filter(function (m) { return m.c === SC.open; });
     if (!pk) it(true, 'First sheet: nothing to compare the opening with', '');
     else if (!om.length) it(true, 'Opening = yesterday’s closing', left ? 'on the named rows' : 'every row');
-    else om.forEach(function (m) { it(false, m.t.replace(/ Tap the row to fix the number\./, ''), 'tap to fix the number', 'row:' + m.r); });
+    else om.forEach(function (m) { it(false, m.t.replace(/ Tap the row to fix the number\./, ''), 'tap to see yesterday’s row next to today’s', 'yday:' + m.r); });
     var cm = ck.msgs.filter(function (m) { return m.c === SC.close || m.c === SC.total; });
     if (!cm.length) it(true, 'Opening + received − sold = closing', 'every row'); else cm.forEach(function (m) { it(false, m.t, 'tap to fix', 'row:' + m.r); });
     var am = ck.msgs.filter(function (m) { return m.c === SC.amt; });
     if (!am.length) it(true, 'Sold × rate = amount', 'every row'); else am.forEach(function (m) { it(false, m.t, 'tap to fix', 'row:' + m.r); });
-    // stock received against the indents since the last sheet
-    var IR = indentRecv(k), rv = {}, rowOf = {};
-    rows.forEach(function (r) { var x = cellVal(g, r, SC.recv); if (String(g[r][SC.recv] == null ? '' : g[r][SC.recv]).trim() !== '' && isNum(x) && num(x)) { var kk = dayKeyOf(d, r); rv[kk] = (rv[kk] || 0) + num(x); rowOf[kk] = r; } });
-    var ks = {}; Object.keys(rv).concat(Object.keys(IR.by)).forEach(function (x) { ks[x] = 1; });
-    var diffs = Object.keys(ks).filter(function (x) { return Math.abs((rv[x] || 0) - (IR.by[x] || 0)) > .01; });
-    var dts = IR.ind.map(function (n) { return new Date(n.date + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }); }).join(', ');
-    if (!Object.keys(ks).length) it(true, 'No stock received', IR.ind.length ? '' : 'and no indent since the last sheet');
-    else if (!IR.ind.length) it(false, 'Stock received, but no indent for these dates', Object.keys(rv).map(function (x) { return nm(x) + ': ' + fmtN(rv[x]); }).join(' · ') + ' · add the indent in Past indents to check it', 'indent');
-    else if (!diffs.length) it(true, 'Received = your indent of ' + dts, Object.keys(rv).map(function (x) { return nm(x) + ': ' + fmtN(rv[x]); }).join(' · '));
-    else diffs.forEach(function (x) { it(false, nm(x) + ': received ' + fmtN(rv[x] || 0) + ', the indent of ' + dts + ' says ' + fmtN(IR.by[x] || 0), rowOf[x] != null ? 'tap to fix the row' : 'not on today’s sheet', rowOf[x] != null ? 'row:' + rowOf[x] : ''); });
+    // stock received against the indents and bills since the last sheet (they are only a reference: his Received column counts)
+    var REF = recvRef(k), RS = recvSheet(d), rv = RS.by, rowOf = RS.rowOf;
+    var ks = {}; Object.keys(rv).concat(Object.keys(REF.by)).forEach(function (x) { ks[x] = 1; });
+    var diffs = Object.keys(ks).filter(function (x) { return Math.abs((rv[x] || 0) - (REF.by[x] || 0)) > .01; });
+    var dts = REF.src.map(function (n) { return (n.kind === 'bill' ? 'bill ' : 'indent ') + new Date(n.d + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }); }).join(', ');
+    var tS = Object.keys(rv).reduce(function (a, x) { return a + rv[x]; }, 0), tR = Object.keys(REF.by).reduce(function (a, x) { return a + REF.by[x]; }, 0);
+    if (!Object.keys(ks).length) it(true, 'No stock received', REF.src.length ? '' : 'and no indent since the last sheet');
+    else if (!REF.src.length) it(false, 'Stock received, but no indent for these dates', Object.keys(rv).map(function (x) { return nm(x) + ': ' + fmtN(rv[x]); }).join(' · ') + ' · add the indent in Past indents to check it', 'indent');
+    else {
+      if (!diffs.length) it(true, 'Received = ' + dts, Object.keys(rv).map(function (x) { return nm(x) + ': ' + fmtN(rv[x]); }).join(' · '));
+      else diffs.forEach(function (x) { var miss = rowOf[x] == null; it(false, nm(x) + ': sheet says ' + fmtN(rv[x] || 0) + ' received, ' + dts + ' says ' + fmtN(REF.by[x] || 0), miss ? 'not entered in Received on this sheet' : 'tap to fix the row', miss ? '' : 'row:' + rowOf[x]); });
+      it(Math.abs(tS - tR) < .01, 'Total received: sheet ' + fmtN(tS) + ' bottles (' + casesOf(rv) + ' cases) · ' + (REF.src.length > 1 ? 'indents' : REF.src[0].kind) + ' ' + fmtN(tR) + ' bottles (' + casesOf(REF.by) + ' cases)', Math.abs(tS - tR) < .01 ? 'the totals match' : (tS > tR ? fmtN(tS - tR) + ' more on the sheet' : fmtN(tR - tS) + ' bottles missing from the sheet'));
+    }
     var tm = ck.msgs.filter(function (m) { return m.r == null; });
     if (d.written && d.written.sales) { if (!tm.length) it(true, 'Amounts add up to his written total', inr(daySales(d))); else tm.forEach(function (m) { it(false, m.t, ''); }); }
     else it(true, 'Total sales ' + inr(daySales(d)), 'no written total on the sheet to compare with');
@@ -6246,6 +6250,7 @@
       var a = b.dataset.cka; if (!a) return;
       if (a === 'nm') openNm(); else if (a === 'miss') { sp.step = 'sheet'; sp.view = 'list'; drawShopDay(); } else if (a === 'indent') { closeShopDay(); openSheet('shopindent'); }
       else if (a.indexOf('row:') === 0) openRowEd(+a.slice(4), 'open', 'check');
+      else if (a.indexOf('yday:') === 0) openYday(+a.slice(5), 'check');
     }; });
     o.querySelector('#ckBack').onclick = function () { if (d.learn) openNm(); else { sp.step = 'sheet'; sp.view = 'list'; drawShopDay(); } };
     o.querySelector('#ckGo').onclick = function () { sp.step = 'profit'; drawShopDay(); };
@@ -6636,6 +6641,59 @@
   function stripPrompt(S) {
     return '\nIMPORTANT, STRIP MODE: after the page photos come ' + S.imgs.length + ' more image' + (S.imgs.length > 1 ? 's' : '') + ': the lines of the table cut out one by one and stacked, each labelled R1 to R' + S.map.length + ' in red on its left and separated by red lines. Read the table ONLY from these strips. Give one entry in "rows" for every strip that has handwriting, in R order, with "rid": "R7" (its label) and "nx": [xmin, xmax], where the handwritten name is across that strip (0–1000 of the strip width, not counting the red label). Every number belongs to the strip it is written in: never move a number to another strip, never merge or split strips. Skip strips that are blank, a printed heading or a total line. In strip mode leave out "box", "ry" and "page" for rows. Use the page photos only for the date, the expenses and the written totals.\n';
   }
+  // ---------- v57: bills and indents are a reference for the sheet's Received, never added to it ----------
+  function recvRef(k) {
+    var s2 = shop(), pk = prevDayKey(k), out = {}, src = [], inRange = function (dt) { return dt && dt <= k && (pk ? dt > pk : dt >= k); };
+    Object.keys(s2.indents || {}).forEach(function (id) { var n = s2.indents[id]; if (!inRange(n.date)) return; src.push({ kind: 'indent', d: n.date, no: n.no });
+      (n.items || []).forEach(function (it) { var key = resolveKey((s2.map || {})[normName(it.name) + '|' + it.ml]); if (!key || key === '__x') return; out[key] = (out[key] || 0) + num(it.cases) * (num(it.per) || BPC[+it.ml] || 0) + num(it.loose); }); });
+    Object.keys(bills()).forEach(function (id) { var b = s2.bills[id]; if (!b || !b.items || b.status === 'draft') return; var dt = b.target || b.date; if (!inRange(dt)) return;
+      if (src.some(function (x) { return x.kind === 'indent' && b.invoice && x.no === b.invoice; })) return; src.push({ kind: 'bill', d: dt, no: b.invoice || '' });
+      b.items.forEach(function (it) { var key = resolveKey(it.key); if (!key) return; out[key] = (out[key] || 0) + (it.bottles || 0); }); });
+    return { by: out, src: src };
+  }
+  // what the sheet says came in, per item
+  function recvSheet(d) {
+    var g = d.grid, rv = {}, rowOf = {}; if (!g) return { by: rv, rowOf: rowOf };
+    dataRows(g).forEach(function (r) { var x = cellVal(g, r, SC.recv); if (String(g[r][SC.recv] == null ? '' : g[r][SC.recv]).trim() !== '' && isNum(x) && num(x)) { var kk = dayKeyOf(d, r); rv[kk] = (rv[kk] || 0) + num(x); rowOf[kk] = r; } });
+    return { by: rv, rowOf: rowOf };
+  }
+  function casesOf(by) { var c = 0; Object.keys(by).forEach(function (k) { c += by[k] / (perCase(k) || 12); }); return Math.round(c * 10) / 10; }
+  // a note under a row: its Received against the indent
+  function recvRowNote(d, k, r, REF) {
+    var g = d.grid, x = cellVal(g, r, SC.recv), has = String(g[r][SC.recv] == null ? '' : g[r][SC.recv]).trim() !== '' && isNum(x) && num(x); if (!has || !REF.src.length) return '';
+    var kk = dayKeyOf(d, r), want = REF.by[kk] || 0, got = recvSheet(d).by[kk] || 0;
+    return Math.abs(want - got) < .01 ? '<span class="lsok">✓ received ' + fmtN(got) + ' = indent</span>' : '<span class="lsmsg">Received ' + fmtN(got) + ', but the indent' + (REF.src.length > 1 ? 's' : '') + ' say' + (REF.src.length > 1 ? '' : 's') + ' ' + fmtN(want) + '</span>';
+  }
+  // ---- "yesterday closed 12, today opens 11": both rows side by side, cut from their photos ----
+  function ydRow(d, r) {
+    var pk = prevDayKey(sp.k); if (!pk) return null; var pd = shop().days[pk], key = dayKeyOf(d, r), yr = null;
+    dataRows(pd.grid).forEach(function (x) { if (yr == null && String(pd.grid[x][SC.item] || '').trim() && dayKeyOf(pd, x) === key) yr = x; });
+    return { pk: pk, pd: pd, yr: yr };
+  }
+  function ydayHtml(d) {
+    var r = sp.ydr, g = d.grid, Y = ydRow(d, r), fmtD = function (k) { return new Date(k + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }); };
+    var nums = function (G, x, hi) { var v = function (c) { var s = G[x][c]; return s === '' || s == null ? '–' : esc(fmtCell(cellVal(G, x, c))); }; return '<div class="ydn">' + [['open', SC.open], ['in', SC.recv], ['sold', SC.sales], ['close', SC.close]].map(function (c) { return '<span class="' + (hi === c[1] ? 'hi' : '') + '"><b>' + v(c[1]) + '</b><small>' + c[0] + '</small></span>'; }).join('') + '</div>'; };
+    var h = '<h1 class="display" style="font-size:28px;margin:0">Opening vs yesterday</h1><span class="cap">' + esc(g[r][SC.item] || '') + ' ' + esc(g[r][SC.size] || '') + '</span>';
+    if (!Y || Y.yr == null) return h + '<div class="notice">This item isn’t on ' + (Y ? fmtD(Y.pk) + '’s' : 'the previous') + ' sheet.</div><button type="button" class="btn line" id="ydBack">‹ Back</button>';
+    var yc = cellVal(Y.pd.grid, Y.yr, SC.close), to = cellVal(g, r, SC.open), diff = num(yc) - num(to);
+    h += '<div class="card stack ydc" style="gap:8px"><span class="cap">Yesterday · ' + fmtD(Y.pk) + ' · row ' + (dataRows(Y.pd.grid).indexOf(Y.yr) + 1) + '</span><div class="sqimg bw" id="ydImgY"><span class="muted small">Cutting the row…</span></div>' + nums(Y.pd.grid, Y.yr, SC.close) + '</div>';
+    h += '<div class="card stack ydc" style="gap:8px"><span class="cap">Today · ' + fmtD(sp.k) + ' · row ' + (dataRows(g).indexOf(r) + 1) + '</span><div class="sqimg bw" id="ydImgT"><span class="muted small">Cutting the row…</span></div>' + nums(g, r, SC.open) + '</div>';
+    h += '<div class="notice' + (diff ? '' : ' ok') + '">' + (diff ? 'Yesterday closed <b>' + fmtN(num(yc)) + '</b>, today opens <b>' + fmtN(num(to)) + '</b>: ' + fmtN(Math.abs(diff)) + ' bottle' + (Math.abs(diff) === 1 ? '' : 's') + (diff > 0 ? ' not accounted for' : ' more than yesterday') + '.' : '✓ They match now.') + '</div>';
+    h += '<div class="row" style="gap:8px"><button type="button" class="btn jungle" style="flex:1" id="ydFixT">Fix today’s opening</button><button type="button" class="btn line" style="flex:1" id="ydFixY">Fix yesterday’s closing</button></div><button type="button" class="btn ghost small" id="ydBack">‹ Back</button>';
+    return h;
+  }
+  function bindYday(o, d) {
+    var r = sp.ydr, Y = ydRow(d, r), q = function (x) { return o.querySelector(x); };
+    q('#ydBack').onclick = function () { var b = sp.ydBack || 'sheet'; sp.step = b; if (b === 'sheet') sp.view = 'list'; drawShopDay(); };
+    if (!Y || Y.yr == null) return;
+    var paint = function (id, u) { var bx = o.querySelector(id); if (bx) bx.innerHTML = u ? '<img alt="Row on the photo" src="' + u + '">' : '<span class="muted small">No photo for this row</span>'; };
+    rowCrop(Y.pd, Y.yr).then(function (u) { paint('#ydImgY', u); }).catch(function () { paint('#ydImgY', null); });
+    rowCrop(d, r).then(function (u) { paint('#ydImgT', u); }).catch(function () { paint('#ydImgT', null); });
+    o.querySelectorAll('.sqimg').forEach(function (bx) { bx.onclick = function () { bx.classList.toggle('z'); }; });
+    q('#ydFixT').onclick = function () { openRowEd(r, 'open', 'yday'); };
+    q('#ydFixY').onclick = function () { var pk = Y.pk, yr = Y.yr; openShopDay(pk); openRowEd(yr, 'close'); };
+  }
+  function openYday(r, back) { sp.step = 'yday'; sp.ydr = r; sp.ydBack = back || 'sheet'; drawShopDay(); var ov = document.getElementById('overlay'); if (ov) ov.scrollTop = 0; }
   // --- the day screen: photos + sheet + close the day ---
   function openShopDay(k) {
     if (!PL) loadPL().then(function () { if (sp && sp.k === k) drawShopDay(); });
@@ -6658,6 +6716,8 @@
     if (sp.step === 'flat' && sp.flat && sp.flat.ids[sp.flat.i]) { o.innerHTML = h + flatHtml(d) + '</div>'; head(); bindFlat(o, d); return; }
     if (sp.step === 'rows' && sp.flat) { o.innerHTML = h + rowsHtml(d) + '</div>'; head(); bindRows(o, d); return; }
     if (sp.step === 'flat' || sp.step === 'rows') sp.step = 'sheet';
+    if (sp.step === 'yday' && d.grid && d.grid[sp.ydr]) { o.innerHTML = h + ydayHtml(d) + '</div>'; head(); bindYday(o, d); return; }
+    if (sp.step === 'yday') sp.step = 'sheet';
     if (sp.step === 'nm' && d.grid && d.grid[sp.nr]) { o.innerHTML = h + nmHtml(d) + '</div>'; head(); bindNm(o, d); return; }
     if (sp.step === 'nm') sp.step = 'sheet';
     if (sp.step === 'check' && d.grid) { o.innerHTML = h + checkHtml(d) + '</div>'; head(); bindCheck(o, d); o.scrollTop = 0; return; }
@@ -7901,7 +7961,7 @@
     var s2 = shop(), out = []; key = resolveKey(key); var me = s2.items[key], keys = {}; keys[key] = 1;
     if (me) Object.keys(me.alias || {}).forEach(function (a) { keys[regKey(a, me.size)] = 1; });
     var per = function (x) { return num(x.per) || BPC[+String(x.ml || (me && me.size) || '').replace(/[^0-9]/g, '')] || null; };
-    Object.keys(bills()).forEach(function (id) { var b = s2.bills[id]; if (b.status !== 'added' && b.status !== 'pending') return; var f = tcsFactor(b); (b.items || []).forEach(function (it) { if (keys[resolveKey(it.key)] && it.rate && per(it)) out.push({ d: b.date, c: it.rate / per(it) * f, base: it.rate / per(it), tcs: f > 1, src: 'bill' }); }); });
+    Object.keys(bills()).forEach(function (id) { var b = s2.bills[id]; if (b.status !== 'added' && b.status !== 'pending' && b.status !== 'ref') return; var f = tcsFactor(b); (b.items || []).forEach(function (it) { if (keys[resolveKey(it.key)] && it.rate && per(it)) out.push({ d: b.date, c: it.rate / per(it) * f, base: it.rate / per(it), tcs: f > 1, src: 'bill' }); }); });
     Object.keys(s2.indents || {}).forEach(function (id) { var n = s2.indents[id], f = indTcs(n); (n.items || []).forEach(function (it) { if (keys[resolveKey((s2.map || {})[normName(it.name) + '|' + it.ml])] && it.rate && per(it)) out.push({ d: n.date || '', c: it.rate / per(it) * f, base: it.rate / per(it), tcs: f > 1, src: 'indent' }); }); });
     return out.sort(function (a, b) { return a.d < b.d ? -1 : 1; });
   }
