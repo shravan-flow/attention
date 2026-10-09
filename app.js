@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '57';
+  var APP_VERSION = '58';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -4424,7 +4424,8 @@
       var nm = (g[r][SC.item] || 'Row ' + (r + 1)) + (g[r][SC.size] ? ' ' + g[r][SC.size] : '');
       if (!has(SC.item) && !has(SC.open) && !has(SC.sales)) return;
       var o = num(v(SC.open)), rc = num(v(SC.recv)), sl = num(v(SC.sales)), rt = num(v(SC.rate)), am = num(v(SC.amt)), cl = num(v(SC.close));
-      if (has(SC.total) && Math.abs(num(v(SC.total)) - (o + rc)) > .01) { bad[r + ',' + SC.total] = 1; msgs.push({ r: r, c: SC.total, t: '<b>' + esc(nm) + '</b>: total ' + fmtCell(num(v(SC.total))) + ' ≠ opening ' + o + ' + received ' + rc }); }
+      // the Total column is only opening + received: keep it right instead of flagging it (v58)
+      if (has(SC.open) && Math.abs(num(v(SC.total)) - (o + rc)) > .01 && String(g[r][SC.total] == null ? '' : g[r][SC.total]).charAt(0) !== '=') g[r][SC.total] = String(o + rc);
       if (has(SC.sales) && has(SC.rate) && has(SC.amt) && Math.abs(sl * rt - am) > .5) { bad[r + ',' + SC.amt] = 1; msgs.push({ r: r, c: SC.amt, t: '<b>' + esc(nm) + '</b>: ' + sl + ' × ' + rt + ' = ' + fmtCell(sl * rt) + ', but amount says ' + fmtCell(am) }); }
       if (has(SC.close) && has(SC.open) && Math.abs(o + rc - sl - cl) > .01) { bad[r + ',' + SC.close] = 1; msgs.push({ r: r, c: SC.close, t: '<b>' + esc(nm) + '</b>: ' + o + (rc ? ' + ' + rc : '') + ' − ' + sl + ' = ' + (o + rc - sl) + ', but closing says ' + cl }); }
       var pc = prevClose[dayKeyOf(d, r)];
