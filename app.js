@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '55';
+  var APP_VERSION = '56';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -4506,10 +4506,25 @@
       'Also read the date written on the sheet (Indian day/month/year order) as "date": "YYYY-MM-DD", or null if none.\n' +
       'For every row that has its OWN handwritten brand name, also give "box": where that handwritten NAME is on its photo, as [ymin, xmin, ymax, xmax] scaled 0–1000, and "page": which of the new photos it is on (0 = the first new photo). Rows without their own name: "box": null. For EVERY row also give "ry": [ymin, ymax], the top and bottom of that whole line on its photo, scaled 0–1000. For rows with their own handwritten name, also give "letters": the 2–4 letters of that name you can see most clearly, in order, as written (e.g. "OC", "RCW").\n' +
       'Reply JSON: {"date":"YYYY-MM-DD"|null,"rows":[{"sl":1,"item":"brand","box":[120,40,160,300],"page":0,"ry":[118,162],"letters":"OC","size":"750","open":number|null,"recv":number|null,"total":number|null,"sales":number|null,"rate":number|null,"amount":number|null,"close":number|null,"remarks":"text"}],"expenses":[{"name":"text","amount":number,"ey":[800,830],"page":0}],"written":{"sales":number|null,"expenses":number|null,"balance":number|null}}';
+    var S = null;
     shopPhotos(d).then(function (imgs) {
       if (!imgs.length) throw new Error('no photos');
-      return geminiImagesEx(prompt, imgs, .1);
+      return buildStrips(d).catch(function () { return null; }).then(function (st) { S = st; return geminiImagesEx(S ? prompt + stripPrompt(S) : prompt, S ? imgs.concat(S.imgs) : imgs, .1); });
     }).then(function (r) {
+      var stripRB = null;
+      var ridOk = function (x) { return /\d/.test(String(x && x.rid || '')); };
+      if (S && Array.isArray(r.rows) && r.rows.filter(ridOk).length < Math.max(1, r.rows.length * .5)) S = null; // the AI ignored the strips: read it the old way
+      if (S && Array.isArray(r.rows)) {
+        var rid = function (x) { var m = /(\d+)/.exec(String(x && x.rid || '')); return m ? +m[1] : null; }, seenR = {};
+        r.rows = r.rows.filter(function (x) { var n = rid(x); if (!n || n > S.map.length || seenR[n]) return false; seenR[n] = 1; return true; }).sort(function (a, b) { return rid(a) - rid(b); });
+        stripRB = {};
+        r.rows.forEach(function (x, xi) {
+          var m = S.map[rid(x) - 1], sc = d.scan[d.photos[m.p]], B = sc.bands[m.i]; stripRB[xi + 1] = { p: m.p, i: m.i };
+          var nx = Array.isArray(x.nx) && x.nx.length === 2 && x.nx[1] > x.nx[0] ? x.nx.map(Number) : [40, 330], cx = (nx[0] + nx[1]) / 2000;
+          x.page = m.p; x.ry = [Math.round(lineY(sc, B[0], .5) * 1000), Math.round(lineY(sc, B[1], .5) * 1000)];
+          x.box = String(x.item || '').trim() ? [Math.round(lineY(sc, B[0], cx) * 1000), nx[0], Math.round(lineY(sc, B[1], cx) * 1000), nx[1]] : null;
+        });
+      }
       var g = [SHCOLS.slice()], fixed = 0, boxes = {}, rowy = {}, letters = {};
       (r.rows || []).forEach(function (x, xi) {
         if (x && x.letters && String(x.item || '').trim()) letters[xi + 1] = String(x.letters).replace(/[^A-Za-z0-9.]/g, '').slice(0, 5);
@@ -4531,7 +4546,7 @@
       d.exp = (r.expenses || []).filter(function (e) { return e && (e.name || e.amount); }).map(function (e) { var o2 = { t: String(e.name || ''), v: num(e.amount) }; if (Array.isArray(e.ey) && e.ey.length === 2 && e.ey[1] > e.ey[0]) o2.ey = { p: +e.page || 0, y: e.ey.map(Number) }; return o2; });
       d.written = r.written || {}; d.status = 'draft';
       d.sheetDate = /^\d{4}-\d{2}-\d{2}$/.test(r.date || '') && r.date !== key && r.date <= dkey(new Date()) ? r.date : null;
-      d.boxes = boxes; d.rowy = rowy; d.ink = {}; d.inkm = null; pinRows(d); save();
+      d.boxes = boxes; d.rowy = rowy; d.ink = {}; d.inkm = null; if (stripRB) d.rband = stripRB; else pinRows(d); d.strips = !!stripRB; save();
       inkProcess(key).catch(function () {});
       applyPendingBills(key);
       if (sp && sp.k === key) { sp.view = 'list'; sp.step = 'sheet'; if (learnNow) openNm(); else drawShopDay(); }
@@ -5146,7 +5161,7 @@
   }
   // --- row editor ---
   var REF = [['size', SC.size, 'Size ml'], ['open', SC.open, 'Opening'], ['recv', SC.recv, 'Received'], ['sales', SC.sales, 'Sold'], ['rate', SC.rate, 'Rate ₹'], ['amt', SC.amt, 'Amount ₹'], ['close', SC.close, 'Closing']];
-  function openRowEd(r, f, back) { sp.step = 'row'; sp.row = r; sp.fld = f || 'open'; sp.fresh = true; sp.rowBack = back || null; var o = document.getElementById('overlay'); drawShopDay(); o.scrollTop = 0; }
+  function openRowEd(r, f, back) { sp.rowFix = false; sp.step = 'row'; sp.row = r; sp.fld = f || 'open'; sp.fresh = true; sp.rowBack = back || null; var o = document.getElementById('overlay'); drawShopDay(); o.scrollTop = 0; }
   function recostHtml(g, r) {
     var nm = String(g[r][SC.item] || '').trim(), cst = nm ? costFor(nm, g[r][SC.size], sp.k) : null, rt0 = num(cellVal(g, r, SC.rate));
     return cst ? 'Cost ' + inr(cst.c, 2) + ' a bottle <small>(' + cst.src + (cst.d ? ' ' + new Date(cst.d + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) : '') + (cst.tcs ? ', incl. TCS' : '') + ')</small>' + (rt0 ? ' · margin <b class="' + (rt0 < cst.c ? 'neg' : '') + '">' + ((rt0 - cst.c) / rt0 * 100).toFixed(1) + '%</b>' : '') : '<span class="muted">No cost yet: link this item to a KSBCL bill or indent</span>';
@@ -5160,7 +5175,7 @@
     h += '<div class="rekp">' + ['1', '2', '3', '⌫', '4', '5', '6', 'C', '7', '8', '9', '‹', '.', '0', '00', '›'].map(function (k) { return '<button type="button" data-kp="' + k + '"' + (k === '›' || k === '‹' ? ' class="nx" aria-label="' + (k === '›' ? 'Next box' : 'Previous box') + '"' : k === '⌫' ? ' aria-label="Delete"' : k === 'C' ? ' aria-label="Clear"' : '') + '>' + k + '</button>'; }).join('') + '</div>';
     h += '<div class="row" style="gap:10px"><button type="button" class="btn line" style="flex:1" id="rePrev"' + (idx > 0 ? '' : ' disabled') + '>‹ Prev row</button><button type="button" class="btn jungle" style="flex:1" id="reNext">' + (idx < rows.length - 1 ? 'Next row ›' : 'Done ✓') + '</button></div>';
     var gr = groupRows(g, r);
-    h += '<div class="row" style="gap:8px;flex-wrap:wrap"><button type="button" class="btn ghost small" id="reList">‹ List</button>' + (gr.length > 1 && gr[0] !== r ? '<button type="button" class="btn ghost small" id="reSplit">✂ New brand from here</button>' : '') + '<button type="button" class="btn ghost small" id="reDel">Delete row</button></div>';
+    h += '<div class="row" style="gap:8px;flex-wrap:wrap"><button type="button" class="btn ghost small" id="reList">‹ List</button>' + (gr.length > 1 && gr[0] !== r ? '<button type="button" class="btn ghost small" id="reSplit">✂ New brand from here</button>' : '') + '<button type="button" class="btn ghost small" id="reDel">Remove or fix this row…</button></div>' + (sp.rowFix ? rowFixHtml() : '');
     return h;
   }
   function bindRowEd(o, d) {
@@ -5231,7 +5246,8 @@
     q('#reList').onclick = function () { commitField(); if (sp.rowBack) { sp.step = sp.rowBack; sp.rowBack = null; drawShopDay(); return; } sp.step = 'sheet'; sp.view = 'list'; drawShopDay(); var el = document.querySelector('[data-lsrow="' + r + '"]'); if (el) el.scrollIntoView({ block: 'center' }); };
     q('#reName').onclick = function () { commitField(); openNamePick(r, 'row'); };
     var rs = q('#reSplit'); if (rs) rs.onclick = function () { commitField(); openNamePick(r, 'row', 'down'); };
-    q('#reDel').onclick = function () { if (!confirm('Delete this row?')) return; spSnap(d); g.splice(r, 1); if (d.ai) d.ai.splice(r, 1); d.from = null; d.grid = withTotalRow(g); save(); sp.step = 'sheet'; sp.view = 'list'; drawShopDay(); };
+    q('#reDel').onclick = function () { sp.rowFix = true; drawShopDay(); var rf = document.getElementById('rowFix'); if (rf) rf.scrollIntoView({ block: 'center' }); };
+    if (q('#rowFix')) bindRowFix(o, d, r, function (a) { if (a === 'del') { sp.step = 'sheet'; sp.view = 'list'; } else { sp.fresh = true; } drawShopDay(); });
     paint();
   }
   // --- name picker: yesterday's sheet first, then the price list ---
@@ -6119,14 +6135,14 @@
     h += '<button type="button" class="nmnums" id="nmNums"><span>open <b>' + v(SC.open) + '</b></span><span>in <b>' + v(SC.recv) + '</b></span><span>sold <b>' + v(SC.sales) + '</b></span><span>rate <b>' + v(SC.rate) + '</b></span><span>close <b>' + v(SC.close) + '</b></span><b class="' + (bad ? 'bad' : 'ok') + '">' + (bad ? '!' : '✓') + '</b></button></div>';
     var last = left - (named ? 0 : Math.max(1, (sp.nmMl || []).length)) <= 0;
     h += '<div class="row" style="gap:8px"><button type="button" class="btn line" id="nmPrev"' + (i > 0 ? '' : ' disabled') + '>‹ Back</button><button type="button" class="btn jungle" style="flex:1" id="nmGo"' + (sp.nmName && (sp.nmMl || []).length ? '' : ' disabled') + '>' + (last ? 'Save · check the day ›' : 'Save · next row ›') + '</button></div>';
-    h += '<div class="row between"><button type="button" class="link" id="nmList">See all rows</button>' + (named ? '<button type="button" class="link" id="nmSkip">Next ›</button>' : '') + '<button type="button" class="link" id="nmDel">Not a liquor row: remove</button></div>';
+    h += '<div class="row between"><button type="button" class="link" id="nmList">See all rows</button>' + (named ? '<button type="button" class="link" id="nmSkip">Next ›</button>' : '') + '<button type="button" class="link" id="nmDel">Not a real row?</button></div>' + (sp.rowFix ? rowFixHtml() : '');
     h += '<p class="muted small">The numbers are copied by the AI: tap them to correct one. You type only the names' + (fi && fi.learn ? '. After ' + fi.of + ' days the names are filled in from his writing and you just check them.' : '.') + '</p>';
     return h;
   }
   function nmNext(d, after) {
     var rows = nmRows(d), i = rows.indexOf(after), left = nmLeft(d), nx = left.filter(function (rr) { return rows.indexOf(rr) > i; })[0];
     if (nx == null) nx = left[0];
-    sp.nmName = null; sp.nmMl = null; sp.nmQ = ''; sp.nmAll = false; sp.sqz = false; sp.nmKind = null;
+    sp.nmName = null; sp.nmMl = null; sp.nmQ = ''; sp.nmAll = false; sp.sqz = false; sp.nmKind = null; sp.rowFix = false;
     if (nx == null) { sp.step = 'check'; toast('All rows named · now the checks'); } else sp.nr = nx;
     drawShopDay(); var ov = document.getElementById('overlay'); if (ov) ov.scrollTop = 0;
   }
@@ -6161,11 +6177,12 @@
     var mo = q('#nmMore'); if (mo) mo.onclick = function () { sp.nmAll = true; drawShopDay(); };
     o.querySelectorAll('[data-nmk]').forEach(function (b) { b.onclick = function () { sp.nmKind = b.dataset.nmk; drawShopDay(); }; });
     q('#nmNums').onclick = function () { openRowEd(r, 'open', 'nm'); };
-    q('#nmPrev').onclick = function () { if (i > 0) { sp.nr = rows[i - 1]; sp.nmName = null; sp.nmMl = null; sp.nmQ = ''; drawShopDay(); } };
+    q('#nmPrev').onclick = function () { if (i > 0) { sp.rowFix = false; sp.nr = rows[i - 1]; sp.nmName = null; sp.nmMl = null; sp.nmQ = ''; drawShopDay(); } };
     q('#nmGo').onclick = function () { nmSave(d); };
     q('#nmList').onclick = function () { sp.step = 'sheet'; sp.view = 'list'; drawShopDay(); };
     var sk = q('#nmSkip'); if (sk) sk.onclick = function () { var nx = rows[i + 1]; if (nx == null) { sp.step = 'check'; drawShopDay(); return; } sp.nr = nx; sp.nmName = null; sp.nmMl = null; sp.nmQ = ''; drawShopDay(); };
-    q('#nmDel').onclick = function () { if (!confirm('Remove this row from the sheet?')) return; spSnap(d); g[r] = SHCOLS.map(function () { return ''; }); if (d.named) delete d.named[r]; save(); nmNext(d, r); };
+    q('#nmDel').onclick = function () { sp.rowFix = true; drawShopDay(); var rf = document.getElementById('rowFix'); if (rf) rf.scrollIntoView({ block: 'center' }); };
+    if (q('#rowFix')) bindRowFix(o, d, r, function (a) { if (a === 'del') { var rows2 = nmRows(d), nx2 = rows2.filter(function (x) { return x >= r && !(d.named || {})[x]; })[0]; if (nx2 == null) nx2 = nmLeft(d)[0]; sp.nmName = null; sp.nmMl = null; sp.nmQ = ''; if (nx2 == null) sp.step = 'check'; else sp.nr = nx2; } drawShopDay(); });
     // the photo, in black and white, scrolled to this row
     var band = rowBand(d, r), img = q('#nmImg'), ph = q('#nmPh'), be = q('#nmBand');
     var bpl = bandPoly(d, r); if (bpl) q('#nmSvg').innerHTML = '<polygon points="' + bpl.pts + '"/>';
@@ -6388,11 +6405,10 @@
   function scanSrc(id) { return idbGet('shoporig-' + id).then(function (u) { return u || idbGet('shopimg-' + id); }); }
   function flatHtml(d) {
     var F = sp.flat, n = F.ids.length;
-    var h = '<h1 class="display" style="font-size:28px;margin:0">Straighten the page</h1>' + (n > 1 ? '<span class="cap">Photo ' + (F.i + 1) + ' of ' + n + '</span>' : '');
-    h += '<div class="flbox" id="flBox"><img id="flImg" alt="Sheet photo"><svg viewBox="0 0 1000 1000" preserveAspectRatio="none"><polygon id="flPoly"/></svg>' + [0, 1, 2, 3].map(function (i) { return '<i class="flh" data-flh="' + i + '"></i>'; }).join('') + '</div>';
-    h += '<div class="notice' + (F.auto === false ? '' : ' ok') + '" id="flMsg">' + (F.busy ? '<span class="wpulse"></span> ' + esc(F.busy) : F.pts ? (F.auto === false ? 'Couldn’t see the page edges clearly. <b>Drag the 4 circles to the corners of the sheet.</b>' : '<b>Found the 4 corners of the page.</b> Drag a corner if it’s off the edge of the sheet.') : 'Finding the page…') + '</div>';
-    h += '<div class="row" style="gap:8px"><button type="button" class="btn line" id="flRetake">Retake</button><button type="button" class="btn jungle" style="flex:1" id="flGo"' + (F.pts && !F.busy ? '' : ' disabled') + '>Looks right · flatten ›</button></div>';
-    h += '<button type="button" class="link" id="flSkip" style="align-self:center">Use the photo as it is</button>';
+    var h = '<div class="row between" style="align-items:baseline"><h1 class="display" style="font-size:26px;margin:0">Straighten the page</h1>' + (n > 1 ? '<span class="cap">Photo ' + (F.i + 1) + ' of ' + n + '</span>' : '') + '</div>';
+    h += '<div class="row" style="gap:8px"><button type="button" class="btn line small" id="flRetake">Retake</button><button type="button" class="btn line small" id="flSkip">Use as it is</button><button type="button" class="btn jungle" style="flex:1" id="flGo"' + (F.pts && !F.busy ? '' : ' disabled') + '>Flatten ›</button></div>';
+    h += '<div class="notice' + (F.auto === false ? '' : ' ok') + '" id="flMsg">' + (F.busy ? '<span class="wpulse"></span> ' + esc(F.busy) : F.pts ? (F.auto === false ? 'Couldn’t see the page edges clearly. <b>Drag the 4 circles to the corners of the sheet.</b>' : '<b>Found the 4 corners.</b> Drag a circle if it’s off the corner of the sheet.') : 'Finding the page…') + '</div>';
+    h += '<div class="flwrap" data-noswipe><div class="flbox" id="flBox"><img id="flImg" alt="Sheet photo"><svg viewBox="0 0 1000 1000" preserveAspectRatio="none"><polygon id="flPoly"/></svg>' + [0, 1, 2, 3].map(function (i) { return '<i class="flh" data-flh="' + i + '"></i>'; }).join('') + '</div></div>';
     h += '<p class="muted small">Tip: photograph from straight above with the whole page in view. Bends and tilt are straightened here; deep folds and shadows can’t be.</p>';
     return h;
   }
@@ -6557,6 +6573,68 @@
     if (v == null) return; v = String(v).trim();
     var n = costOvSet(key, v === '' ? null : num(v), last ? last.d : '');
     toast(v === '' ? 'Back to the indent cost' : 'Cost saved' + (n ? ' · ' + n + ' closed day' + (n > 1 ? 's' : '') + ' recalculated' : '')); if (after) after();
+  }
+  // ---------- v56: keep every per-row note in step when a row is added or removed ----------
+  function reindexRows(d, at, delta) {
+    var mv = function (m) { if (!m) return m; var o = {}; Object.keys(m).forEach(function (k) { var r = +k; if (delta < 0 && r === at) return; o[r >= at + (delta < 0 ? 1 : 0) ? r + delta : r] = m[k]; }); return o; };
+    ['boxes', 'rowy', 'rband', 'ink', 'inkm', 'named', 'letters', 'rid', 'tie', 'from'].forEach(function (f) { if (d[f]) d[f] = mv(d[f]); });
+    if (d.ask) d.ask = d.ask.filter(function (a) { return !(delta < 0 && a.r === at); }).map(function (a) { if (a.r >= at + (delta < 0 ? 1 : 0)) a.r += delta; return a; });
+  }
+  // move the numbers (not the names) of the rows from r down by one row, up (-1) or down (+1)
+  var NUMC = ['open', 'recv', 'total', 'sales', 'rate', 'amt', 'close', 'rem'];
+  function shiftNums(d, r, dir) {
+    var g = d.grid, rows = dataRows(g), i = rows.indexOf(r); if (i < 0) return;
+    var cols = NUMC.map(function (c) { return SC[c]; }), take = function (x) { return cols.map(function (c) { return g[x][c]; }); }, put = function (x, v) { cols.forEach(function (c, j) { g[x][c] = v ? v[j] : ''; }); };
+    if (dir < 0) { for (var j = i; j < rows.length; j++) put(rows[j], j + 1 < rows.length ? take(rows[j + 1]) : null); }
+    else {
+      var last = rows[rows.length - 1]; if (take(last).some(function (v) { return String(v == null ? '' : v).trim() !== ''; })) { var at = g.length - 1; g.splice(at, 0, SHCOLS.map(function () { return ''; })); if (d.ai) d.ai.splice(at, 0, SHCOLS.map(function () { return ''; })); rows = dataRows(g); }
+      for (var k = rows.length - 1; k > i; k--) put(rows[k], take(rows[k - 1])); put(rows[i], null);
+    }
+    d.grid = withTotalRow(g); d.edited = true; save();
+  }
+  function rowFixHtml() {
+    return '<div class="rowfix" id="rowFix"><b>What’s wrong with this row?</b>' +
+      '<button type="button" data-rfx="del"><b>It’s not a real row</b><small>remove it; the rows below keep their numbers</small></button>' +
+      '<button type="button" data-rfx="up"><b>The numbers below are one row too low</b><small>this row’s numbers go; every number below moves up one row</small></button>' +
+      '<button type="button" data-rfx="down"><b>A row is missing here</b><small>this row’s numbers and everything below move down one row</small></button>' +
+      '<button type="button" class="g" data-rfx="no">Cancel</button></div>';
+  }
+  function bindRowFix(o, d, r, after) {
+    o.querySelectorAll('[data-rfx]').forEach(function (b) { b.onclick = function () {
+      var a = b.dataset.rfx; if (a === 'no') { sp.rowFix = false; drawShopDay(); return; }
+      spSnap(d); sp.rowFix = false; var g = d.grid;
+      if (a === 'del') { g.splice(r, 1); if (d.ai) d.ai.splice(r, 1); reindexRows(d, r, -1); d.grid = withTotalRow(g); save(); toast('Row removed'); }
+      else { shiftNums(d, r, a === 'up' ? -1 : 1); toast(a === 'up' ? 'Numbers moved up one row' : 'Numbers moved down one row'); }
+      after(a);
+    }; });
+  }
+  // read the table strip by strip: each traced row is cut out and labelled, so a number can't slide into the next row
+  function buildStrips(d) {
+    var jobs = []; (d.photos || []).forEach(function (id, p) { var sc = d.scan && d.scan[id]; if (sc && sc.bands && sc.bands.length) jobs.push({ id: id, p: p, sc: sc }); });
+    if (!jobs.length) return Promise.resolve(null);
+    var map = [], strips = [], OW = 1000;
+    return jobs.reduce(function (pr, J) { return pr.then(function () { return idbGet('shopimg-' + J.id).then(function (src) { return src ? loadImg(src) : null; }).then(function (im) {
+      if (!im) return; var W = im.width, H = im.height, step = 4, sw = W / OW * step;
+      J.sc.bands.forEach(function (B, i) {
+        var hpx = (lineY(J.sc, B[1], .5) - lineY(J.sc, B[0], .5)) * H, oh = Math.max(28, Math.min(84, Math.round(hpx * OW / W * 1.3)));
+        var c = document.createElement('canvas'); c.width = OW; c.height = oh; var x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, OW, oh);
+        for (var px = 0; px < OW; px += step) { var nx = (px + step / 2) / OW, t = lineY(J.sc, B[0], nx) * H, b = lineY(J.sc, B[1], nx) * H, hh = b - t; t -= hh * .14; b += hh * .14; x.drawImage(im, Math.max(0, nx * W - sw / 2), Math.max(0, t), sw, Math.max(2, b - t), px, 0, step, oh); }
+        map.push({ p: J.p, i: i }); strips.push(c);
+      });
+    }); }); }, Promise.resolve()).then(function () {
+      if (!strips.length) return null;
+      var out = [], LW = 96, PER = 20;
+      for (var s = 0; s < strips.length; s += PER) {
+        var part = strips.slice(s, s + PER), hT = part.reduce(function (a, c) { return a + c.height + 6; }, 0);
+        var C = document.createElement('canvas'); C.width = LW + OW; C.height = hT; var X = C.getContext('2d'); X.fillStyle = '#fff'; X.fillRect(0, 0, C.width, hT);
+        var y = 0; part.forEach(function (c, j) { X.drawImage(c, LW, y); X.fillStyle = '#d00'; X.font = 'bold 28px sans-serif'; X.textBaseline = 'middle'; X.fillText('R' + (s + j + 1), 6, y + c.height / 2); y += c.height; X.fillRect(0, y + 1, C.width, 4); y += 6; });
+        out.push(C.toDataURL('image/jpeg', .88));
+      }
+      return { imgs: out, map: map };
+    });
+  }
+  function stripPrompt(S) {
+    return '\nIMPORTANT, STRIP MODE: after the page photos come ' + S.imgs.length + ' more image' + (S.imgs.length > 1 ? 's' : '') + ': the lines of the table cut out one by one and stacked, each labelled R1 to R' + S.map.length + ' in red on its left and separated by red lines. Read the table ONLY from these strips. Give one entry in "rows" for every strip that has handwriting, in R order, with "rid": "R7" (its label) and "nx": [xmin, xmax], where the handwritten name is across that strip (0–1000 of the strip width, not counting the red label). Every number belongs to the strip it is written in: never move a number to another strip, never merge or split strips. Skip strips that are blank, a printed heading or a total line. In strip mode leave out "box", "ry" and "page" for rows. Use the page photos only for the date, the expenses and the written totals.\n';
   }
   // --- the day screen: photos + sheet + close the day ---
   function openShopDay(k) {
@@ -6754,12 +6832,12 @@
     q('#spRange').onclick = function () { sp.range = !sp.range; if (sp.range && sp.sel) sp.anchor = sp.sel; drawShopDay(); toast(sp.range ? 'Now tap the last cell of the range' : 'Range off'); };
     q('#spAddRow').onclick = function () {
       spSnap(d); var at = sp.sel && sp.sel[0] > 0 && g[sp.sel[0]][0] !== 'TOTAL' ? sp.sel[0] + 1 : g.length - 1;
-      g.splice(at, 0, SHCOLS.map(function () { return ''; })); if (d.ai) d.ai.splice(at, 0, SHCOLS.map(function () { return ''; }));
+      g.splice(at, 0, SHCOLS.map(function () { return ''; })); if (d.ai) d.ai.splice(at, 0, SHCOLS.map(function () { return ''; })); reindexRows(d, at, 1);
       d.grid = withTotalRow(g); save(); sp.sel = [at, 0]; sp.anchor = sp.sel; drawShopDay();
     };
     q('#spDelRow').onclick = function () {
       if (!sp.sel || sp.sel[0] === 0) return; var r = sp.sel[0]; if (g[r][0] === 'TOTAL') return;
-      spSnap(d); g.splice(r, 1); if (d.ai) d.ai.splice(r, 1); d.grid = withTotalRow(g); save(); sp.sel = null; sp.anchor = null; drawShopDay();
+      spSnap(d); g.splice(r, 1); if (d.ai) d.ai.splice(r, 1); reindexRows(d, r, -1); d.grid = withTotalRow(g); save(); sp.sel = null; sp.anchor = null; drawShopDay();
     };
     q('#spSort').onclick = function () {
       if (!sp.sel) return; var c = sp.sel[1], rows = dataRows(g).map(function (r) { return g[r]; }), asc = sp.sortCol === c ? !sp.sortAsc : true;

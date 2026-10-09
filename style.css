@@ -1151,3 +1151,11 @@ button.recost{display:block;width:100%;border:0;font:inherit;color:inherit;text-
 .indit .t{display:flex;flex-direction:column;gap:2px;min-width:0}.indit .t b{font-size:14.5px}.indit .t small{font-size:11px;color:var(--sub);line-height:1.35}
 .indc{display:flex;gap:6px}.indc span{flex:1;background:#FBF3E6;border-radius:10px;padding:6px 8px;font-size:13.5px;font-weight:700;display:flex;flex-direction:column;gap:1px}
 .indc small{font-size:9.5px;font-weight:500;color:var(--sub)}.indc .hi{background:#CDEFEA;color:#0F4D40}.indc .old{text-decoration:line-through;color:var(--sub)}
+/* v56: straighten screen away from the screen edges; fix-a-row panel */
+.flwrap{padding:10px 30px;background:#2a2a2a;border-radius:16px;touch-action:none}
+.flwrap .flbox{width:fit-content;max-width:100%;margin:0 auto;border-radius:6px;overflow:visible}
+.flwrap .flbox img{max-height:52vh;width:auto;max-width:100%}
+.flh{width:44px;height:44px;margin:-22px 0 0 -22px}.flh.drag{width:56px;height:56px;margin:-28px 0 0 -28px}
+.rowfix{display:flex;flex-direction:column;gap:8px;background:#fff;border-radius:16px;padding:12px;box-shadow:inset 0 0 0 2px #FFC56B}
+.rowfix>b{font-size:14px}.rowfix button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;border:0;border-radius:12px;background:#FBF3E6;padding:10px 12px;font:inherit;color:inherit;text-align:left;cursor:pointer}
+.rowfix button b{font-size:13.5px}.rowfix button small{font-size:11.5px;color:var(--sub)}.rowfix button.g{background:none;align-items:center;color:var(--sub)}
