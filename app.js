@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '62';
+  var APP_VERSION = '63';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -5656,6 +5656,7 @@
   function regStock() { var sn = stockNow(), m = {}; sn.list.forEach(function (x) { m[resolveKey(x.key)] = x; }); return m; }
   function lastRate(key) { var s2 = shop(), ks = Object.keys(s2.days).sort().reverse(); for (var i = 0; i < ks.length; i++) { var g = s2.days[ks[i]].grid; if (!g) continue; var rs = dataRows(g); for (var j = 0; j < rs.length; j++) { var r = rs[j]; if (String(g[r][SC.item] || '').trim() && regKey(g[r][SC.item], g[r][SC.size]) === key && isNum(cellVal(g, r, SC.rate)) && num(cellVal(g, r, SC.rate))) return num(cellVal(g, r, SC.rate)); } } return null; }
   function shopItemsSheet() {
+    shopUi.itemFrom = 'shopitems';
     regSync(); var s2 = shop(), st = regStock(), q = (shopUi.iq || '').toLowerCase(), all = regAll(), aq = s2.askq || [];
     var list = all.filter(function (x) { return !q || x.item.toLowerCase().indexOf(q) >= 0 || Object.keys(x.alias).some(function (a) { return a.indexOf(q) >= 0; }); }).sort(function (a, b) { return a.item.localeCompare(b.item) || (+b.size - +a.size); });
     var h = '';
@@ -5688,7 +5689,8 @@
       var ccR = r.querySelector('#ccRate'), ccP = r.querySelector('#ccPer'), ccOut = r.querySelector('#ccRes');
       var ccCalc = function () { var c = costFromCase(num(ccR.value), num(ccP.value)); ccOut.innerHTML = c ? '= <b>' + inr(c, 2) + '</b> a bottle (₹' + fmtN(num(ccR.value)) + ' ÷ ' + fmtN(num(ccP.value)) + ' = ' + inr(num(ccR.value) / num(ccP.value), 2) + ', plus ' + tcsPct() + '% TCS)' : 'Type the rate per case to see the cost per bottle'; return c; };
       ccR.addEventListener('input', ccCalc); ccP.addEventListener('input', ccCalc); ccCalc();
-      r.querySelector('#ccSave').onclick = function () { var c = ccCalc(); if (!c) { toast('Type the rate per case'); ccR.focus(); return; } var n = costOvSet(key, c, CI.last ? CI.last.d : ''), y = regItem(key); if (y && y.costOv) { y.costOv.rate = num(ccR.value); y.costOv.per = num(ccP.value); y.costOv.tcsPct = tcsPct(); save(); } toast('Cost saved: ' + inr(c, 2) + ' a bottle' + (n ? ' · ' + n + ' closed day' + (n > 1 ? 's' : '') + ' recalculated' : '')); drawSheet(); };
+      r.querySelector('#ccSave').onclick = function () { var c = ccCalc(); if (!c) { toast('Type the rate per case'); ccR.focus(); return; } var n = costOvSet(key, c, CI.last ? CI.last.d : ''), y = regItem(key); if (y && y.costOv) { y.costOv.rate = num(ccR.value); y.costOv.per = num(ccP.value); y.costOv.tcsPct = tcsPct(); save(); } toast('Saved ' + (y ? y.item + ' ' + y.size : '') + ': ' + inr(c, 2) + ' a bottle' + (n ? ' · ' + n + ' closed day' + (n > 1 ? 's' : '') + ' recalculated' : ''));
+        var back = shopUi.itemFrom || 'shopitems'; shopUi.iq = ''; shopUi.indq = ''; openSheet(back); setTimeout(function () { var si = document.getElementById(back === 'shopindent' ? 'indQ' : 'iiq'); if (si) { si.value = ''; si.focus(); } }, 60); };
       var ccC = r.querySelector('#ccClear'); if (ccC) ccC.onclick = function () { costOvSet(key, null); toast('Back to the indent cost'); drawSheet(); };
       r.querySelectorAll('[data-ald]').forEach(function (b) { b.onclick = function () { delete x.alias[b.dataset.ald]; save(); drawSheet(); }; });
       fillInk(r);
@@ -5834,11 +5836,16 @@
       });
       save();
     };
-    var chain = Promise.resolve(), fi = 0;
-    files.forEach(function (f) {
+    var imgs = files.filter(function (f) { return /^image\//.test(f.type); }), docs = files.filter(function (f) { return !/^image\//.test(f.type); }), done = 0, before = Object.keys(s2.indents).length;
+    var stage = function () { indJob.stage = (imgs.length ? 'Photos read: ' + done + ' of ' + imgs.length + ' · ' : '') + (Object.keys(s2.indents).length - before) + ' indents found so far' + (imgs.length > done ? ' · you can keep using the app' : ''); drawSheet(); };
+    var batches = []; for (var bi = 0; bi < imgs.length; bi += 3) batches.push(imgs.slice(bi, bi + 3));
+    var P3 = P.replace('This is from', 'These photos are pages from') + '\nThe photos may be different indents or several pages of one; read every indent you can see on them, each once.';
+    var runBatch = function (B) { return Promise.all(B.map(function (f) { return blobToDataURL(f).then(function (u) { return shrinkImage(u, 1600); }); })).then(function (us) { return geminiImages(P3, us, .1); }).then(take).catch(function () { indJob.miss = (indJob.miss || 0) + B.length; }).then(function () { done += B.length; stage(); }); };
+    var worker = function () { var B = batches.shift(); return B ? runBatch(B).then(worker) : Promise.resolve(); };
+    var chain = Promise.all([worker(), worker()]), fi = 0;
+    docs.forEach(function (f) {
       chain = chain.then(function () {
-        fi++; indJob.stage = 'Reading file ' + fi + ' of ' + files.length; drawSheet();
-        if (/^image\//.test(f.type)) return blobToDataURL(f).then(function (u) { return geminiImages(P, [u], .1); }).then(take);
+        fi++; indJob.stage = 'Reading file ' + fi + ' of ' + docs.length; drawSheet();
         return f.arrayBuffer().then(function (buf) { return /pdf$/i.test(f.type) || /\.pdf$/i.test(f.name) ? pdfLines(buf) : xlsxLines(buf); }).then(function (lines) {
           var chunks = []; for (var i = 0; i < lines.length; i += 160) chunks.push(lines.slice(i, i + 160));
           var c2 = Promise.resolve();
@@ -5847,7 +5854,8 @@
         });
       });
     });
-    chain.then(function () { var res = indentLinkAll(); save(); indJob = null; indRes = res; drawSheet(); toast('Indents read' + (res.ask ? ' · ' + res.ask + ' names to confirm' : '')); })
+    if (imgs.length) stage();
+    chain.then(function () { var res = indentLinkAll(); var miss = indJob && indJob.miss; save(); indJob = null; indRes = res; drawSheet(); toast('Indents read · ' + (Object.keys(s2.indents).length - before) + ' new' + (miss ? ' · ' + miss + ' photo' + (miss > 1 ? 's' : '') + ' couldn’t be read' : '') + (res.ask ? ' · ' + res.ask + ' names to confirm' : '')); })
       .catch(function (e) { indJob = { stage: 'Couldn’t read it: ' + (e.message || e), err: true }; drawSheet(); });
   }
   var indRes = null;
@@ -5880,7 +5888,7 @@
   }
   function bindIndRows(r) {
     r.querySelectorAll('[data-inda]').forEach(function (b) { b.onclick = function () { var e = indItemList().filter(function (x) { return x.mk === b.dataset.inda; })[0]; if (!e) return; var nn = prompt('Short name for “' + e.full + '” (2–3 words). Type one of your names to join it:', shortFor(e.full)); if (!nn || !nn.trim()) return; var s2 = shop(), k = regAdd(titleCase(nn.trim()), e.ml, 'indent', { full: e.full }); if (!k) return; var x = regItem(k); x.fulls = x.fulls || []; if (x.fulls.indexOf(e.full) < 0) x.fulls.push(e.full); s2.map[e.mk] = k; if (s2.delNames) delete s2.delNames[normName(x.item)]; save(); var box = r.querySelector('#indItems'); if (box) { box.innerHTML = indItemRows(); bindIndRows(r); } toast('Added as ' + x.item + ' ' + x.size); }; });
-    r.querySelectorAll('[data-indc]').forEach(function (b) { b.onclick = function () { costEditPrompt(b.dataset.indc, function () { var box = r.querySelector('#indItems'); if (box) { box.innerHTML = indItemRows(); bindIndRows(r); } }); }; }); }
+    r.querySelectorAll('[data-indc]').forEach(function (b) { b.onclick = function () { costEditPrompt(b.dataset.indc, function () { shopUi.indq = ''; var iq = r.querySelector('#indQ'); if (iq) iq.value = ''; var box = r.querySelector('#indItems'); if (box) { box.innerHTML = indItemRows(); bindIndRows(r); } if (iq) iq.focus(); }); }; }); }
   function shopIndentSheet() {
     var s2 = shop(), ind = s2.indents || {}, ids = Object.keys(ind), items = {}, dates = [];
     ids.forEach(function (id) { if (ind[id].date) dates.push(ind[id].date); (ind[id].items || []).forEach(function (it) { items[normName(it.name) + '|' + it.ml] = 1; }); });
@@ -5893,6 +5901,8 @@
     if ((s2.askq || []).length) h += '<button type="button" class="btn coral" data-sheet="shopsame">Confirm ' + s2.askq.length + ' name' + (s2.askq.length > 1 ? 's' : '') + ' →</button>';
     h += '<input type="file" id="indFile" accept=".pdf,.xlsx,.xls,.csv,image/*,application/pdf" multiple hidden><button type="button" class="btn jungle" id="indUp"' + (indJob && !indJob.err ? ' disabled' : '') + '>⤒ Upload indent file' + (ids.length ? 's (adds to these)' : '') + '</button>';
     if (!hasAI()) h += '<div class="notice">Reading indents needs your free Gemini key (Settings → Visualization).</div>';
+    var noCost = regAll().filter(function (x) { return !costFor(x.item, x.size) && (regStock()[x.key] || {}).known; }).sort(function (a, b) { return a.item.localeCompare(b.item); });
+    if (noCost.length) h += '<details class="card" open><summary><b>' + noCost.length + ' item' + (noCost.length > 1 ? 's' : '') + ' in stock without a cost</b><small class="muted"> · find them in an indent, or type the rate per case</small></summary><div class="nocost">' + noCost.map(function (x) { return '<button type="button" data-ccost="' + esc(x.key) + '">' + esc(x.item) + ' <small>' + esc(x.size) + '</small></button>'; }).join('') + '</div></details>';
     if (ids.length) h += indItemsHtml();
     if (ids.length) h += '<span class="cap">Indents</span><div class="list">' + ids.map(function (id) { return ind[id]; }).sort(function (a, b) { return (b.date || '') < (a.date || '') ? -1 : 1; }).slice(0, 12).map(function (n) { var c = n.items.reduce(function (a, it) { return a + it.cases; }, 0); var f = tcsFactor(n); return '<div class="r"><span class="t">' + esc(n.no || 'Indent') + '<small>' + (n.date ? new Date(n.date + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short', year: 'numeric' }) + ' · ' : '') + n.items.length + ' items · ' + c + ' cases' + (f > 1 ? ' · TCS ' + ((f - 1) * 100).toFixed(2) + '% shared over the items' : ' · no TCS on it: ' + tcsPct() + '% added') + '</small></span></div>'; }).join('') + '</div>';
     return { title: 'Past indents', cap: ids.length ? ids.length + ' indents' : '', html: '<div class="stack" style="gap:12px">' + h + '</div>', bind: function (r) {
@@ -5900,6 +5910,7 @@
       f.onchange = function () { var fs = [].slice.call(f.files); f.value = ''; if (fs.length) importIndents(fs); };
       var iq = r.querySelector('#indQ'); if (iq) iq.addEventListener('input', function () { shopUi.indq = iq.value; var box = r.querySelector('#indItems'); box.innerHTML = indItemRows(); bindIndRows(r); });
       bindIndRows(r);
+      r.querySelectorAll('[data-ccost]').forEach(function (b) { b.onclick = function () { shopUi.itemFrom = 'shopindent'; openSheet('shopitem:' + b.dataset.ccost); }; });
       r.querySelectorAll('[data-indr]').forEach(function (b) { b.onclick = function () { var x = indRes.list[+b.dataset.indr], it = regItem(x.key); if (!it) return; var nn = prompt('Short name for “' + x.full + '” (2–3 words). Type one of your names to join it:', it.item); if (!nn || !nn.trim()) return; var old = it.item, nk = regRename(x.key, titleCase(nn.trim())); x.key = nk; relabelDays(nk); if (old !== regItem(nk).item) inkLoad().then(function () { inkMove(old, regItem(nk).item); }); var ex = regAll().some(function (y) { return y.key !== nk && normName(y.item) === normName(regItem(nk).item); }); x.kind = ex ? 'size' : 'new'; save(); drawSheet(); }; });
     } };
   }
