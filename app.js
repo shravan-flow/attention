@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '66';
+  var APP_VERSION = '67';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -5805,6 +5805,7 @@
         var x = regItem(k); if (!x) return; x.fulls = x.fulls || []; if (x.fulls.indexOf(e.name) < 0) x.fulls.push(e.name); if (!x.full) x.full = e.name;
         s2.map[mk] = k; if (kind === 'yours') lk++; else ad++;
         lst.push({ full: e.name, ml: e.ml, key: k, kind: kind });
+        if (kind !== 'yours') { s2.indNew = (s2.indNew || []).filter(function (y) { return y.mk !== mk; }); s2.indNew.push({ full: e.name, ml: e.ml, key: k, mk: mk, kind: kind }); }
       });
       return { added: ad, linked: lk, ask: 0, list: lst };
     }
@@ -5903,6 +5904,100 @@
     var mk = function (y, mo, d) { mo = +mo; d = +d; if (mo < 1 || mo > 12 || d < 1 || d > 31) return ''; return y + '-' + String(mo).padStart(2, '0') + '-' + String(d).padStart(2, '0'); };
     var a = mk(m[1], m[2], m[3]); if (a && a <= t) return a; var b = mk(m[1], m[3], m[2]); if (b && b <= t) return b; return '';
   }
+  // ---------- v67: link an indent item to one of your names, from a shortlist of the likeliest ----------
+  var indLinked = [];
+  function linkCtx() {
+    var s2 = shop(), on = {};
+    Object.keys(s2.days).forEach(function (k) { var d = s2.days[k], g = d.grid; if (!g) return; dataRows(g).forEach(function (r) { if (!String(g[r][SC.item] || '').trim()) return; var x = regItem(dayKeyOf(d, r)); on[normName(x ? x.item : g[r][SC.item])] = 1; }); });
+    return { names: myNames(), on: on };
+  }
+  function coreWords(t) { var w = words(t).filter(function (x) { return !FTYPES[x] && !/^\d+$/.test(x); }); return w.length ? w.join(' ') : normName(t); }
+  // your names that this indent line most likely is: words of your name found in the indent name, its other indent names, same size, and on your sheets
+  function linkCands(en, ctx, max) {
+    var own = en.key ? regItem(en.key) : null, ownN = own ? normName(own.item) : '', full = coreWords(en.full), fw = full.split(' '), out = [];
+    ctx.names.forEach(function (e) {
+      var n = normName(e.name); if (n === ownN && !e.keys.some(function (k) { var y = regItem(k); return y && y.src !== 'indent'; })) return;
+      var cw = coreWords(e.name), sc = nameScore(cw, full), cws = cw.split(' ');
+      if (cws[0].length >= 3 && cws[0] === fw[0]) sc = Math.max(sc, .72);
+      if (cws.some(function (w) { return w.length === 1 && fw.indexOf(w) < 0; })) sc *= .5;
+      e.fulls.forEach(function (f) { if (normName(f) === normName(en.full)) sc = Math.max(sc, 1); else sc = Math.max(sc, (nameScore(coreWords(f), full) + nameScore(full, coreWords(f))) / 2 * .95); });
+      e.keys.forEach(function (k) { var x = regItem(k); if (x) Object.keys(x.alias || {}).forEach(function (a) { sc = Math.max(sc, nameScore(coreWords(a), full) * .9); }); });
+      var ty = shortCore(en.full).type, nt = words(e.name).filter(function (w) { return FTYPES[w]; })[0], ft = e.fulls.map(function (f) { return shortCore(f).type; }).filter(Boolean);
+      if (ty && ((nt && nt !== ty) || (!nt && ft.length && ft.indexOf(ty) < 0))) sc *= .45;
+      if (sc < .4) return;
+      var sz = e.real.indexOf(String(en.ml)) >= 0, p = Math.round(100 * Math.min(.99, sc * .85 + (sz ? .12 : 0) + (ctx.on[n] ? .03 : 0)));
+      out.push({ name: e.name, p: p, same: n === ownN, why: (ctx.on[n] ? 'on your sheets' : 'your name') + (sz ? ' · same size' : ' · adds ' + en.ml + ' ml') });
+    });
+    return out.sort(function (a, b) { return b.p - a.p; }).slice(0, max || 4);
+  }
+  function linkSelHtml(en, attr, ctx, pre) {
+    var c = linkCands(en, ctx, 4), own = en.key ? regItem(en.key) : null, best = pre && c[0] && c[0].p >= 60 ? c[0] : null, shown = {};
+    var o = '<option value=""' + (best ? '' : ' selected') + '>' + (c.length ? 'Choose your name…' : 'No close match · choose…') + '</option>';
+    if (c.length) o += '<optgroup label="Best guesses">' + c.map(function (x) { shown[normName(x.name)] = 1; return '<option value="n:' + esc(x.name) + '"' + (best === x ? ' selected' : '') + '>' + esc(x.name) + ' ' + esc(en.ml) + ' · ' + x.p + '%' + (x.same ? ' (keep as new size)' : '') + '</option>'; }).join('') + '</optgroup>';
+    var rest = ctx.names.filter(function (e) { return !shown[normName(e.name)] && (!own || normName(e.name) !== normName(own.item)); });
+    if (rest.length) o += '<optgroup label="All your names">' + rest.map(function (e) { return '<option value="n:' + esc(e.name) + '">' + esc(e.name) + '</option>'; }).join('') + '</optgroup>';
+    o += '<optgroup label="Other"><option value="keep">' + (own ? 'Keep “' + esc(own.item) + '” as a new item' : 'Add as a new item: ' + esc(shortFor(en.full))) + '</option><option value="type">✎ Type a different name…</option></optgroup>';
+    return '<span class="cap" style="font-size:11px">This is the same as…</span><select class="text lnsel" ' + attr + '>' + o + '</select>';
+  }
+  // join it: same size of that name → one item; else it becomes a new size of that name. Its indent name and cost go with it.
+  function linkPick(en, v) {
+    var s2 = shop(), own = en.key ? regItem(en.key) : null, name;
+    if (!v) return null;
+    if (v === 'type') { var t = prompt('Short name for “' + en.full + '” (2–3 words). Type one of your names to join it:', own ? own.item : shortFor(en.full)); if (!t || !t.trim()) return null; name = titleCase(t.trim()); }
+    else if (v === 'keep') { if (own) return 'Kept ' + own.item + ' ' + own.size + ' as a new item'; name = shortFor(en.full); }
+    else name = v.slice(2);
+    var tk = regKey(name, en.ml), k;
+    if (own) {
+      var old = own.item, ok = resolveKey(en.key);
+      if (s2.items[tk] && tk !== ok) k = regMerge(ok, tk);
+      else k = regRename(ok, name);
+      var x = regItem(k); if (!x) return null;
+      var nc = (s2.nameCfg || {})[normName(x.item)]; if (nc && nc.ml.indexOf(String(en.ml)) < 0) nc.ml.push(String(en.ml));
+      if (normName(old) !== normName(x.item) && !regAll().some(function (y) { return normName(y.item) === normName(old); }) && s2.nameCfg) delete s2.nameCfg[normName(old)];
+      relabelDays(k); if (old !== x.item) inkLoad().then(function () { inkMove(old, x.item); });
+    } else {
+      k = s2.items[tk] ? tk : regAdd(name, en.ml, 'indent', { full: en.full }); if (!k) return null;
+    }
+    var it = regItem(k); it.fulls = it.fulls || []; if (it.fulls.indexOf(en.full) < 0) it.fulls.push(en.full); if (!it.full) it.full = en.full;
+    if (en.mk) s2.map[en.mk] = resolveKey(k); if (s2.delNames) delete s2.delNames[normName(it.item)];
+    return 'Linked ' + (own ? own.item + ' ' + en.ml : en.full) + ' → ' + it.item + ' ' + it.size;
+  }
+  // the indent lines still waiting to be linked; kept on the phone so they're there next time
+  function indPending(ctx) {
+    var s2 = shop();
+    if (!s2.indNewV) {
+      s2.indNewV = 1; s2.indNew = s2.indNew || []; var have = {}; s2.indNew.forEach(function (y) { have[resolveKey(y.key)] = 1; });
+      ctx = ctx || linkCtx();
+      regAll().forEach(function (x) { if (x.src !== 'indent' || have[x.key] || ctx.on[normName(x.item)]) return; var f = (x.fulls || [])[0] || x.full; if (!f) return; var mk = Object.keys(s2.map || {}).filter(function (m) { return s2.map[m] === x.key; })[0] || ''; var en = { full: f, ml: x.size, key: x.key, mk: mk }; var c = linkCands(en, ctx, 1); if (c[0] && c[0].p >= 60 && !c[0].same) { en.kind = 'new'; s2.indNew.push(en); } });
+      save();
+    }
+    var on = null;
+    s2.indNew = (s2.indNew || []).filter(function (y) { var x = regItem(y.key); if (!x) return false; y.key = resolveKey(y.key); if (!on) on = (ctx || linkCtx()).on; return !on[normName(x.item)]; });
+    return s2.indNew;
+  }
+  function indLinkHtml() {
+    var ctx = linkCtx(), P = indPending(ctx), h = '';
+    if (!P.length && !indLinked.length) return '';
+    h += '<span class="cap">New stock in the indent' + (P.length ? ' · ' + P.length + ' to link' : '') + '</span><div class="stack" style="gap:8px">';
+    h += indLinked.map(function (y) { var x = regItem(y.key); if (!x) return ''; return '<div class="card stack indl" style="gap:6px"><small>' + esc(y.full) + ' · ' + esc(y.ml) + ' ml</small><div class="row between" style="gap:8px"><b>→ ' + esc(x.item) + ' ' + esc(x.size) + '</b><span class="ikb ok">yours ✓</span></div></div>'; }).join('');
+    var nb = 0;
+    h += P.slice(0, shopUi.lnAll ? 400 : 12).map(function (y, i) { var x = regItem(y.key), c = linkCands(y, ctx, 1); if (c[0] && c[0].p >= 60) nb++; var kd = regAll().some(function (z) { return z.key !== x.key && z.src !== 'indent' && normName(z.item) === normName(x.item); }) ? 'size' : 'new';
+      return '<div class="card stack indl" style="gap:6px"><small>' + esc(y.full) + ' · ' + esc(y.ml) + ' ml</small><div class="row between" style="gap:8px"><b>→ ' + esc(x.item) + ' ' + esc(x.size) + '</b><span class="ikb lk">' + (kd === 'size' ? 'new size' : 'new name') + '</span></div><div class="row" style="gap:8px;align-items:flex-end"><div class="stack" style="gap:4px;flex:1;min-width:0">' + linkSelHtml(y, 'data-lnk="' + i + '"', ctx, true) + '</div><button type="button" class="nib sm" data-lnb="' + i + '">Link</button></div></div>'; }).join('');
+    if (P.length > 12 && !shopUi.lnAll) h += '<button type="button" class="link" id="lnMore">Show all ' + P.length + '</button>';
+    h += '</div>';
+    if (nb > 1) h += '<button type="button" class="btn jungle" id="lnAll">Link all ' + nb + ' best guesses</button>';
+    return h;
+  }
+  function bindIndLink(r) {
+    var P = shop().indNew || [];
+    var one = function (i, v) { var y = P[i]; if (!y) return; var msg = linkPick(y, v); if (!msg) { drawSheet(); return; } shop().indNew = (shop().indNew || []).filter(function (z) { return z !== y; }); indLinked.unshift({ full: y.full, ml: y.ml, key: s2KeyFor(y) }); indLinked = indLinked.slice(0, 6); save(); drawSheet(); toast(msg); };
+    r.querySelectorAll('select[data-lnk]').forEach(function (sl) { sl.onchange = function () { if (sl.value) one(+sl.dataset.lnk, sl.value); }; });
+    r.querySelectorAll('[data-lnb]').forEach(function (b) { b.onclick = function () { var sl = r.querySelector('select[data-lnk="' + b.dataset.lnb + '"]'); if (!sl || !sl.value) { toast('Choose a name first'); return; } one(+b.dataset.lnb, sl.value); }; });
+    var mo = r.querySelector('#lnMore'); if (mo) mo.onclick = function () { shopUi.lnAll = 1; drawSheet(); };
+    var la = r.querySelector('#lnAll'); if (la) la.onclick = function () { var ctx = linkCtx(), n = 0; P.slice().forEach(function (y) { var c = linkCands(y, ctx, 1); if (!c[0] || c[0].p < 60) return; var msg = linkPick(y, 'n:' + c[0].name); if (!msg) return; n++; shop().indNew = (shop().indNew || []).filter(function (z) { return z !== y; }); indLinked.unshift({ full: y.full, ml: y.ml, key: s2KeyFor(y) }); ctx = linkCtx(); }); indLinked = indLinked.slice(0, 12); save(); drawSheet(); toast('Linked ' + n + ' items to your names'); };
+  }
+  // the item an indent line points to now
+  function s2KeyFor(y) { var s2 = shop(); return resolveKey((y.mk && s2.map[y.mk]) || y.key); }
   // every item found on your indents: its latest cost per bottle, with TCS, and your own price if you set one
   function indItemList() {
     var s2 = shop(), ind = s2.indents || {}, seen = {}, out = [];
@@ -5919,9 +6014,10 @@
   function indItemRows() {
     var q = (shopUi.indq || '').toLowerCase().trim(), L = indItemList().filter(function (e) { return !q || e.full.toLowerCase().indexOf(q) >= 0 || (e.x && e.x.item.toLowerCase().indexOf(q) >= 0) || e.ml.indexOf(q) === 0; });
     if (!L.length) return '<p class="muted small">' + (q ? 'Nothing matches “' + esc(shopUi.indq) + '”.' : 'No items yet.') + '</p>';
+    var ctx = L.some(function (e) { return !e.key; }) ? linkCtx() : null;
     return L.slice(0, 200).map(function (e) {
       var ov = e.x && e.x.costOv, fmt = function (k) { return k ? new Date(k + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short', year: '2-digit' }) : '—'; };
-      return '<div class="indit"><div class="row between" style="gap:8px;align-items:flex-start"><span class="t"><b>' + (e.x ? esc(e.x.item) + ' ' + esc(e.ml) : '<span class="muted">not linked</span> ' + esc(e.ml)) + '</b><small>' + esc(e.full) + '</small></span>' + (e.key ? '<button type="button" class="nib sm" data-indc="' + esc(e.key) + '">✎ Cost</button>' : '<button type="button" class="nib sm" data-inda="' + esc(e.mk) + '">+ Add</button>') + '</div>' +
+      return '<div class="indit"><div class="row between" style="gap:8px;align-items:flex-start"><span class="t"><b>' + (e.x ? esc(e.x.item) + ' ' + esc(e.ml) : '<span class="muted">not linked</span> ' + esc(e.ml)) + '</b><small>' + esc(e.full) + '</small></span>' + (e.key ? '<button type="button" class="nib sm" data-indc="' + esc(e.key) + '">✎ Cost</button>' : '') + '</div>' + (e.key ? '' : linkSelHtml({ full: e.full, ml: e.ml, mk: e.mk, key: null }, 'data-inds="' + esc(e.mk) + '"', ctx)) +
         '<div class="indc"><span>' + (e.base != null ? inr(e.base, 2) + '<small>indent cost</small>' : '—<small>no rate</small>') + '</span><span>+' + ((e.f - 1) * 100).toFixed(e.own ? 2 : 0) + '%<small>' + (e.own ? 'TCS on the indent' : 'TCS') + '</small></span><span class="' + (ov ? 'old' : 'hi') + '">' + (e.c != null ? inr(e.c, 2) : '—') + '<small>with TCS</small></span>' + (ov ? '<span class="hi">' + inr(ov.c, 2) + '<small>your price</small></span>' : '') + '</div>' +
         '<small class="muted">' + (e.rate ? inr(e.rate, 2) + ' a case of ' + e.per : '') + ' · latest ' + fmt(e.d) + (e.n > 1 ? ' · on ' + e.n + ' indents' : '') + '</small></div>';
     }).join('') + (L.length > 200 ? '<p class="muted small">Showing 200 of ' + L.length + '. Search to find the rest.</p>' : '');
@@ -5931,7 +6027,7 @@
     return '<span class="cap">Items found on your indents · ' + n + '</span><input class="text" id="indQ" placeholder="Search: name or ml" value="' + esc(shopUi.indq || '') + '" autocomplete="off"><div class="stack" style="gap:8px" id="indItems">' + indItemRows() + '</div><p class="muted small" style="margin:0">Cost per bottle = rate per case ÷ bottles per case, plus TCS (' + tcsPct() + '% unless the indent shows its own TCS; change it in Shop settings). Tap ✎ Cost to type your own price; it is used for the profit from that indent’s date.</p>';
   }
   function bindIndRows(r) {
-    r.querySelectorAll('[data-inda]').forEach(function (b) { b.onclick = function () { var e = indItemList().filter(function (x) { return x.mk === b.dataset.inda; })[0]; if (!e) return; var nn = prompt('Short name for “' + e.full + '” (2–3 words). Type one of your names to join it:', shortFor(e.full)); if (!nn || !nn.trim()) return; var s2 = shop(), k = regAdd(titleCase(nn.trim()), e.ml, 'indent', { full: e.full }); if (!k) return; var x = regItem(k); x.fulls = x.fulls || []; if (x.fulls.indexOf(e.full) < 0) x.fulls.push(e.full); s2.map[e.mk] = k; if (s2.delNames) delete s2.delNames[normName(x.item)]; save(); var box = r.querySelector('#indItems'); if (box) { box.innerHTML = indItemRows(); bindIndRows(r); } toast('Added as ' + x.item + ' ' + x.size); }; });
+    r.querySelectorAll('select[data-inds]').forEach(function (sl) { sl.onchange = function () { var e = indItemList().filter(function (x) { return x.mk === sl.dataset.inds; })[0]; if (!e) return; var res = linkPick({ full: e.full, ml: e.ml, mk: e.mk, key: null }, sl.value); if (!res) { sl.value = ''; return; } save(); var box = r.querySelector('#indItems'); if (box) { box.innerHTML = indItemRows(); bindIndRows(r); } toast(res); }; });
     r.querySelectorAll('[data-indc]').forEach(function (b) { b.onclick = function () { costEditPrompt(b.dataset.indc, function () { shopUi.indq = ''; var iq = r.querySelector('#indQ'); if (iq) iq.value = ''; var box = r.querySelector('#indItems'); if (box) { box.innerHTML = indItemRows(); bindIndRows(r); } if (iq) iq.focus(); }); }; }); }
   function shopIndentSheet() {
     var s2 = shop(), ind = s2.indents || {}, ids = Object.keys(ind), items = {}, dates = [];
@@ -5941,7 +6037,7 @@
     h += '<div class="shtiles ttq"><div><b class="display">' + ids.length + '</b><small>indents</small></div><div><b class="display">' + Object.keys(items).length + '</b><small>items</small></div><div><b class="display" style="font-size:16px">' + (dates.length ? fmt(dates[0]) + '–' + fmt(dates[dates.length - 1]) : '—') + '</b><small>dates</small></div></div>';
     if (indJob) h += '<div class="' + (indJob.err ? 'notice' : 'shreading') + '">' + (indJob.err ? '' : '<span class="wpulse"></span>') + '<b>' + esc(indJob.stage) + '</b></div>';
     if (indRes && !indJob) h += '<div class="notice ok">✓ ' + indRes.linked + ' linked to your items · ' + indRes.added + ' added as new' + (indRes.ask ? ' · <b>' + indRes.ask + ' to confirm</b>' : '') + '</div>';
-    if (indRes && !indJob && indRes.list && indRes.list.length) h += '<span class="cap">New stock in the indent</span><div class="stack" style="gap:8px">' + indRes.list.map(function (x, i) { var it = regItem(x.key); if (!it) return ''; return '<div class="card stack indl" style="gap:6px"><small>' + esc(x.full) + ' · ' + esc(x.ml) + ' ml</small><div class="row between" style="gap:8px"><b>→ ' + esc(it.item) + ' ' + esc(it.size) + '</b><span class="ikb ' + (x.kind === 'yours' ? 'ok' : 'lk') + '">' + (x.kind === 'yours' ? 'yours ✓' : x.kind === 'size' ? 'new size' : 'new name') + '</span></div>' + (x.kind !== 'yours' ? '<button type="button" class="link" data-indr="' + i + '" style="align-self:flex-start">✎ Rename or join another name</button>' : '') + '</div>'; }).join('') + '</div>';
+    if (!indJob) h += indLinkHtml();
     var qn = (s2.indQueue || []).length, fn = (s2.indFailed || []).length;
     if (qn && !indRun) h += '<button type="button" class="btn coral" id="indResume">▶ Carry on reading ' + qn + ' photo' + (qn > 1 ? 's' : '') + '</button>';
     if (fn && !indRun) h += '<div class="notice">' + fn + ' photo' + (fn > 1 ? 's' : '') + ' couldn’t be read (the AI was busy or the photo was unclear). <button type="button" class="link" id="indRetry">Try again</button> · <button type="button" class="link" id="indDrop">Discard</button></div>';
@@ -5962,7 +6058,7 @@
       bindIndRows(r);
       r.querySelectorAll('[data-inddt]').forEach(function (b) { b.onclick = function () { var n = (shop().indents || {})[b.dataset.inddt]; if (!n) return; var v = prompt('Date of indent ' + (n.no || '') + ' (DD-MM-YYYY):', n.date ? n.date.split('-').reverse().join('-') : ''); if (v == null) return; var dt = indDate(v); if (!dt) { toast('Couldn’t read that date'); return; } n.date = dt; n.dateGuess = false; save(); drawSheet(); toast('Date set · the latest prices are updated'); }; });
       r.querySelectorAll('[data-ccost]').forEach(function (b) { b.onclick = function () { shopUi.itemFrom = 'shopindent'; openSheet('shopitem:' + b.dataset.ccost); }; });
-      r.querySelectorAll('[data-indr]').forEach(function (b) { b.onclick = function () { var x = indRes.list[+b.dataset.indr], it = regItem(x.key); if (!it) return; var nn = prompt('Short name for “' + x.full + '” (2–3 words). Type one of your names to join it:', it.item); if (!nn || !nn.trim()) return; var old = it.item, nk = regRename(x.key, titleCase(nn.trim())); x.key = nk; relabelDays(nk); if (old !== regItem(nk).item) inkLoad().then(function () { inkMove(old, regItem(nk).item); }); var ex = regAll().some(function (y) { return y.key !== nk && normName(y.item) === normName(regItem(nk).item); }); x.kind = ex ? 'size' : 'new'; save(); drawSheet(); }; });
+      bindIndLink(r);
     } };
   }
 

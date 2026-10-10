@@ -1174,3 +1174,6 @@ button.misr.mfb b{color:#0F4D40;font-size:13px;white-space:nowrap}.ydn span.hi.o
 .ccres{font-size:13px;color:#0F4D40}.ccres b{font-size:16px}
 /* v63 */
 .nocost{display:flex;flex-wrap:wrap;gap:6px;padding-top:8px}.nocost button{border:0;border-radius:999px;background:#FFE6B8;color:#7A5300;font:inherit;font-size:12.5px;font-weight:600;padding:7px 11px;cursor:pointer}.nocost small{font-weight:500}
+/* v67 link indent items */
+.lnsel{width:100%;font-size:14px;padding:10px 12px;border-radius:12px;background:#fff;border:1.5px solid #cfd8d4;color:var(--ink,#16302A)}
+.indit .lnsel{margin-top:2px}
