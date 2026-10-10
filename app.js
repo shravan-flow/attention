@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '63';
+  var APP_VERSION = '65';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -5606,8 +5606,10 @@
   // cost per bottle: the latest KSBCL bill or indent for that item (old price lists are ignored)
   // cost per bottle (TCS included) from the KSBCL bill or indent that applied on that date; the latest one if no date
   function costFor(item, size, asOf) {
-    var xo = regItem(regKey(item, size)), ov = xo && xo.costOv; if (ov && (!asOf || !ov.d || asOf >= ov.d)) return { c: ov.c, base: ov.c, src: 'your price', d: ov.d || '', tcs: false, you: true };
-    var hs = costHist(regKey(item, size)); if (!hs.length) return null;
+    var xo = regItem(regKey(item, size)), ov = xo && xo.costOv, hs = costHist(regKey(item, size));
+    // your price holds until a newer indent or bill brings a new rate (v64)
+    if (ov && (!asOf || !ov.d || asOf >= ov.d) && !hs.some(function (h) { return h.d && h.d > (ov.d || '') && h.d > (ov.at || '') && (!asOf || h.d <= asOf); })) return { c: ov.c, base: ov.c, src: 'your price', d: ov.d || '', tcs: false, you: true };
+    if (!hs.length) return null;
     var pick = null; if (asOf) hs.forEach(function (h) { if (h.d && h.d <= asOf) pick = h; });
     return pick || (asOf ? hs[0] : hs[hs.length - 1]);
   }
@@ -5821,12 +5823,14 @@
   }
   function importIndents(files) {
     var s2 = shop(); s2.indents = s2.indents || {}; indJob = { stage: 'Opening…', n: 0 }; drawSheet();
-    var P = 'This is from the KSBCL (Karnataka State Beverages Corporation) stock indent / invoice history of one liquor shop. Extract every indent or invoice in it, with its number, date and items. For each item: the full product name as printed (without pack codes in brackets), size in ml, bottles per case (from text like "180MLx48Btls"), cases, loose bottles, the rate per case (issue price) and the amount. Skip totals and headers.\nAlso give each indent’s item total, its TCS amount (tax collected at source, sometimes written TDS) and the final invoice value, if shown.\nReply JSON: {"indents":[{"no":"text","date":"YYYY-MM-DD","itemTotal":number|null,"tcs":number|null,"invoiceValue":number|null,"items":[{"name":"text","ml":180,"perCase":48,"cases":2,"loose":0,"rate":5869.6,"amount":11739.2}]}]}';
-    var take = function (r) {
+    var P = 'Dates on these documents are written day first (DD-MM-YYYY or DD/MM/YYYY); give each indent date as YYYY-MM-DD, or null if you cannot see it. ' + 'This is from the KSBCL (Karnataka State Beverages Corporation) stock indent / invoice history of one liquor shop. Extract every indent or invoice in it, with its number, date and items. For each item: the full product name as printed (without pack codes in brackets), size in ml, bottles per case (from text like "180MLx48Btls"), cases, loose bottles, the rate per case (issue price) and the amount. Skip totals and headers.\nAlso give each indent’s item total, its TCS amount (tax collected at source, sometimes written TDS) and the final invoice value, if shown.\nReply JSON: {"indents":[{"no":"text","date":"YYYY-MM-DD","itemTotal":number|null,"tcs":number|null,"invoiceValue":number|null,"items":[{"name":"text","ml":180,"perCase":48,"cases":2,"loose":0,"rate":5869.6,"amount":11739.2}]}]}';
+    var take = function (r, fbDate) {
       (r.indents || []).forEach(function (x, i) {
-        var dt = /^\d{4}-\d{2}-\d{2}$/.test(x.date || '') ? x.date : '', id = String(x.no || '').trim() || (dt + '#' + i + '#' + (x.items || []).length);
+        var dt = indDate(x.date), guess = false; if (!dt && fbDate) { dt = fbDate; guess = true; }
+        var id = String(x.no || '').trim() || (dt + '#' + i + '#' + (x.items || []).length);
         Object.keys(s2.indents).forEach(function (k2) { if (s2.indents[k2].fromBill && s2.indents[k2].no && s2.indents[k2].no === String(x.no || '').trim()) delete s2.indents[k2]; });
         var cur = s2.indents[id] = s2.indents[id] || { no: String(x.no || ''), date: dt, items: [] };
+        if (dt && (!cur.date || (cur.dateGuess && !guess))) { cur.date = dt; cur.dateGuess = guess; } else if (!cur.date) cur.dateGuess = guess;
         ['itemTotal', 'tcs', 'invoiceValue'].forEach(function (f) { if (num(x[f])) cur[f] = num(x[f]); });
         (x.items || []).forEach(function (it) {
           var ml = String(it.ml || '').replace(/[^0-9]/g, ''), nm = String(it.name || '').trim(); if (!nm || !ml) return;
@@ -5840,7 +5844,7 @@
     var stage = function () { indJob.stage = (imgs.length ? 'Photos read: ' + done + ' of ' + imgs.length + ' · ' : '') + (Object.keys(s2.indents).length - before) + ' indents found so far' + (imgs.length > done ? ' · you can keep using the app' : ''); drawSheet(); };
     var batches = []; for (var bi = 0; bi < imgs.length; bi += 3) batches.push(imgs.slice(bi, bi + 3));
     var P3 = P.replace('This is from', 'These photos are pages from') + '\nThe photos may be different indents or several pages of one; read every indent you can see on them, each once.';
-    var runBatch = function (B) { return Promise.all(B.map(function (f) { return blobToDataURL(f).then(function (u) { return shrinkImage(u, 1600); }); })).then(function (us) { return geminiImages(P3, us, .1); }).then(take).catch(function () { indJob.miss = (indJob.miss || 0) + B.length; }).then(function () { done += B.length; stage(); }); };
+    var runBatch = function (B) { var fb = null; return Promise.all(B.map(function (f) { return blobToDataURL(f).then(function (u) { return shrinkImage(u, 1600); }); })).then(function (us) { return geminiImages(P3, us, .1); }).then(function (r) { take(r, fb); }).catch(function () { indJob.miss = (indJob.miss || 0) + B.length; }).then(function () { done += B.length; stage(); }); };
     var worker = function () { var B = batches.shift(); return B ? runBatch(B).then(worker) : Promise.resolve(); };
     var chain = Promise.all([worker(), worker()]), fi = 0;
     docs.forEach(function (f) {
@@ -5859,6 +5863,12 @@
       .catch(function (e) { indJob = { stage: 'Couldn’t read it: ' + (e.message || e), err: true }; drawSheet(); });
   }
   var indRes = null;
+  // an indent date: day first in India; a date in the future is a misread (day and month swapped)
+  function indDate(v) {
+    v = String(v || '').trim(); var m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(v), t = dkey(new Date()); if (!m) { var m2 = /^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})$/.exec(v); if (!m2) return ''; m = [0, m2[3].length === 2 ? '20' + m2[3] : m2[3], m2[2], m2[1]]; }
+    var mk = function (y, mo, d) { mo = +mo; d = +d; if (mo < 1 || mo > 12 || d < 1 || d > 31) return ''; return y + '-' + String(mo).padStart(2, '0') + '-' + String(d).padStart(2, '0'); };
+    var a = mk(m[1], m[2], m[3]); if (a && a <= t) return a; var b = mk(m[1], m[3], m[2]); if (b && b <= t) return b; return '';
+  }
   // every item found on your indents: its latest cost per bottle, with TCS, and your own price if you set one
   function indItemList() {
     var s2 = shop(), ind = s2.indents || {}, seen = {}, out = [];
@@ -5904,12 +5914,13 @@
     var noCost = regAll().filter(function (x) { return !costFor(x.item, x.size) && (regStock()[x.key] || {}).known; }).sort(function (a, b) { return a.item.localeCompare(b.item); });
     if (noCost.length) h += '<details class="card" open><summary><b>' + noCost.length + ' item' + (noCost.length > 1 ? 's' : '') + ' in stock without a cost</b><small class="muted"> · find them in an indent, or type the rate per case</small></summary><div class="nocost">' + noCost.map(function (x) { return '<button type="button" data-ccost="' + esc(x.key) + '">' + esc(x.item) + ' <small>' + esc(x.size) + '</small></button>'; }).join('') + '</div></details>';
     if (ids.length) h += indItemsHtml();
-    if (ids.length) h += '<span class="cap">Indents</span><div class="list">' + ids.map(function (id) { return ind[id]; }).sort(function (a, b) { return (b.date || '') < (a.date || '') ? -1 : 1; }).slice(0, 12).map(function (n) { var c = n.items.reduce(function (a, it) { return a + it.cases; }, 0); var f = tcsFactor(n); return '<div class="r"><span class="t">' + esc(n.no || 'Indent') + '<small>' + (n.date ? new Date(n.date + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short', year: 'numeric' }) + ' · ' : '') + n.items.length + ' items · ' + c + ' cases' + (f > 1 ? ' · TCS ' + ((f - 1) * 100).toFixed(2) + '% shared over the items' : ' · no TCS on it: ' + tcsPct() + '% added') + '</small></span></div>'; }).join('') + '</div>';
+    if (ids.length) h += '<span class="cap">Indents · newest first' + (ids.filter(function (id) { return !ind[id].date || ind[id].dateGuess; }).length ? ' · check the dates marked in colour' : '') + '</span><div class="list">' + ids.map(function (id) { return ind[id]; }).sort(function (a, b) { var ka = (a.date && !a.dateGuess ? '1' : '0') + (a.date || ''), kb = (b.date && !b.dateGuess ? '1' : '0') + (b.date || ''); if ((ka[0] === '0') !== (kb[0] === '0')) return ka[0] === '0' ? -1 : 1; return (b.date || '') < (a.date || '') ? -1 : 1; }).slice(0, 80).map(function (n) { var c = n.items.reduce(function (a, it) { return a + it.cases; }, 0); var f = tcsFactor(n); return '<button type="button" class="r" data-inddt="' + esc(Object.keys(ind).filter(function (k3) { return ind[k3] === n; })[0]) + '"><span class="t">' + esc(n.no || 'Indent') + (!n.date ? ' <b style="color:#B3372B">· date missing, tap to set</b>' : n.dateGuess ? ' <small style="color:#B07A12">· date from the photo, tap to check</small>' : '') + '<small>' + (n.date ? new Date(n.date + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short', year: 'numeric' }) + ' · ' : '') + n.items.length + ' items · ' + c + ' cases' + (f > 1 ? ' · TCS ' + ((f - 1) * 100).toFixed(2) + '% shared over the items' : ' · no TCS on it: ' + tcsPct() + '% added') + '</small></span></button>'; }).join('') + '</div>';
     return { title: 'Past indents', cap: ids.length ? ids.length + ' indents' : '', html: '<div class="stack" style="gap:12px">' + h + '</div>', bind: function (r) {
       var f = r.querySelector('#indFile'); r.querySelector('#indUp').onclick = function () { if (!hasAI()) { toast('Add your Gemini key first'); return; } f.click(); };
       f.onchange = function () { var fs = [].slice.call(f.files); f.value = ''; if (fs.length) importIndents(fs); };
       var iq = r.querySelector('#indQ'); if (iq) iq.addEventListener('input', function () { shopUi.indq = iq.value; var box = r.querySelector('#indItems'); box.innerHTML = indItemRows(); bindIndRows(r); });
       bindIndRows(r);
+      r.querySelectorAll('[data-inddt]').forEach(function (b) { b.onclick = function () { var n = (shop().indents || {})[b.dataset.inddt]; if (!n) return; var v = prompt('Date of indent ' + (n.no || '') + ' (DD-MM-YYYY):', n.date ? n.date.split('-').reverse().join('-') : ''); if (v == null) return; var dt = indDate(v); if (!dt) { toast('Couldn’t read that date'); return; } n.date = dt; n.dateGuess = false; save(); drawSheet(); toast('Date set · the latest prices are updated'); }; });
       r.querySelectorAll('[data-ccost]').forEach(function (b) { b.onclick = function () { shopUi.itemFrom = 'shopindent'; openSheet('shopitem:' + b.dataset.ccost); }; });
       r.querySelectorAll('[data-indr]').forEach(function (b) { b.onclick = function () { var x = indRes.list[+b.dataset.indr], it = regItem(x.key); if (!it) return; var nn = prompt('Short name for “' + x.full + '” (2–3 words). Type one of your names to join it:', it.item); if (!nn || !nn.trim()) return; var old = it.item, nk = regRename(x.key, titleCase(nn.trim())); x.key = nk; relabelDays(nk); if (old !== regItem(nk).item) inkLoad().then(function () { inkMove(old, regItem(nk).item); }); var ex = regAll().some(function (y) { return y.key !== nk && normName(y.item) === normName(regItem(nk).item); }); x.kind = ex ? 'size' : 'new'; save(); drawSheet(); }; });
     } };
