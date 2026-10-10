@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '61';
+  var APP_VERSION = '62';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -5678,13 +5678,18 @@
     var smp = ((INK || {})[brandKey(x.item)] || []);
     h += '<div class="card stack" style="gap:8px"><div class="row between"><b style="font-size:14px">How he writes it</b><span class="muted small">' + smp.length + ' sample' + (smp.length === 1 ? '' : 's') + '</span></div>' + (smp.length ? '<div class="inkgal">' + smp.slice().reverse().map(function (s2_) { return '<span class="inkg">' + inkImg(s2_.id) + '<button type="button" data-ikdel="' + s2_.id + '" aria-label="Remove this sample">×</button></span>'; }).join('') + '</div><span class="muted small">Tap × on a sample that’s wrong.</span>' : '<span class="muted small">Samples are saved when you close a day or confirm a name.</span>') + '</div>';
     h += '<div class="card stack" style="gap:8px"><b style="font-size:14px">He writes</b><div class="row" style="gap:6px;flex-wrap:wrap">' + (Object.keys(x.alias).length ? Object.keys(x.alias).map(function (a) { return '<span class="alc"><span class="hw">' + esc(a) + '</span><button type="button" data-ald="' + esc(a) + '" aria-label="Forget">×</button></span>'; }).join('') : '<span class="muted small">nothing learnt yet</span>') + '</div></div>';
-    h += '<div class="list">' + row({ t: 'KSBCL name', sub: x.full ? esc(x.full) : 'not linked yet: it links when a bill or indent with this item comes in' }) + row({ t: 'Size', v: x.size ? x.size + ' ml' : '—' }) + row({ t: 'Stock now', v: st ? fmtN(st.qty) : '—' }) + row({ t: 'Cost per bottle', sub: c && c.you ? 'your own price' + (c.d ? ' from ' + new Date(c.d + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) : '') + ' · replaces the indent cost' : c ? 'from your ' + c.src + (c.d ? ' of ' + new Date(c.d + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) : '') + (c.tcs ? ' · incl. ' + inr(c.c - c.base, 2) + ' TCS' : '') : 'no bill or indent yet', v: c ? inr(c.c, 2) : '—' }) + row({ t: 'His selling rate', v: rt ? inr(rt) : '—' }) + row({ t: 'Profit margin', v: c && rt ? ((rt - c.c) / rt * 100).toFixed(1) + '%' : '—' }) + '</div>';
+    h += '<div class="list">' + row({ t: 'KSBCL name', sub: x.full ? esc(x.full) : 'not linked yet: it links when a bill or indent with this item comes in' }) + row({ t: 'Size', v: x.size ? x.size + ' ml' : '—' }) + row({ t: 'Stock now', v: st ? fmtN(st.qty) : '—' }) + row({ t: 'Cost per bottle', sub: c && c.you ? (x.costOv && x.costOv.rate ? 'from your rate ₹' + fmtN(x.costOv.rate) + ' a case of ' + x.costOv.per + ' + ' + (x.costOv.tcsPct != null ? x.costOv.tcsPct : tcsPct()) + '% TCS' : 'your own price') + (c.d ? ' · from ' + new Date(c.d + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) : '') : c ? 'from your ' + c.src + (c.d ? ' of ' + new Date(c.d + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) : '') + (c.tcs ? ' · incl. ' + inr(c.c - c.base, 2) + ' TCS' : '') : 'no bill or indent yet', v: c ? inr(c.c, 2) : '—' }) + row({ t: 'His selling rate', v: rt ? inr(rt) : '—' }) + row({ t: 'Profit margin', v: c && rt ? ((rt - c.c) / rt * 100).toFixed(1) + '%' : '—' }) + '</div>';
     var same = regAll().filter(function (y) { return y.key !== key && (!x.size || y.size === x.size); }).sort(function (a, b) { return a.item.localeCompare(b.item); });
     h += '<label class="lab rng">Same as another item? Merge into<select class="text" id="itMerge"><option value="">— pick an item —</option>' + same.map(function (y) { return '<option value="' + esc(y.key) + '">' + esc(y.item) + ' ' + esc(y.size || '') + '</option>'; }).join('') + '</select></label>';
-    h += '<button type="button" class="btn line" id="itCost">✎ ' + (x.costOv ? 'Change your cost per bottle (₹' + x.costOv.c.toFixed(2) + ')' : 'Change the cost per bottle') + '</button>';
+    var CI = caseInfo(key);
+    h += '<div class="card stack ccase" style="gap:8px"><b style="font-size:14px">Cost from the rate per case</b><div class="row" style="gap:8px"><label class="lab rng" style="flex:2">Rate per case (CB) ₹<input class="text" id="ccRate" inputmode="decimal" value="' + (x.costOv && x.costOv.rate ? x.costOv.rate : '') + '" placeholder="' + (CI.last ? Math.round(CI.last.base * CI.per) : 'e.g. 4800') + '"></label><label class="lab rng" style="flex:1">Bottles<input class="text" id="ccPer" inputmode="numeric" value="' + (x.costOv && x.costOv.per ? x.costOv.per : CI.per) + '"></label></div><span class="ccres" id="ccRes"></span><div class="row" style="gap:8px"><button type="button" class="btn jungle" style="flex:1" id="ccSave">Save cost</button>' + (x.costOv ? '<button type="button" class="btn line" id="ccClear">Use the indent cost</button>' : '') + '</div><span class="muted small">Cost per bottle = rate per case ÷ bottles per case + ' + tcsPct() + '% TCS. Used for the profit from ' + (CI.last && CI.last.d ? 'the indent of ' + new Date(CI.last.d + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) : 'now') + ' on.</span></div>';
     h += '<button type="button" class="btn jungle" id="itSave">Save</button>';
     return { title: esc(x.item), cap: x.size ? x.size + ' ml' : '', html: '<div class="stack" style="gap:12px">' + h + '</div>', bind: function (r) {
-      r.querySelector('#itCost').onclick = function () { costEditPrompt(key, function () { drawSheet(); }); };
+      var ccR = r.querySelector('#ccRate'), ccP = r.querySelector('#ccPer'), ccOut = r.querySelector('#ccRes');
+      var ccCalc = function () { var c = costFromCase(num(ccR.value), num(ccP.value)); ccOut.innerHTML = c ? '= <b>' + inr(c, 2) + '</b> a bottle (₹' + fmtN(num(ccR.value)) + ' ÷ ' + fmtN(num(ccP.value)) + ' = ' + inr(num(ccR.value) / num(ccP.value), 2) + ', plus ' + tcsPct() + '% TCS)' : 'Type the rate per case to see the cost per bottle'; return c; };
+      ccR.addEventListener('input', ccCalc); ccP.addEventListener('input', ccCalc); ccCalc();
+      r.querySelector('#ccSave').onclick = function () { var c = ccCalc(); if (!c) { toast('Type the rate per case'); ccR.focus(); return; } var n = costOvSet(key, c, CI.last ? CI.last.d : ''), y = regItem(key); if (y && y.costOv) { y.costOv.rate = num(ccR.value); y.costOv.per = num(ccP.value); y.costOv.tcsPct = tcsPct(); save(); } toast('Cost saved: ' + inr(c, 2) + ' a bottle' + (n ? ' · ' + n + ' closed day' + (n > 1 ? 's' : '') + ' recalculated' : '')); drawSheet(); };
+      var ccC = r.querySelector('#ccClear'); if (ccC) ccC.onclick = function () { costOvSet(key, null); toast('Back to the indent cost'); drawSheet(); };
       r.querySelectorAll('[data-ald]').forEach(function (b) { b.onclick = function () { delete x.alias[b.dataset.ald]; save(); drawSheet(); }; });
       fillInk(r);
       r.querySelectorAll('[data-ikdel]').forEach(function (b) { b.onclick = function () { var bk = brandKey(x.item); INK[bk] = (INK[bk] || []).filter(function (s3) { return s3.id !== b.dataset.ikdel; }); inkSave(); drawSheet(); }; });
@@ -6173,7 +6178,8 @@
       var s = ml[j]; g[rr][SC.item] = name; g[rr][SC.size] = s; var k = regAdd(name, s, 'sheet'); if (!k) return; d.rid[rr] = k; d.named[rr] = 1;
       var raw = d.ai && d.ai[rr] ? String(d.ai[rr][SC.item] || '').trim() : ''; if (raw && !inkRawOther(raw, s, k)) regAlias(k, raw, 1);
     });
-    var ikr = cov.filter(function (rr) { return d.ink && d.ink[rr]; });
+    var ownName = function (rr) { var hasL = d.letters && Object.keys(d.letters).length; return hasL ? !!d.letters[rr] : !!(d.ai && d.ai[rr] && String(d.ai[rr][SC.item] || '').trim()); };
+    var ikr = cov.filter(function (rr) { return d.ink && d.ink[rr] && ownName(rr); }).slice(0, 1);
     if (ikr.length) inkLoad().then(function () { ikr.forEach(function (rr) { inkLearn(name, d.ink[rr]); }); return inkSave(); });
     d.edited = true; save(); nmNext(d, cov[cov.length - 1]);
   }
@@ -6592,13 +6598,23 @@
     Object.keys(old).forEach(function (k) { var d = s2.days[k], pr = profitRows(d, k); if (pr.avg == null) return; var np = Math.round(pr.avg * 10) / 10; if (np === old[k] || (d.pct != null && old[k] != null && Math.abs(d.pct - old[k]) > .06)) return; d.pct = np; d.profit = (d.sales || 0) * np / 100; d.net = d.profit - (d.expTotal || 0); n++; });
     save(); return n;
   }
-  function costEditPrompt(key, after) {
-    var x = regItem(key); if (!x) return; var c = costFor(x.item, x.size), hs = costHist(resolveKey(key)), last = hs[hs.length - 1];
-    var v = prompt('Cost per bottle for ' + x.item + ' ' + x.size + ' ml (₹).' + (last ? ' The indent of ' + (last.d || '—') + ' gives ₹' + last.c.toFixed(2) + (last.tcs ? ' incl. TCS' : '') + '.' : '') + ' Leave empty to use the indent cost again.', c ? c.c.toFixed(2) : '');
-    if (v == null) return; v = String(v).trim();
-    var n = costOvSet(key, v === '' ? null : num(v), last ? last.d : '');
-    toast(v === '' ? 'Back to the indent cost' : 'Cost saved' + (n ? ' · ' + n + ' closed day' + (n > 1 ? 's' : '') + ' recalculated' : '')); if (after) after();
+  // you type the rate per case (the CB rate); the app divides by the bottles per case and adds the TCS
+  function caseInfo(key) {
+    var x = regItem(key), hs = costHist(resolveKey(key)), last = hs[hs.length - 1], per = perCase(resolveKey(key)) || (x && BPC[+x.size]) || 12;
+    return { x: x, last: last, per: per, ov: x && x.costOv };
   }
+  function costFromCase(rate, per) { return rate && per ? rate / per * (1 + tcsPct() / 100) : null; }
+  function costEditPrompt(key, after) {
+    var I = caseInfo(key); if (!I.x) return;
+    var v = prompt('Rate per case (CB rate) for ' + I.x.item + ' ' + I.x.size + ' ml, in ₹. The app divides it by ' + I.per + ' bottles and adds ' + tcsPct() + '% TCS.' + (I.last ? ' The last indent gives ₹' + I.last.c.toFixed(2) + ' a bottle.' : '') + ' Leave empty to use the indent cost again.', I.ov && I.ov.rate ? I.ov.rate : '');
+    if (v == null) return; v = String(v).trim();
+    if (v === '') { costOvSet(key, null); toast('Back to the indent cost'); if (after) after(); return; }
+    var rate = num(v), per = I.per;
+    if (!(rate > 0)) { toast('Type the rate per case'); return; }
+    var c = costFromCase(rate, per), n = costOvSet(key, c, I.last ? I.last.d : ''), x = regItem(key); if (x && x.costOv) { x.costOv.rate = rate; x.costOv.per = per; x.costOv.tcsPct = tcsPct(); save(); }
+    toast('₹' + rate + ' ÷ ' + per + ' + ' + tcsPct() + '% TCS = ₹' + c.toFixed(2) + ' a bottle' + (n ? ' · ' + n + ' closed day' + (n > 1 ? 's' : '') + ' recalculated' : '')); if (after) after();
+  }
+
   // ---------- v56: keep every per-row note in step when a row is added or removed ----------
   function reindexRows(d, at, delta) {
     var mv = function (m) { if (!m) return m; var o = {}; Object.keys(m).forEach(function (k) { var r = +k; if (delta < 0 && r === at) return; o[r >= at + (delta < 0 ? 1 : 0) ? r + delta : r] = m[k]; }); return o; };
@@ -8373,11 +8389,19 @@
     var bw = x1 - x0 + 1, bh = y1 - y0 + 1, OW = 64, OH = 24, m = new Float32Array(OW * OH);
     for (y = y0; y <= y1; y++) for (x = x0; x <= x1; x++) if (g[y * W + x] < thr) { m[Math.min(OH - 1, ((y - y0) / bh * OH) | 0) * OW + Math.min(OW - 1, ((x - x0) / bw * OW) | 0)] += 1; }
     for (var pass = 0; pass < 2; pass++) { var b = new Float32Array(OW * OH); for (y = 0; y < OH; y++) for (x = 0; x < OW; x++) { var s = 0, c = 0; for (var dy = -1; dy <= 1; dy++) for (var dx = -1; dx <= 1; dx++) { var yy = y + dy, xx = x + dx; if (yy >= 0 && yy < OH && xx >= 0 && xx < OW) { s += m[yy * OW + xx]; c++; } } b[y * OW + x] = s / c; } m = b; }
-    // store as bytes (0–255 of the normalised map) to keep it small
     var mx = 0; for (i = 0; i < m.length; i++) if (m[i] > mx) mx = m[i];
     var bytes = new Uint8Array(m.length); for (i = 0; i < m.length; i++) bytes[i] = mx ? Math.round(m[i] / mx * 255) : 0;
     var str = ''; for (i = 0; i < bytes.length; i++) str += String.fromCharCode(bytes[i]);
-    return { v: btoa(str), ar: Math.round(bw / bh * 100) / 100 };
+    // the word's outline, traced column by column: ink, top edge, bottom edge, stroke crossings (word-spotting profiles)
+    var NB = 48, P = new Uint8Array(NB * 4);
+    for (var j = 0; j < NB; j++) {
+      var a = x0 + Math.floor(j * bw / NB), e = Math.max(a + 1, x0 + Math.floor((j + 1) * bw / NB)), ink = 0, top = 0, bot = 0, tr = 0, cols = 0;
+      for (x = a; x < e && x <= x1; x++) { cols++; var tp = -1, bm = -1, prev = 0, cnt = 0, tc = 0; for (y = y0; y <= y1; y++) { var on = g[y * W + x] < thr ? 1 : 0; if (on) { cnt++; if (tp < 0) tp = y; bm = y; } if (on !== prev) tc++; prev = on; }
+        ink += cnt / bh; top += tp < 0 ? 1 : (tp - y0) / bh; bot += bm < 0 ? 1 : (y1 - bm) / bh; tr += Math.min(1, tc / 8); }
+      cols = cols || 1; P[j * 4] = Math.round(ink / cols * 255); P[j * 4 + 1] = Math.round(top / cols * 255); P[j * 4 + 2] = Math.round(bot / cols * 255); P[j * 4 + 3] = Math.round(tr / cols * 255);
+    }
+    var ps = ''; for (i = 0; i < P.length; i++) ps += String.fromCharCode(P[i]);
+    return { v: btoa(str), ar: Math.round(bw / bh * 100) / 100, p: btoa(ps), ink: Math.round(n / (bw * bh) * 100) / 100 };
   }
   var inkVecCache = {};
   function inkVec(d) {
@@ -8386,12 +8410,21 @@
     var nn = 0; for (i = 0; i < m.length; i++) { m[i] -= mean; nn += m[i] * m[i]; } nn = Math.sqrt(nn) || 1; for (i = 0; i < m.length; i++) m[i] /= nn;
     return (inkVecCache[d.v] = m);
   }
-  function inkSim(a, b) {
-    var A = inkVec(a), Bv = inkVec(b), OW = 64, OH = 24, best = -1;
-    for (var sy = -1; sy <= 1; sy++) for (var sx = -3; sx <= 3; sx++) { var s = 0; for (var y = 0; y < OH; y++) { var yy = y + sy; if (yy < 0 || yy >= OH) continue; for (var x = 0; x < OW; x++) { var xx = x + sx; if (xx < 0 || xx >= OW) continue; s += A[y * OW + x] * Bv[yy * OW + xx]; } } if (s > best) best = s; }
-    var r = Math.min(a.ar, b.ar) / Math.max(a.ar, b.ar);
-    return Math.max(0, Math.round(best * (.75 + .25 * r) * 100));
+  // two checks on his writing: the picture laid over the samples, and the word's outline traced and stretched to fit (DTW)
+  function inkNcc(a, b) { var A = inkVec(a), Bv = inkVec(b), OW = 64, OH = 24, best = -1; for (var sy = -1; sy <= 1; sy++) for (var sx = -3; sx <= 3; sx++) { var s = 0; for (var y = 0; y < OH; y++) { var yy = y + sy; if (yy < 0 || yy >= OH) continue; for (var x = 0; x < OW; x++) { var xx = x + sx; if (xx < 0 || xx >= OW) continue; s += A[y * OW + x] * Bv[yy * OW + xx]; } } if (s > best) best = s; } var r = Math.min(a.ar, b.ar) / Math.max(a.ar, b.ar); return Math.max(0, Math.round(best * (.75 + .25 * r) * 100)); }
+  var inkProfCache = {};
+  function inkProf(d) { if (inkProfCache[d.p]) return inkProfCache[d.p]; var s = atob(d.p), out = []; for (var j = 0; j < s.length / 4; j++) out.push([s.charCodeAt(j * 4) / 255, s.charCodeAt(j * 4 + 1) / 255, s.charCodeAt(j * 4 + 2) / 255, s.charCodeAt(j * 4 + 3) / 255]); return (inkProfCache[d.p] = out); }
+  // dynamic time warping over the outlines: the same word written a bit wider or narrower still lines up
+  function inkDtw(a, b) {
+    var A = inkProf(a), B = inkProf(b), n = A.length, m = B.length, w = 8, INF = 1e9, D = [], i, j;
+    for (i = 0; i <= n; i++) { D.push(new Float32Array(m + 1).fill(INF)); } D[0][0] = 0;
+    for (i = 1; i <= n; i++) for (j = Math.max(1, i - w); j <= Math.min(m, i + w); j++) {
+      var p = A[i - 1], q = B[j - 1], c = Math.abs(p[0] - q[0]) * 1.4 + Math.abs(p[1] - q[1]) + Math.abs(p[2] - q[2]) + Math.abs(p[3] - q[3]) * .8;
+      D[i][j] = c + Math.min(D[i - 1][j], D[i][j - 1], D[i - 1][j - 1]);
+    }
+    var d = D[n][m] / (n + m); return Math.max(0, Math.round((1 - d * 1.6) * 100));
   }
+  function inkSim(a, b) { var n = inkNcc(a, b); if (!a.p || !b.p) return n; var t = inkDtw(a, b); return Math.round(n * .65 + t * .35); }
   // cut the name out of the photo: box = [ymin, xmin, ymax, xmax] in 0–1000
   function inkCrop(photoUrl, box) {
     return new Promise(function (res) {
@@ -8443,12 +8476,13 @@
   function inkLearn(name, ent) {
     if (!ent || !ent.d || !name) return; var bk = brandKey(name); INK = INK || {};
     var arr = INK[bk] = INK[bk] || []; if (arr.some(function (s) { return s.id === ent.id; })) return;
-    arr.push({ id: ent.id, v: ent.d.v, ar: ent.d.ar }); while (arr.length > 12) { var old = arr.shift(); idbDel('ink-' + old.id).catch(function () {}); }
+    if (ent.d.ink != null && ent.d.ink < .03) return; arr.push({ id: ent.id, v: ent.d.v, ar: ent.d.ar, p: ent.d.p }); while (arr.length > 12) { var old = arr.shift(); idbDel('ink-' + old.id).catch(function () {}); }
   }
   function inkLearnDay(k) {
     var d = shopDay(k); if (!d || !d.ink || !d.grid) return Promise.resolve();
     var pend = {}; (d.ask || []).forEach(function (a) { pend[a.r] = 1; });
-    return inkLoad().then(function () { Object.keys(d.ink).forEach(function (r) { var m = (d.inkm || {})[r]; if (pend[r] || (m && m.st === 'conflict')) return; var nm = d.grid[r] && String(d.grid[r][SC.item] || '').trim(); if (nm) inkLearn(nm, d.ink[r]); }); return inkSave(); });
+    var hasL = d.letters && Object.keys(d.letters).length;
+    return inkLoad().then(function () { Object.keys(d.ink).forEach(function (r) { var m = (d.inkm || {})[r]; if (pend[r] || (m && m.st === 'conflict')) return; if (hasL ? !d.letters[r] : !(d.ai && d.ai[r] && String(d.ai[r][SC.item] || '').trim())) return; var nm = d.grid[r] && String(d.grid[r][SC.item] || '').trim(); if (nm) inkLearn(nm, d.ink[r]); }); return inkSave(); });
   }
   function inkImg(id, cls) { return '<img class="' + (cls || 'inkimg') + '" data-ink="' + id + '" alt="his writing">'; }
   function fillInk(root) { root.querySelectorAll('img[data-ink]').forEach(function (im) { idbGet('ink-' + im.dataset.ink).then(function (u) { if (u) im.src = u; }).catch(function () {}); }); }
