@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '65';
+  var APP_VERSION = '66';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -4445,7 +4445,7 @@
     return t;
   }
   function renderShop() {
-    try { var s0 = shop(); if (!s0.billsMirrored || !s0.billRowsCleaned) { mirrorAllBills(); cleanBillRows(); save(); } } catch (e) {}
+    try { var s0 = shop(); if (!s0.billsMirrored || !s0.billRowsCleaned) { mirrorAllBills(); cleanBillRows(); save(); } if ((s0.indQueue || []).length && !indRun && hasAI() && navigator.onLine) setTimeout(function () { toast('Carrying on reading ' + s0.indQueue.length + ' indent photos'); runIndQueue(); }, 1500); } catch (e) {}
     var s2 = shop(), tk = dkey(new Date()), m = shopUi.month || tk.slice(0, 7), mt = monthTotals(m), md = new Date(m + '-01T00:00:00');
     var h = '<div class="stack">' + topbar(esc(s2.name));
     h += '<div class="hero" style="background:' + T.jungle + ';color:#fff;gap:10px">' + sun(T.mango, 120, -34, -44) +
@@ -5821,10 +5821,45 @@
     });
     return { added: added, linked: linked, ask: ask };
   }
-  function importIndents(files) {
-    var s2 = shop(); s2.indents = s2.indents || {}; indJob = { stage: 'Opening…', n: 0 }; drawSheet();
-    var P = 'Dates on these documents are written day first (DD-MM-YYYY or DD/MM/YYYY); give each indent date as YYYY-MM-DD, or null if you cannot see it. ' + 'This is from the KSBCL (Karnataka State Beverages Corporation) stock indent / invoice history of one liquor shop. Extract every indent or invoice in it, with its number, date and items. For each item: the full product name as printed (without pack codes in brackets), size in ml, bottles per case (from text like "180MLx48Btls"), cases, loose bottles, the rate per case (issue price) and the amount. Skip totals and headers.\nAlso give each indent’s item total, its TCS amount (tax collected at source, sometimes written TDS) and the final invoice value, if shown.\nReply JSON: {"indents":[{"no":"text","date":"YYYY-MM-DD","itemTotal":number|null,"tcs":number|null,"invoiceValue":number|null,"items":[{"name":"text","ml":180,"perCase":48,"cases":2,"loose":0,"rate":5869.6,"amount":11739.2}]}]}';
-    var take = function (r, fbDate) {
+  // indent photos wait in a queue on the phone (shrunk), so a crash, a phone call or a locked screen doesn't lose them: reading carries on next time
+  var indRun = false, indWake = null;
+  function indQueueAdd(files) {
+    var s2 = shop(); s2.indQueue = s2.indQueue || []; s2.indDone = s2.indDone || 0; s2.indTotal = (s2.indQueue.length ? s2.indTotal || 0 : 0) + files.length; if (!s2.indQueue.length) s2.indDone = 0;
+    indJob = { stage: 'Getting ' + files.length + ' photos ready…' }; drawSheet();
+    return files.reduce(function (p, f, i) { return p.then(function () { return blobToDataURL(f).then(function (u) { return shrinkImage(u, 1600); }).then(function (u) { var id = 'iq' + Date.now().toString(36) + i; return idbPut('indq-' + id, u).then(function () { s2.indQueue.push(id); if (i % 5 === 4) { indJob.stage = 'Getting photos ready: ' + (i + 1) + ' of ' + files.length; drawSheet(); } }); }).catch(function () {}); }); }, Promise.resolve()).then(function () { save(); });
+  }
+  function indStage() { var s2 = shop(), left = (s2.indQueue || []).length; indJob = indJob || {}; indJob.stage = 'Photos read: ' + (s2.indDone || 0) + ' of ' + (s2.indTotal || left) + ' · ' + Object.keys(s2.indents || {}).length + ' indents so far' + (indJob.wait ? ' · ' + indJob.wait : ' · keep the app open; if it closes, it carries on next time'); if (ui.sheet && ui.sheet.kind === 'shopindent') drawSheet(); }
+  function runIndQueue() {
+    var s2 = shop(); if (indRun || !(s2.indQueue || []).length) return Promise.resolve(); if (!hasAI()) { toast('Add your Gemini key first'); return Promise.resolve(); }
+    if (!navigator.onLine) { indJob = { stage: 'Waiting for internet: ' + s2.indQueue.length + ' photos are saved and will be read when you’re back online' }; if (ui.sheet && ui.sheet.kind === 'shopindent') drawSheet(); return Promise.resolve(); }
+    indRun = true; try { if (navigator.wakeLock) navigator.wakeLock.request('screen').then(function (w) { indWake = w; }).catch(function () {}); } catch (e) {}
+    var P3 = indPrompt().replace('This is from', 'These photos are pages from') + '\nThe photos may be different indents or several pages of one; read every indent you can see on them, each once.', busy = {}, stopped = null;
+    var nextBatch = function () { var ids = (s2.indQueue || []).filter(function (id) { return !busy[id]; }).slice(0, 3); ids.forEach(function (id) { busy[id] = 1; }); return ids; };
+    var tryRead = function (ids, n) {
+      return Promise.all(ids.map(function (id) { return idbGet('indq-' + id); })).then(function (us) { us = us.filter(Boolean); if (!us.length) return { indents: [] }; return geminiImages(P3, us, .1); })
+        .catch(function (e) { if (!e || (!e.busy && !/busy|limit|empty|network|fetch|internet|offline|timeout|failed/i.test(e.message || ''))) throw e; if (n >= 5) throw e; var wait = [10, 25, 45, 75, 120][n]; indJob.wait = 'the AI is busy, trying again in ' + wait + ' s'; indStage(); return new Promise(function (res) { setTimeout(res, wait * 1000); }).then(function () { indJob.wait = null; return tryRead(ids, n + 1); }); });
+    };
+    var worker = function () {
+      if (stopped) return Promise.resolve(); var ids = nextBatch(); if (!ids.length) return Promise.resolve();
+      return tryRead(ids, 0).then(function (r) { indTake(r); ids.forEach(function (id) { idbDel('indq-' + id).catch(function () {}); }); s2.indQueue = s2.indQueue.filter(function (x) { return ids.indexOf(x) < 0; }); s2.indDone = (s2.indDone || 0) + ids.length; save(); indStage(); })
+        .catch(function (e) { try { console.warn('indent batch failed', e && e.message); } catch (x) {} if (e && /key/i.test(e.message || '')) { stopped = e.message; return; } s2.indQueue = s2.indQueue.filter(function (x) { return ids.indexOf(x) < 0; }); s2.indFailed = (s2.indFailed || []).concat(ids); s2.indDone = (s2.indDone || 0) + ids.length; save(); indStage(); })
+        .then(worker);
+    };
+    indStage();
+    return Promise.all([worker(), worker()]).then(function () {
+      indRun = false; try { if (indWake) indWake.release(); } catch (e) {} indWake = null;
+      var res = indentLinkAll(); save(); indRes = res; var f = (s2.indFailed || []).length;
+      indJob = stopped ? { stage: 'Stopped: ' + stopped, err: true } : null; if (!stopped && !(s2.indQueue || []).length) { s2.indTotal = 0; s2.indDone = 0; save(); }
+      if (ui.sheet && ui.sheet.kind === 'shopindent') drawSheet();
+      toast(stopped ? 'Stopped: ' + stopped : 'Indent photos read' + (f ? ' · ' + f + ' couldn’t be read: try them again in Past indents' : ''));
+    });
+  }
+  // ---- reading indents (shared by the upload and the resumable photo queue) ----
+  function indPrompt() {
+      return 'Dates on these documents are written day first (DD-MM-YYYY or DD/MM/YYYY); give each indent date as YYYY-MM-DD, or null if you cannot see it. ' + 'This is from the KSBCL (Karnataka State Beverages Corporation) stock indent / invoice history of one liquor shop. Extract every indent or invoice in it, with its number, date and items. For each item: the full product name as printed (without pack codes in brackets), size in ml, bottles per case (from text like "180MLx48Btls"), cases, loose bottles, the rate per case (issue price) and the amount. Skip totals and headers.\nAlso give each indent’s item total, its TCS amount (tax collected at source, sometimes written TDS) and the final invoice value, if shown.\nReply JSON: {"indents":[{"no":"text","date":"YYYY-MM-DD","itemTotal":number|null,"tcs":number|null,"invoiceValue":number|null,"items":[{"name":"text","ml":180,"perCase":48,"cases":2,"loose":0,"rate":5869.6,"amount":11739.2}]}]}';
+  }
+  function indTake(r, fbDate) {
+    var s2 = shop(); s2.indents = s2.indents || {};
       (r.indents || []).forEach(function (x, i) {
         var dt = indDate(x.date), guess = false; if (!dt && fbDate) { dt = fbDate; guess = true; }
         var id = String(x.no || '').trim() || (dt + '#' + i + '#' + (x.items || []).length);
@@ -5839,14 +5874,13 @@
         });
       });
       save();
-    };
-    var imgs = files.filter(function (f) { return /^image\//.test(f.type); }), docs = files.filter(function (f) { return !/^image\//.test(f.type); }), done = 0, before = Object.keys(s2.indents).length;
-    var stage = function () { indJob.stage = (imgs.length ? 'Photos read: ' + done + ' of ' + imgs.length + ' · ' : '') + (Object.keys(s2.indents).length - before) + ' indents found so far' + (imgs.length > done ? ' · you can keep using the app' : ''); drawSheet(); };
-    var batches = []; for (var bi = 0; bi < imgs.length; bi += 3) batches.push(imgs.slice(bi, bi + 3));
-    var P3 = P.replace('This is from', 'These photos are pages from') + '\nThe photos may be different indents or several pages of one; read every indent you can see on them, each once.';
-    var runBatch = function (B) { var fb = null; return Promise.all(B.map(function (f) { return blobToDataURL(f).then(function (u) { return shrinkImage(u, 1600); }); })).then(function (us) { return geminiImages(P3, us, .1); }).then(function (r) { take(r, fb); }).catch(function () { indJob.miss = (indJob.miss || 0) + B.length; }).then(function () { done += B.length; stage(); }); };
-    var worker = function () { var B = batches.shift(); return B ? runBatch(B).then(worker) : Promise.resolve(); };
-    var chain = Promise.all([worker(), worker()]), fi = 0;
+  }
+  function importIndents(files) {
+    var s2 = shop(); s2.indents = s2.indents || {}; indJob = { stage: 'Opening…', n: 0 }; drawSheet();
+    var P = indPrompt();
+    var take = indTake;
+    var imgs = files.filter(function (f) { return /^image\//.test(f.type); }), docs = files.filter(function (f) { return !/^image\//.test(f.type); });
+    var chain = imgs.length ? indQueueAdd(imgs).then(function () { return runIndQueue(); }) : Promise.resolve(), fi = 0;
     docs.forEach(function (f) {
       chain = chain.then(function () {
         fi++; indJob.stage = 'Reading file ' + fi + ' of ' + docs.length; drawSheet();
@@ -5858,8 +5892,8 @@
         });
       });
     });
-    if (imgs.length) stage();
-    chain.then(function () { var res = indentLinkAll(); var miss = indJob && indJob.miss; save(); indJob = null; indRes = res; drawSheet(); toast('Indents read · ' + (Object.keys(s2.indents).length - before) + ' new' + (miss ? ' · ' + miss + ' photo' + (miss > 1 ? 's' : '') + ' couldn’t be read' : '') + (res.ask ? ' · ' + res.ask + ' names to confirm' : '')); })
+    var before = Object.keys(s2.indents).length;
+    chain.then(function () { if (!docs.length) return; var res = indentLinkAll(); save(); indJob = null; indRes = res; drawSheet(); toast('Indents read · ' + (Object.keys(s2.indents).length - before) + ' new' + (res.ask ? ' · ' + res.ask + ' names to confirm' : '')); })
       .catch(function (e) { indJob = { stage: 'Couldn’t read it: ' + (e.message || e), err: true }; drawSheet(); });
   }
   var indRes = null;
@@ -5908,15 +5942,21 @@
     if (indJob) h += '<div class="' + (indJob.err ? 'notice' : 'shreading') + '">' + (indJob.err ? '' : '<span class="wpulse"></span>') + '<b>' + esc(indJob.stage) + '</b></div>';
     if (indRes && !indJob) h += '<div class="notice ok">✓ ' + indRes.linked + ' linked to your items · ' + indRes.added + ' added as new' + (indRes.ask ? ' · <b>' + indRes.ask + ' to confirm</b>' : '') + '</div>';
     if (indRes && !indJob && indRes.list && indRes.list.length) h += '<span class="cap">New stock in the indent</span><div class="stack" style="gap:8px">' + indRes.list.map(function (x, i) { var it = regItem(x.key); if (!it) return ''; return '<div class="card stack indl" style="gap:6px"><small>' + esc(x.full) + ' · ' + esc(x.ml) + ' ml</small><div class="row between" style="gap:8px"><b>→ ' + esc(it.item) + ' ' + esc(it.size) + '</b><span class="ikb ' + (x.kind === 'yours' ? 'ok' : 'lk') + '">' + (x.kind === 'yours' ? 'yours ✓' : x.kind === 'size' ? 'new size' : 'new name') + '</span></div>' + (x.kind !== 'yours' ? '<button type="button" class="link" data-indr="' + i + '" style="align-self:flex-start">✎ Rename or join another name</button>' : '') + '</div>'; }).join('') + '</div>';
+    var qn = (s2.indQueue || []).length, fn = (s2.indFailed || []).length;
+    if (qn && !indRun) h += '<button type="button" class="btn coral" id="indResume">▶ Carry on reading ' + qn + ' photo' + (qn > 1 ? 's' : '') + '</button>';
+    if (fn && !indRun) h += '<div class="notice">' + fn + ' photo' + (fn > 1 ? 's' : '') + ' couldn’t be read (the AI was busy or the photo was unclear). <button type="button" class="link" id="indRetry">Try again</button> · <button type="button" class="link" id="indDrop">Discard</button></div>';
     if ((s2.askq || []).length) h += '<button type="button" class="btn coral" data-sheet="shopsame">Confirm ' + s2.askq.length + ' name' + (s2.askq.length > 1 ? 's' : '') + ' →</button>';
-    h += '<input type="file" id="indFile" accept=".pdf,.xlsx,.xls,.csv,image/*,application/pdf" multiple hidden><button type="button" class="btn jungle" id="indUp"' + (indJob && !indJob.err ? ' disabled' : '') + '>⤒ Upload indent file' + (ids.length ? 's (adds to these)' : '') + '</button>';
+    h += '<input type="file" id="indFile" accept=".pdf,.xlsx,.xls,.csv,image/*,application/pdf" multiple hidden><button type="button" class="btn jungle" id="indUp"' + ((indJob && !indJob.err) || indRun ? ' disabled' : '') + '>⤒ Upload indent file' + (ids.length ? 's (adds to these)' : '') + '</button>';
     if (!hasAI()) h += '<div class="notice">Reading indents needs your free Gemini key (Settings → Visualization).</div>';
     var noCost = regAll().filter(function (x) { return !costFor(x.item, x.size) && (regStock()[x.key] || {}).known; }).sort(function (a, b) { return a.item.localeCompare(b.item); });
     if (noCost.length) h += '<details class="card" open><summary><b>' + noCost.length + ' item' + (noCost.length > 1 ? 's' : '') + ' in stock without a cost</b><small class="muted"> · find them in an indent, or type the rate per case</small></summary><div class="nocost">' + noCost.map(function (x) { return '<button type="button" data-ccost="' + esc(x.key) + '">' + esc(x.item) + ' <small>' + esc(x.size) + '</small></button>'; }).join('') + '</div></details>';
     if (ids.length) h += indItemsHtml();
     if (ids.length) h += '<span class="cap">Indents · newest first' + (ids.filter(function (id) { return !ind[id].date || ind[id].dateGuess; }).length ? ' · check the dates marked in colour' : '') + '</span><div class="list">' + ids.map(function (id) { return ind[id]; }).sort(function (a, b) { var ka = (a.date && !a.dateGuess ? '1' : '0') + (a.date || ''), kb = (b.date && !b.dateGuess ? '1' : '0') + (b.date || ''); if ((ka[0] === '0') !== (kb[0] === '0')) return ka[0] === '0' ? -1 : 1; return (b.date || '') < (a.date || '') ? -1 : 1; }).slice(0, 80).map(function (n) { var c = n.items.reduce(function (a, it) { return a + it.cases; }, 0); var f = tcsFactor(n); return '<button type="button" class="r" data-inddt="' + esc(Object.keys(ind).filter(function (k3) { return ind[k3] === n; })[0]) + '"><span class="t">' + esc(n.no || 'Indent') + (!n.date ? ' <b style="color:#B3372B">· date missing, tap to set</b>' : n.dateGuess ? ' <small style="color:#B07A12">· date from the photo, tap to check</small>' : '') + '<small>' + (n.date ? new Date(n.date + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short', year: 'numeric' }) + ' · ' : '') + n.items.length + ' items · ' + c + ' cases' + (f > 1 ? ' · TCS ' + ((f - 1) * 100).toFixed(2) + '% shared over the items' : ' · no TCS on it: ' + tcsPct() + '% added') + '</small></span></button>'; }).join('') + '</div>';
     return { title: 'Past indents', cap: ids.length ? ids.length + ' indents' : '', html: '<div class="stack" style="gap:12px">' + h + '</div>', bind: function (r) {
-      var f = r.querySelector('#indFile'); r.querySelector('#indUp').onclick = function () { if (!hasAI()) { toast('Add your Gemini key first'); return; } f.click(); };
+      var f = r.querySelector('#indFile'); r.querySelector('#indUp').onclick = function () { if (!hasAI()) { toast('Add your Gemini key first'); return; } if (indRun) { toast('Still reading the last photos'); return; } f.click(); };
+      var rs = r.querySelector('#indResume'); if (rs) rs.onclick = function () { runIndQueue(); };
+      var rt = r.querySelector('#indRetry'); if (rt) rt.onclick = function () { var s3 = shop(); s3.indQueue = (s3.indQueue || []).concat(s3.indFailed || []); s3.indFailed = []; s3.indTotal = s3.indQueue.length; s3.indDone = 0; save(); runIndQueue(); };
+      var dr = r.querySelector('#indDrop'); if (dr) dr.onclick = function () { var s3 = shop(); (s3.indFailed || []).forEach(function (id) { idbDel('indq-' + id).catch(function () {}); }); s3.indFailed = []; save(); drawSheet(); };
       f.onchange = function () { var fs = [].slice.call(f.files); f.value = ''; if (fs.length) importIndents(fs); };
       var iq = r.querySelector('#indQ'); if (iq) iq.addEventListener('input', function () { shopUi.indq = iq.value; var box = r.querySelector('#indItems'); box.innerHTML = indItemRows(); bindIndRows(r); });
       bindIndRows(r);
@@ -8076,7 +8116,7 @@
     if (dk) { shopRead(dk); setTimeout(function () { qBusy = false; runQueue(); }, 15000); }
     else { billRead(bk); setTimeout(function () { qBusy = false; runQueue(); }, 15000); }
   }
-  window.addEventListener('online', function () { setTimeout(runQueue, 1500); });
+  window.addEventListener('online', function () { setTimeout(runQueue, 1500); setTimeout(function () { if ((shop().indQueue || []).length && !indRun) runIndQueue(); }, 2500); });
   document.addEventListener('visibilitychange', function () { if (!document.hidden) setTimeout(runQueue, 1500); });
   setTimeout(runQueue, 3000);
   function queuedCount() { var s2 = state.shop; if (!s2) return 0; return Object.keys(s2.days || {}).filter(function (k) { return s2.days[k].status === 'queued'; }).length + Object.keys(s2.bills || {}).filter(function (id) { return s2.bills[id].status === 'queued'; }).length; }
