@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '60';
+  var APP_VERSION = '61';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -5501,6 +5501,7 @@
   }
   function missingHtml(d) {
     var m = missingToday(sp.k, d); m.miss = m.miss.filter(function (x) { return x.close != null && x.close > 0; }); if (!m.miss.length && !m.zero) return '';
+    var MF = missFix(d, sp.k); sp.mfList = MF; if (MF.length) return '<div class="misc"><b>Not on today’s sheet</b>' + MF.map(function (x, i) { return '<button type="button" class="misr mfb" data-mfl="' + i + '"><span>' + esc(x.name) + ' ' + esc(x.size) + '<small> · had ' + fmtN(x.close) + ' yesterday' + (x.r != null ? ' · looks like today’s “' + esc(d.grid[x.r][SC.item]) + ' ' + esc(d.grid[x.r][SC.size] || '') + '”' : '') + '</small></span><b>' + (x.r != null ? 'Compare ›' : 'See ›') + '</b></button>'; }).join('') + '</div>';
     var h = '<div class="misc"><b>Not on today’s sheet</b>';
     if (m.zero) h += '<span class="muted small">' + m.zero + ' item' + (m.zero > 1 ? 's' : '') + ' closed at 0 yesterday: sold out ✓ (kept in your items)</span>';
     h += m.miss.slice(0, 8).map(function (x) { return '<div class="misr"><span>' + esc(x.name) + ' ' + esc(x.size) + '<small> · ' + (x.close != null ? 'had ' + x.close + ' yesterday' : 'on yesterday’s sheet') + '</small></span><button type="button" data-madd="' + esc(x.key) + '">Add row</button><button type="button" data-mgone="' + esc(x.key) + '" class="g">Not now</button></div>'; }).join('');
@@ -5512,6 +5513,7 @@
       var none = asksShown(d).filter(function (a) { return !a.cands.length && a.raw; }); if (!confirm('Add ' + none.length + ' new items: ' + none.map(function (a) { return a.raw + ' ' + a.size; }).join(', ') + '?')) return;
       spSnap(d); none.forEach(function (a) { if ((d.ask || []).indexOf(a) >= 0) answerAsk(d, a, null, 'new'); }); save(); drawShopDay(); toast(none.length + ' new items added');
     };
+    o.querySelectorAll('[data-mfl]').forEach(function (b) { b.onclick = function () { var mx = (sp.mfList || [])[+b.dataset.mfl]; if (mx) openMfix(mx, 'sheet'); }; });
     o.querySelectorAll('[data-madd]').forEach(function (b) { b.onclick = function () {
       var m = missingToday(sp.k, d).miss.filter(function (x) { return x.key === b.dataset.madd; })[0]; if (!m) return; spSnap(d);
       var g = d.grid, nr = SHCOLS.map(function () { return ''; }); nr[SC.item] = m.name; nr[SC.size] = m.size; if (m.close != null) nr[SC.open] = String(m.close);
@@ -6248,7 +6250,7 @@
     var tm = ck.msgs.filter(function (m) { return m.r == null; });
     if (d.written && d.written.sales) { if (!tm.length) it(true, 'Amounts add up to his written total', inr(daySales(d))); else tm.forEach(function (m) { it(false, m.t, ''); }); }
     else it(true, 'Total sales ' + inr(daySales(d)), 'no written total on the sheet to compare with');
-    if (pk && !left) { var ms = missingToday(k, d); ms.miss = ms.miss.filter(function (x) { return x.close != null && x.close > 0; }); ms.miss.forEach(function (x) { it(false, x.name + ' ' + x.size + ' is missing', (x.close != null ? 'had ' + fmtN(x.close) + ' yesterday' : 'on yesterday’s sheet') + ', not on this sheet · tap to add it', 'miss'); }); if (!ms.miss.length) it(true, 'Every item from yesterday is on the sheet', ms.zero ? ms.zero + ' sold out at 0' : ''); }
+    if (pk && !left) { var MF = missFix(d, k); sp.mfList = MF; MF.forEach(function (x, i) { if (x.r != null) it(false, x.name + ' ' + x.size + ' looks like today’s “' + d.grid[x.r][SC.item] + ' ' + (d.grid[x.r][SC.size] || '') + '”', 'yesterday closed ' + fmtN(x.close) + ', that row opens with ' + fmtN(x.close) + ': named differently? · tap to compare and fix', 'mf:' + i); else it(false, x.name + ' ' + x.size + ' is missing', 'had ' + fmtN(x.close) + ' yesterday, no row today opens with ' + fmtN(x.close) + ' · tap to see it', 'mf:' + i); }); if (!MF.length) it(true, 'Every item from yesterday is on the sheet', ''); }
     if (d.written && d.written.balance) { var et = expSum(d), ex = daySales(d) - et - saveSum(d), gap = d.written.balance - ex; it(Math.abs(gap) < 1, 'Cash in hand ' + inr(d.written.balance), Math.abs(gap) < 1 ? '= sales − expenses ✓' : 'sales − expenses = ' + inr(ex) + ' · ' + (gap < 0 ? 'short ' : 'over ') + inr(Math.abs(gap))); }
     return { items: out, rows: rows, ck: ck };
   }
@@ -6267,6 +6269,7 @@
       if (a === 'nm') openNm(); else if (a === 'miss') { sp.step = 'sheet'; sp.view = 'list'; drawShopDay(); } else if (a === 'indent') { closeShopDay(); openSheet('shopindent'); }
       else if (a.indexOf('row:') === 0) openRowEd(+a.slice(4), 'open', 'check');
       else if (a.indexOf('yday:') === 0) openYday(+a.slice(5), 'check');
+      else if (a.indexOf('mf:') === 0) { var mx = (sp.mfList || [])[+a.slice(3)]; if (mx) openMfix(mx, 'check'); }
       else if (a.indexOf('link:') === 0) { var pr = a.slice(5).split('>>'); regMerge(pr[0], pr[1]); save(); toast('Linked: next time they count as one item'); drawShopDay(); }
     }; });
     o.querySelector('#ckBack').onclick = function () { if (d.learn) openNm(); else { sp.step = 'sheet'; sp.view = 'list'; drawShopDay(); } };
@@ -6788,6 +6791,54 @@
     h += '<button type="button" class="btn line" data-sheet="shopexpsum">‹ All heads</button>';
     return { title: esc(name), cap: x.save ? 'savings' : 'expense', html: '<div class="stack" style="gap:10px">' + h + '</div>', bind: function (r) { r.querySelectorAll('[data-shday]').forEach(function (b) { b.onclick = function () { var k = b.dataset.shday; openShopDay(k); sp.view = 'exp'; drawShopDay(); }; }); } };
   }
+  // ---------- v61: "missing" items that are only named differently today ----------
+  function missFix(d, k) {
+    var pk = prevDayKey(k); if (!pk) return []; var pd = shop().days[pk], g = d.grid, pg = pd.grid, m = missingToday(k, d), yk = {};
+    dataRows(pg).forEach(function (x) { if (String(pg[x][SC.item] || '').trim()) yk[dayKeyOf(pd, x)] = 1; });
+    var fresh = dataRows(g).filter(function (r) { return String(g[r][SC.item] || '').trim() && !yk[dayKeyOf(d, r)] && !(d.learn && !(d.named || {})[r]); }), used = {};
+    return m.miss.filter(function (x) { return x.close != null && x.close > 0; }).map(function (x) {
+      var yr = null; dataRows(pg).forEach(function (r) { if (yr == null && String(pg[r][SC.item] || '').trim() && dayKeyOf(pd, r) === x.key) yr = r; });
+      var best = null, bs = 0;
+      fresh.forEach(function (r) { if (used[r]) return; var o = cellVal(g, r, SC.open); if (!isNum(o) || String(g[r][SC.open]).trim() === '' || num(o) !== x.close) return;
+        var tn = String(g[r][SC.item]), ts = String(g[r][SC.size] || '').replace(/[^0-9]/g, ''), sameSz = ts === String(x.size || '').replace(/[^0-9]/g, ''), ns = Math.max(nameScore(x.name, tn), nameScore(tn, x.name)), fw = normName(x.name).split(' ')[0] === normName(tn).split(' ')[0];
+        var sc = (sameSz ? 2 : 0) + ns * 2 + (fw ? 1 : 0); if (!sameSz && ns < .4 && !fw) return; if (sc > bs) { bs = sc; best = r; } });
+      if (best != null) used[best] = 1;
+      return { key: x.key, name: x.name, size: x.size, close: x.close, pk: pk, yr: yr, r: best };
+    });
+  }
+  function mfixHtml(d) {
+    var M = sp.mf, pd = shop().days[M.pk], fd = function (k) { return new Date(k + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }); };
+    var nums = function (G, x, hi) { var v = function (c) { var s = G[x][c]; return s === '' || s == null ? '–' : esc(fmtCell(cellVal(G, x, c))); }; return '<div class="ydn">' + [['open', SC.open], ['in', SC.recv], ['sold', SC.sales], ['close', SC.close]].map(function (c) { return '<span class="' + (hi === c[1] ? 'hi ok2' : '') + '"><b>' + v(c[1]) + '</b><small>' + c[0] + '</small></span>'; }).join('') + '</div>'; };
+    var h = '<h1 class="display" style="font-size:28px;margin:0">' + (M.r != null ? 'Same item?' : 'Not on this sheet') + '</h1>';
+    if (M.yr != null) h += '<div class="card stack" style="gap:8px"><span class="cap">Yesterday · ' + fd(M.pk) + ' · row ' + (dataRows(pd.grid).indexOf(M.yr) + 1) + '</span><b style="font-size:15px">' + esc(pd.grid[M.yr][SC.item]) + ' ' + esc(pd.grid[M.yr][SC.size] || '') + '</b><div class="sqimg bw" id="mfY"><span class="muted small">Cutting the row…</span></div>' + nums(pd.grid, M.yr, SC.close) + '</div>';
+    if (M.r != null) {
+      var g = d.grid;
+      h += '<div class="card stack" style="gap:8px"><span class="cap">Today · ' + fd(sp.k) + ' · row ' + (dataRows(g).indexOf(M.r) + 1) + '</span><b style="font-size:15px">' + esc(g[M.r][SC.item]) + ' ' + esc(g[M.r][SC.size] || '') + '</b><div class="sqimg bw" id="mfT"><span class="muted small">Cutting the row…</span></div>' + nums(g, M.r, SC.open) + '</div>';
+      h += '<div class="notice ok">Yesterday closed <b>' + fmtN(num(cellVal(pd.grid, M.yr, SC.close))) + '</b> and this row opens with <b>' + fmtN(num(cellVal(g, M.r, SC.open))) + '</b>: it is most likely the same bottle, named differently on the two days.</div>';
+      h += '<button type="button" class="btn jungle" id="mfSame">Same item: call yesterday’s row “' + esc(g[M.r][SC.item]) + ' ' + esc(g[M.r][SC.size] || '') + '”</button><button type="button" class="btn line" id="mfToday">No: today’s row is wrong, fix it</button>';
+    } else h += '<div class="notice">No row on today’s sheet opens with ' + fmtN(num(cellVal(pd.grid, M.yr, SC.close))) + '. If he left it off, add it; if it was named differently, fix the name on today’s row.</div><button type="button" class="btn jungle" id="mfAdd">Add it to today’s sheet</button>';
+    h += '<button type="button" class="btn ghost small" id="mfBack">‹ Back</button>';
+    return h;
+  }
+  function bindMfix(o, d) {
+    var M = sp.mf, pd = shop().days[M.pk], q = function (x) { return o.querySelector(x); };
+    var paint = function (id, u) { var bx = q(id); if (bx) bx.innerHTML = u ? '<img alt="Row on the photo" src="' + u + '">' : '<span class="muted small">No photo for this row</span>'; };
+    if (M.yr != null) rowCrop(pd, M.yr).then(function (u) { paint('#mfY', u); }).catch(function () { paint('#mfY', null); });
+    if (M.r != null) rowCrop(d, M.r).then(function (u) { paint('#mfT', u); }).catch(function () { paint('#mfT', null); });
+    o.querySelectorAll('.sqimg').forEach(function (bx) { bx.onclick = function () { bx.classList.toggle('z'); }; });
+    var back = function () { sp.step = sp.mfBack || 'check'; if (sp.step === 'sheet') sp.view = 'list'; drawShopDay(); };
+    q('#mfBack').onclick = back;
+    var same = q('#mfSame'); if (same) same.onclick = function () {
+      var g = d.grid, key = dayKeyOf(d, M.r); pd.grid[M.yr][SC.item] = g[M.r][SC.item]; pd.grid[M.yr][SC.size] = g[M.r][SC.size]; pd.rid = pd.rid || {}; pd.rid[M.yr] = key; if (pd.learn) { pd.named = pd.named || {}; pd.named[M.yr] = 1; }
+      save(); toast('Yesterday’s row renamed: the two days now line up'); back();
+    };
+    var td = q('#mfToday'); if (td) td.onclick = function () { openNm ? (d.learn ? openNm(M.r) : openNamePick(M.r, 'sheet')) : null; };
+    var ad = q('#mfAdd'); if (ad) ad.onclick = function () {
+      var g = d.grid, nr = SHCOLS.map(function () { return ''; }); nr[SC.item] = pd.grid[M.yr][SC.item]; nr[SC.size] = pd.grid[M.yr][SC.size]; nr[SC.open] = String(num(cellVal(pd.grid, M.yr, SC.close)));
+      spSnap(d); g.splice(g.length - 1, 0, nr); if (d.ai) d.ai.splice(d.ai.length - 1, 0, SHCOLS.map(function () { return ''; })); d.grid = withTotalRow(g); var nr2 = g.length - 2; d.rid = d.rid || {}; d.rid[nr2] = M.key; if (d.learn) { d.named = d.named || {}; d.named[nr2] = 1; } save(); openRowEd(nr2, 'sales', sp.mfBack === 'sheet' ? null : 'check');
+    };
+  }
+  function openMfix(x, back) { sp.mf = x; sp.mfBack = back || 'check'; sp.step = 'mfix'; drawShopDay(); var ov = document.getElementById('overlay'); if (ov) ov.scrollTop = 0; }
   // --- the day screen: photos + sheet + close the day ---
   function openShopDay(k) {
     if (!PL) loadPL().then(function () { if (sp && sp.k === k) drawShopDay(); });
@@ -6812,6 +6863,8 @@
     if (sp.step === 'flat' || sp.step === 'rows') sp.step = 'sheet';
     if (sp.step === 'yday' && d.grid && d.grid[sp.ydr]) { o.innerHTML = h + ydayHtml(d) + '</div>'; head(); bindYday(o, d); return; }
     if (sp.step === 'yday') sp.step = 'sheet';
+    if (sp.step === 'mfix' && sp.mf && d.grid) { o.innerHTML = h + mfixHtml(d) + '</div>'; head(); bindMfix(o, d); return; }
+    if (sp.step === 'mfix') sp.step = 'sheet';
     if (sp.step === 'nm' && d.grid && d.grid[sp.nr]) { o.innerHTML = h + nmHtml(d) + '</div>'; head(); bindNm(o, d); return; }
     if (sp.step === 'nm') sp.step = 'sheet';
     if (sp.step === 'check' && d.grid) { o.innerHTML = h + checkHtml(d) + '</div>'; head(); bindCheck(o, d); o.scrollTop = 0; return; }
