@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '67';
+  var APP_VERSION = '68';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -6388,9 +6388,10 @@
     var it = function (ok, t, sub, act) { out.push({ ok: ok, t: t, sub: sub || '', act: act || '' }); };
     var nm = function (key) { var x = regItem(key); return x ? x.item + ' ' + x.size : key; };
     if (left) it(false, left + ' row' + (left > 1 ? 's' : '') + ' not named yet', 'tap to name them', 'nm');
-    var pk = prevDayKey(k), om = ck.msgs.filter(function (m) { return m.c === SC.open; });
+    var pk = prevDayKey(k), MF = pk && !left ? missFix(d, k) : [], swr = {}; MF.forEach(function (x) { if (x.swap) swr[x.r] = 1; });
+    var om = ck.msgs.filter(function (m) { return m.c === SC.open && !swr[m.r]; });
     if (!pk) it(true, 'First sheet: nothing to compare the opening with', '');
-    else if (!om.length) it(true, 'Opening = yesterday’s closing', left ? 'on the named rows' : 'every row');
+    else if (!om.length && !Object.keys(swr).length) it(true, 'Opening = yesterday’s closing', left ? 'on the named rows' : 'every row');
     else om.forEach(function (m) { it(false, m.t.replace(/ Tap the row to fix the number\./, ''), 'tap to see yesterday’s row next to today’s', 'yday:' + m.r); });
     var cm = ck.msgs.filter(function (m) { return m.c === SC.close || m.c === SC.total; });
     if (!cm.length) it(true, 'Opening + received − sold = closing', 'every row'); else cm.forEach(function (m) { it(false, m.t, 'tap to fix', 'row:' + m.r); });
@@ -6414,7 +6415,7 @@
     var tm = ck.msgs.filter(function (m) { return m.r == null; });
     if (d.written && d.written.sales) { if (!tm.length) it(true, 'Amounts add up to his written total', inr(daySales(d))); else tm.forEach(function (m) { it(false, m.t, ''); }); }
     else it(true, 'Total sales ' + inr(daySales(d)), 'no written total on the sheet to compare with');
-    if (pk && !left) { var MF = missFix(d, k); sp.mfList = MF; MF.forEach(function (x, i) { if (x.r != null) it(false, x.name + ' ' + x.size + ' looks like today’s “' + d.grid[x.r][SC.item] + ' ' + (d.grid[x.r][SC.size] || '') + '”', 'yesterday closed ' + fmtN(x.close) + ', that row opens with ' + fmtN(x.close) + ': named differently? · tap to compare and fix', 'mf:' + i); else it(false, x.name + ' ' + x.size + ' is missing', 'had ' + fmtN(x.close) + ' yesterday, no row today opens with ' + fmtN(x.close) + ' · tap to see it', 'mf:' + i); }); if (!MF.length) it(true, 'Every item from yesterday is on the sheet', ''); }
+    if (pk && !left) { sp.mfList = MF; MF.forEach(function (x, i) { if (x.swap) it(false, 'Today’s “' + d.grid[x.r][SC.item] + ' ' + (d.grid[x.r][SC.size] || '') + '” looks like ' + x.name + ' ' + x.size, 'it opens with ' + fmtN(x.close) + ' = what ' + x.name + ' ' + x.size + ' closed yesterday (' + (d.grid[x.r][SC.item] + ' ' + (d.grid[x.r][SC.size] || '')) + ' closed ' + fmtN(x.was) + ') · size mixed up? tap to compare and fix', 'mf:' + i); else if (x.r != null) it(false, x.name + ' ' + x.size + ' looks like today’s “' + d.grid[x.r][SC.item] + ' ' + (d.grid[x.r][SC.size] || '') + '”', 'yesterday closed ' + fmtN(x.close) + ', that row opens with ' + fmtN(x.close) + ': named differently? · tap to compare and fix', 'mf:' + i); else it(false, x.name + ' ' + x.size + ' is missing', 'had ' + fmtN(x.close) + ' yesterday, no row today opens with ' + fmtN(x.close) + ' · tap to see it', 'mf:' + i); }); if (!MF.length) it(true, 'Every item from yesterday is on the sheet', ''); }
     if (d.written && d.written.balance) { var et = expSum(d), ex = daySales(d) - et - saveSum(d), gap = d.written.balance - ex; it(Math.abs(gap) < 1, 'Cash in hand ' + inr(d.written.balance), Math.abs(gap) < 1 ? '= sales − expenses ✓' : 'sales − expenses = ' + inr(ex) + ' · ' + (gap < 0 ? 'short ' : 'over ') + inr(Math.abs(gap))); }
     return { items: out, rows: rows, ck: ck };
   }
@@ -6970,14 +6971,17 @@
     var pk = prevDayKey(k); if (!pk) return []; var pd = shop().days[pk], g = d.grid, pg = pd.grid, m = missingToday(k, d), yk = {};
     dataRows(pg).forEach(function (x) { if (String(pg[x][SC.item] || '').trim()) yk[dayKeyOf(pd, x)] = 1; });
     var fresh = dataRows(g).filter(function (r) { return String(g[r][SC.item] || '').trim() && !yk[dayKeyOf(d, r)] && !(d.learn && !(d.named || {})[r]); }), used = {};
+    // rows that are on yesterday's sheet but open with a different number: maybe the size (or name) was mixed up with another item
+    var pcl = {}; dataRows(pg).forEach(function (x) { if (String(pg[x][SC.item] || '').trim() && isNum(cellVal(pg, x, SC.close)) && String(pg[x][SC.close]).trim() !== '') pcl[dayKeyOf(pd, x)] = num(cellVal(pg, x, SC.close)); });
+    var wrong = {}; dataRows(g).forEach(function (r) { var kk = dayKeyOf(d, r), o = cellVal(g, r, SC.open); if (!String(g[r][SC.item] || '').trim() || !yk[kk] || pcl[kk] == null || !isNum(o) || String(g[r][SC.open]).trim() === '' || d.learn && !(d.named || {})[r]) return; if (Math.abs(num(o) - pcl[kk]) > .01) { wrong[r] = pcl[kk]; fresh.push(r); } });
     return m.miss.filter(function (x) { return x.close != null && x.close > 0; }).map(function (x) {
       var yr = null; dataRows(pg).forEach(function (r) { if (yr == null && String(pg[r][SC.item] || '').trim() && dayKeyOf(pd, r) === x.key) yr = r; });
       var best = null, bs = 0;
       fresh.forEach(function (r) { if (used[r]) return; var o = cellVal(g, r, SC.open); if (!isNum(o) || String(g[r][SC.open]).trim() === '' || num(o) !== x.close) return;
         var tn = String(g[r][SC.item]), ts = String(g[r][SC.size] || '').replace(/[^0-9]/g, ''), sameSz = ts === String(x.size || '').replace(/[^0-9]/g, ''), ns = Math.max(nameScore(x.name, tn), nameScore(tn, x.name)), fw = normName(x.name).split(' ')[0] === normName(tn).split(' ')[0];
-        var sc = (sameSz ? 2 : 0) + ns * 2 + (fw ? 1 : 0); if (!sameSz && ns < .4 && !fw) return; if (sc > bs) { bs = sc; best = r; } });
+        var sc = (sameSz ? 2 : 0) + ns * 2 + (fw ? 1 : 0) - (wrong[r] != null ? .5 : 0); if (!sameSz && ns < .4 && !fw) return; if (wrong[r] != null && ns < .6 && !fw) return; if (sc > bs) { bs = sc; best = r; } });
       if (best != null) used[best] = 1;
-      return { key: x.key, name: x.name, size: x.size, close: x.close, pk: pk, yr: yr, r: best };
+      return { key: x.key, name: x.name, size: x.size, close: x.close, pk: pk, yr: yr, r: best, swap: best != null && wrong[best] != null, was: best != null ? wrong[best] : null };
     });
   }
   function mfixHtml(d) {
@@ -6988,8 +6992,11 @@
     if (M.r != null) {
       var g = d.grid;
       h += '<div class="card stack" style="gap:8px"><span class="cap">Today · ' + fd(sp.k) + ' · row ' + (dataRows(g).indexOf(M.r) + 1) + '</span><b style="font-size:15px">' + esc(g[M.r][SC.item]) + ' ' + esc(g[M.r][SC.size] || '') + '</b><div class="sqimg bw" id="mfT"><span class="muted small">Cutting the row…</span></div>' + nums(g, M.r, SC.open) + '</div>';
+      if (M.swap) h += '<div class="notice ok">This row opens with <b>' + fmtN(num(cellVal(g, M.r, SC.open))) + '</b>, which is what <b>' + esc(M.name) + ' ' + esc(M.size) + '</b> closed yesterday. ' + esc(g[M.r][SC.item]) + ' ' + esc(g[M.r][SC.size] || '') + ' closed <b>' + fmtN(M.was) + '</b>. The size (or name) was most likely mixed up on this row.</div><button type="button" class="btn jungle" id="mfSwap">Yes: this row is ' + esc(M.name) + ' ' + esc(M.size) + '</button><button type="button" class="btn line" id="mfToday">No: fix this row myself</button>';
+      else {
       h += '<div class="notice ok">Yesterday closed <b>' + fmtN(num(cellVal(pd.grid, M.yr, SC.close))) + '</b> and this row opens with <b>' + fmtN(num(cellVal(g, M.r, SC.open))) + '</b>: it is most likely the same bottle, named differently on the two days.</div>';
       h += '<button type="button" class="btn jungle" id="mfSame">Same item: call yesterday’s row “' + esc(g[M.r][SC.item]) + ' ' + esc(g[M.r][SC.size] || '') + '”</button><button type="button" class="btn line" id="mfToday">No: today’s row is wrong, fix it</button>';
+      }
     } else h += '<div class="notice">No row on today’s sheet opens with ' + fmtN(num(cellVal(pd.grid, M.yr, SC.close))) + '. If he left it off, add it; if it was named differently, fix the name on today’s row.</div><button type="button" class="btn jungle" id="mfAdd">Add it to today’s sheet</button>';
     h += '<button type="button" class="btn ghost small" id="mfBack">‹ Back</button>';
     return h;
@@ -7005,6 +7012,10 @@
     var same = q('#mfSame'); if (same) same.onclick = function () {
       var g = d.grid, key = dayKeyOf(d, M.r); pd.grid[M.yr][SC.item] = g[M.r][SC.item]; pd.grid[M.yr][SC.size] = g[M.r][SC.size]; pd.rid = pd.rid || {}; pd.rid[M.yr] = key; if (pd.learn) { pd.named = pd.named || {}; pd.named[M.yr] = 1; }
       save(); toast('Yesterday’s row renamed: the two days now line up'); back();
+    };
+    var sw = q('#mfSwap'); if (sw) sw.onclick = function () {
+      var g = d.grid; spSnap(d); g[M.r][SC.item] = M.name; g[M.r][SC.size] = M.size; d.rid = d.rid || {}; d.rid[M.r] = M.key; if (d.learn) { d.named = d.named || {}; d.named[M.r] = 1; }
+      save(); toast('Row changed to ' + M.name + ' ' + M.size); back();
     };
     var td = q('#mfToday'); if (td) td.onclick = function () { openNm ? (d.learn ? openNm(M.r) : openNamePick(M.r, 'sheet')) : null; };
     var ad = q('#mfAdd'); if (ad) ad.onclick = function () {
