@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '76';
+  var APP_VERSION = '77';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -4974,6 +4974,7 @@
     }).join('') + '</tbody><tfoot><tr><td>Average (by sales)</td><td></td><td></td><td></td><td>' + (pr.avg == null ? '—' : pr.avg.toFixed(1) + '%') + '</td></tr></tfoot></table></div>';
     var miss = pr.rows.filter(function (x) { return x.cost == null && x.sold; }).length;
     h += '<p class="muted small">Profit % = (your rate − cost) ÷ your rate. Cost per bottle = rate per case ÷ bottles per case, plus its share of the TCS, from the KSBCL bill or indent that applied on this day. The old price list isn’t used for prices. Red = selling below cost.' + (miss ? ' ' + miss + ' item' + (miss > 1 ? 's have' : ' has') + ' no cost yet: add a bill or the price list.' : '') + '</p>';
+    h += '<button type="button" class="btn wa" id="pfShare">Send this as a picture on WhatsApp</button>';
     h += '<div class="row" style="gap:10px"><button type="button" class="btn line" id="pfBack">‹ Sheet</button><button type="button" class="btn coral" style="flex:1" id="pfNext">Close the day →</button></div>';
     return h;
   }
@@ -7211,7 +7212,7 @@
     if (sp.step === 'row' || sp.step === 'name') sp.step = 'sheet';
     if (sp.step === 'close') { o.innerHTML = h + shopCloseHtml(d) + '</div>'; head(); bindShopClose(o, d); o.scrollTop = 0; return; }
     if (sp.step === 'names') { o.innerHTML = h + namesHtml(d) + '</div>'; head(); bindNames(o, d); o.scrollTop = 0; return; }
-    if (sp.step === 'profit') { o.innerHTML = h + profitHtml(d) + '</div>'; head(); o.querySelector('#pfBack').onclick = function () { sp.step = 'sheet'; drawShopDay(); }; o.querySelector('#pfNext').onclick = function () { sp.step = 'close'; drawShopDay(); }; o.scrollTop = 0; return; }
+    if (sp.step === 'profit') { o.innerHTML = h + profitHtml(d) + '</div>'; head(); o.querySelector('#pfBack').onclick = function () { sp.step = 'sheet'; drawShopDay(); }; o.querySelector('#pfShare').onclick = function () { shareProfitSheet(sp.k); }; o.querySelector('#pfNext').onclick = function () { sp.step = 'close'; drawShopDay(); }; o.scrollTop = 0; return; }
     if (d.status === 'queued') h += '<div class="notice">📶 <b>Waiting for internet.</b> The photos are saved and are read automatically when you’re back online.</div>';
     if (d.status === 'reading') h += '<div class="shreading"><span class="wpulse"></span><b>Reading your sheet…</b><span class="muted small">' + d.photos.length + ' photo' + (d.photos.length === 1 ? '' : 's') + ' · usually 20–60 seconds</span></div>';
     h += '<div class="seg2 shseg" role="tablist">' + [['photo', 'Photo'], ['list', 'List'], ['exp', 'Expenses'], ['sheet', 'Grid']].map(function (v) { return '<button type="button" role="tab" data-spv="' + v[0] + '" aria-selected="' + (sp.view === v[0]) + '">' + v[1] + '</button>'; }).join('') + '</div>';
@@ -8656,6 +8657,54 @@
       }, 'image/png');
     });
   }
+  // ---------- v77: a second picture for WhatsApp: profit per liquor for the day ----------
+  function drawProfitSheet(k) {
+    var c = cardCfg(), s2 = shop(), d = s2.days[k], kn = c.lang === 'kn', pr = profitRows(d, k), dd = new Date(k + 'T00:00:00');
+    var rows = pr.rows.filter(function (x) { return x.sold; }).map(function (x) { x.p = x.cost != null ? (x.rate - x.cost) * x.sold : null; return x; })
+      .sort(function (a, b) { if ((a.p == null) !== (b.p == null)) return a.p == null ? 1 : -1; return (b.p || 0) - (a.p || 0) || b.sold * b.rate - a.sold * a.rate; });
+    var sales = daySales(d), prof = rows.reduce(function (a, x) { return a + (x.p || 0); }, 0), pct = pr.avg, miss = rows.filter(function (x) { return x.p == null; });
+    var W = 1080, P = 56, RH = 62, top = 470, H = top + 70 + rows.length * RH + 150 + (miss.length ? 50 : 0);
+    var cv = document.createElement('canvas'); cv.width = W; cv.height = H; var x = cv.getContext('2d');
+    var F = '"Space Grotesk", "Noto Sans Kannada", system-ui, sans-serif', blue = c.theme === 'blue';
+    var txt = function (t, X, Y, size, o) { o = o || {}; x.font = (o.w || 400) + ' ' + size + 'px ' + F; x.fillStyle = o.c || '#16302A'; x.textAlign = o.a || 'left'; if (o.max) { var s = size; while (x.measureText(t).width > o.max && s > 14) { s -= 2; x.font = (o.w || 400) + ' ' + s + 'px ' + F; } } x.fillText(t, X, Y); };
+    var rr = function (X, Y, w, h, r, f) { x.beginPath(); x.moveTo(X + r, Y); x.arcTo(X + w, Y, X + w, Y + h, r); x.arcTo(X + w, Y + h, X, Y + h, r); x.arcTo(X, Y + h, X, Y, r); x.arcTo(X, Y, X + w, Y, r); x.closePath(); x.fillStyle = f; x.fill(); };
+    x.fillStyle = '#FBF3E6'; x.fillRect(0, 0, W, H);
+    var g = x.createLinearGradient(0, 0, W, 330); g.addColorStop(0, blue ? '#1B2F5A' : '#0F4D40'); g.addColorStop(1, blue ? '#2E5296' : '#12665A'); x.fillStyle = g; x.fillRect(0, 0, W, 330);
+    txt(kn ? 'ಪ್ರತಿ ಮದ್ಯದ ಲಾಭ' : 'PROFIT BY LIQUOR', P, 82, 30, { c: 'rgba(255,255,255,.8)' });
+    txt(kn && c.knName ? c.knName : s2.name, P, 150, 58, { w: 700, c: '#fff', max: W - 2 * P });
+    txt(kn ? KN.wd[dd.getDay()] + ', ' + dd.getDate() + ' ' + KN.mo[dd.getMonth()] + ' ' + dd.getFullYear() : dd.toLocaleDateString('en', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }), P, 202, 36, { c: 'rgba(255,255,255,.85)' });
+    var tw = (W - 2 * P - 32) / 3, tiles = [[kn ? 'ಮಾರಾಟ' : 'Sales', inr(sales)], [kn ? 'ಲಾಭ' : 'Profit', inr(prof)], [kn ? 'ಲಾಭ %' : 'Profit %', pct == null ? '—' : pct.toFixed(1) + '%']];
+    tiles.forEach(function (t, i) { var X = P + i * (tw + 16); rr(X, 250, tw, 170, 26, i === 2 ? '#FFB23F' : '#fff'); txt(t[0], X + 24, 300, 30, { c: i === 2 ? '#0F4D40' : '#6F7D74' }); txt(t[1], X + 24, 380, 50, { w: 700, c: '#0F4D40', max: tw - 48 }); });
+    var cols = [[P, 'left', kn ? 'ಮದ್ಯ' : 'Liquor'], [560, 'right', kn ? 'ಮಾರಾಟ' : 'Sold'], [690, 'right', kn ? 'ದರ' : 'Rate'], [820, 'right', kn ? 'ವೆಚ್ಚ' : 'Cost'], [915, 'right', '%'], [W - P, 'right', kn ? 'ಲಾಭ' : 'Profit']];
+    var y = top + 40; cols.forEach(function (cl) { txt(cl[2], cl[0], y, 26, { w: 700, a: cl[1], c: '#6F7D74' }); }); x.fillStyle = '#d9cfbd'; x.fillRect(P, y + 18, W - 2 * P, 2); y += 30;
+    rows.forEach(function (r, i) {
+      if (i % 2 === 0) rr(P - 12, y + 4, W - 2 * P + 24, RH - 6, 12, '#fff');
+      var yy = y + RH / 2 + 12, neg = r.p != null && r.p < 0, lo = r.pct != null && r.pct < 10;
+      txt(r.name + (r.size ? ' ' + r.size : ''), P, yy, 30, { w: 600, max: 420 });
+      txt(String(r.sold), 560, yy, 30, { a: 'right' });
+      txt(r.rate ? String(Math.round(r.rate)) : '—', 690, yy, 30, { a: 'right' });
+      txt(r.cost != null ? String(Math.round(r.cost)) : '—', 820, yy, 30, { a: 'right', c: r.cost != null ? '#16302A' : '#B07A12' });
+      txt(r.pct != null ? r.pct.toFixed(0) + '%' : '—', 915, yy, 30, { a: 'right', w: 700, c: neg ? '#B3372B' : lo ? '#B07A12' : '#0F7A5A' });
+      txt(r.p != null ? (neg ? '−' : '') + inr(Math.abs(r.p)).replace('₹', '') : '—', W - P, yy, 30, { a: 'right', w: 700, c: neg ? '#B3372B' : '#16302A' });
+      y += RH;
+    });
+    x.fillStyle = '#0F4D40'; x.fillRect(P, y + 8, W - 2 * P, 3); y += 60;
+    txt(kn ? 'ಒಟ್ಟು' : 'Total', P, y, 34, { w: 700 }); txt(String(rows.reduce(function (a, r) { return a + r.sold; }, 0)), 560, y, 32, { a: 'right', w: 700 });
+    txt(pct == null ? '—' : pct.toFixed(1) + '%', 840, y, 32, { a: 'right', w: 700, c: '#0F7A5A' }); txt(inr(prof), W - P, y, 34, { a: 'right', w: 700, c: '#0F4D40' });
+    if (miss.length) { y += 48; txt((kn ? 'ವೆಚ್ಚ ಇಲ್ಲದ ' + miss.length + ' ಐಟಂಗಳು ಲಾಭದಲ್ಲಿ ಸೇರಿಲ್ಲ' : miss.length + (miss.length > 1 ? ' items with no cost yet are' : ' item with no cost yet is') + ' not in the profit: add its indent'), P, y, 26, { c: '#B07A12', max: W - 2 * P }); }
+    txt((kn ? 'ಲಾಭ % = (ದರ − ವೆಚ್ಚ) ÷ ದರ · ವೆಚ್ಚದಲ್ಲಿ TCS ಸೇರಿದೆ' : 'Profit % = (rate − cost) ÷ rate · cost includes TCS'), P, H - 36, 24, { c: '#6F7D74', max: 760 }); txt('◎ Attention', W - P, H - 36, 24, { a: 'right', c: '#6F7D74' });
+    return cv;
+  }
+  function shareProfitSheet(k) {
+    cardFonts().then(function () {
+      var cv = drawProfitSheet(k), name = shop().name.replace(/[^a-z0-9]+/gi, '-') + '-profit-' + k + '.png';
+      cv.toBlob(function (blob) {
+        var file = new File([blob], name, { type: 'image/png' });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) navigator.share({ files: [file], title: shop().name + ' profit ' + k }).catch(function () {});
+        else { var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); toast('Saved the picture: attach it in WhatsApp'); }
+      }, 'image/png');
+    });
+  }
   function shopCardSheet(k) {
     var c = cardCfg(), s2 = shop();
     var tg = function (key, lab, sub) { return '<label class="ttsw"><span><b>' + lab + '</b>' + (sub ? '<small>' + sub + '</small>' : '') + '</span><input type="checkbox" data-cc="' + key + '"' + (c[key] ? ' checked' : '') + '><i></i></label>'; };
@@ -8665,6 +8714,7 @@
     if (c.lang === 'kn') h += '<label class="lab rng">Shop name in Kannada (optional)<input class="text" id="knName" value="' + esc(c.knName || '') + '" placeholder="ಲಕ್ಷ್ಮಿ ವೈನ್ಸ್"></label>';
     h += '<img id="cardImg" class="cardimg" alt="Daily card preview">';
     h += '<button type="button" class="btn wa" id="cardGo">Share the card on WhatsApp</button>';
+    h += '<span class="cap" style="margin-top:6px">Profit by liquor · second picture</span><img id="pcImg" class="cardimg" alt="Profit by liquor preview"><button type="button" class="btn wa" id="pcGo">Share the profit sheet on WhatsApp</button>';
     h += '<details class="card"' + (s2.cardOpen ? ' open' : '') + ' id="cardOpts"><summary><b>What to show</b></summary><div class="stack" style="gap:8px;margin-top:10px">' +
       tg('sales', 'Sales', 'with the change vs the same day last week') + tg('profit', 'Profit and net', 'margin %, net after expenses (closed days)') + tg('exp', 'Expenses and cash in hand', '') + tg('trend', '7-day trend', '') + tg('top', 'Top sellers', 'top 3 items') + tg('stock', 'Stock in', 'KSBCL bills that arrived') + tg('month', 'Month so far', 'sales this month') + tg('aftertax', 'Month profit after tax', 'this month’s net − fixed costs − tax') + tg('sav', 'Savings and money left in the shop', 'this month so far: saved, by head (MCC…), and net profit − savings') +
       '<label class="brf"><span>Tax rate</span><input inputmode="decimal" data-cn="tax" value="' + c.tax + '"><small>% of profit</small></label>' +
@@ -8674,9 +8724,10 @@
     if (c.sav) h += '<div class="card stack" style="gap:6px"><span class="cap">' + new Date(k + 'T00:00:00').toLocaleDateString('en', { month: 'long' }) + ' 1–' + (+k.slice(8, 10)) + ' · starts again each month</span><div class="row between"><span>Net profit (after expenses)</span><b>' + inr(SV.net) + '</b></div>' + SV.split.map(function (z) { return '<div class="row between"><span class="muted">− saved in ' + esc(z.n) + '</span><b>' + inr(z.v) + '</b></div>'; }).join('') + (SV.left < -0.5 ? '<div class="row between" style="border-top:1px solid #eee;padding-top:6px"><span><b style="color:#B3372B">Taken from stock money</b><small class="muted" style="display:block;font-size:11px">more was saved than the profit: the extra came out of the money for the next indent</small></span><b style="font-size:17px;color:#B3372B">' + inr(-SV.left) + '</b></div>' : '<div class="row between" style="border-top:1px solid #eee;padding-top:6px"><span><b>Left in the shop</b></span><b style="font-size:17px">' + inr(SV.left) + '</b></div>') + '</div>';
     h += '<p class="muted small">Fixed monthly costs (licence fee, rent…) are spread over the days. Tax is taken off this month’s profit when it’s above zero. The TCS is already inside the bottle costs.</p>';
     return { title: 'Daily card', cap: new Date(k + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }), html: '<div class="stack" style="gap:12px">' + h + '</div>', bind: function (r) {
-      var paint = function () { cardFonts().then(function () { var im = r.querySelector('#cardImg'); if (im) im.src = drawCard(k).toDataURL('image/png'); }); };
+      var paint = function () { cardFonts().then(function () { var im = r.querySelector('#cardImg'); if (im) im.src = drawCard(k).toDataURL('image/png'); var pi = r.querySelector('#pcImg'); if (pi) pi.src = drawProfitSheet(k).toDataURL('image/png'); }); };
       paint();
       r.querySelector('#cardGo').onclick = function () { shareCard(k); };
+      r.querySelector('#pcGo').onclick = function () { shareProfitSheet(k); };
       var cdy = r.querySelector('#cardDay'); if (cdy) cdy.onchange = function () { openSheet('shopcard:' + cdy.value); };
       r.querySelectorAll('[data-clang]').forEach(function (b) { b.onclick = function () { c.lang = b.dataset.clang; save(); drawSheet(); }; });
       var kn2 = r.querySelector('#knName'); if (kn2) kn2.onchange = function () { c.knName = kn2.value.trim(); save(); paint(); };
