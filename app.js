@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '70';
+  var APP_VERSION = '71';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -4444,13 +4444,18 @@
     shopMonthDays(m).forEach(function (k) { var d = shop().days[k]; if (d.status !== 'closed') return; t.n++; t.sales += d.sales || 0; t.profit += d.profit || 0; t.exp += d.expTotal || 0; t.net += d.net || 0; t.cash += d.cash || 0; });
     return t;
   }
+  // savings (bank, money put aside): this month and till date, on the shop's front page
+  function savStrip(m) {
+    var s2 = shop(), mo = 0, all = 0; Object.keys(s2.days).forEach(function (k) { var v = saveSum(s2.days[k]); all += v; if (k.slice(0, 7) === m) mo += v; });
+    return '<button type="button" class="savst" data-sheet="shopexpsum"><span>🏦 Savings</span><b>' + inrK(mo) + '<small> this month</small></b><b>' + inrK(all) + '<small> till date</small></b><span>›</span></button>';
+  }
   function renderShop() {
     try { var s0 = shop(); if (!s0.billsMirrored || !s0.billRowsCleaned) { mirrorAllBills(); cleanBillRows(); save(); } if ((s0.indQueue || []).length && !indRun && hasAI() && navigator.onLine) setTimeout(function () { toast('Carrying on reading ' + s0.indQueue.length + ' indent photos'); runIndQueue(); }, 1500); } catch (e) {}
     var s2 = shop(), tk = dkey(new Date()), m = shopUi.month || tk.slice(0, 7), mt = monthTotals(m), md = new Date(m + '-01T00:00:00');
     var h = '<div class="stack">' + topbar(esc(s2.name));
     h += '<div class="hero" style="background:' + T.jungle + ';color:#fff;gap:10px">' + sun(T.mango, 120, -34, -44) +
       '<div class="row between"><span class="cap">' + md.toLocaleDateString('en', { month: 'long', year: 'numeric' }) + ' · ' + mt.n + ' day' + (mt.n === 1 ? '' : 's') + ' closed</span><span class="row" style="gap:4px"><button type="button" class="nib sm shm" data-shm="-1" aria-label="Previous month">‹</button><button type="button" class="nib sm shm" data-shm="1" aria-label="Next month">›</button></span></div>' +
-      '<div class="shtiles">' + [[inrK(mt.sales), 'sales'], [inrK(mt.profit), 'profit'], [inrK(mt.exp), 'expenses'], [inrK(mt.net), 'net']].map(function (x) { return '<div><b class="display">' + x[0] + '</b><small>' + x[1] + '</small></div>'; }).join('') + '</div></div>';
+      '<div class="shtiles">' + [[inrK(mt.sales), 'sales'], [inrK(mt.profit), 'profit'], [inrK(mt.exp), 'expenses'], [inrK(mt.net), 'net']].map(function (x) { return '<div><b class="display">' + x[0] + '</b><small>' + x[1] + '</small></div>'; }).join('') + '</div>' + savStrip(m) + '</div>';
     if (queuedCount()) h += '<div class="notice">📶 ' + queuedCount() + ' photo set' + (queuedCount() > 1 ? 's' : '') + ' waiting for internet. They’re read automatically when you’re back online.</div>';
     h += '<div class="shbtns"><button type="button" class="btn coral" id="shAdd">📷 Sales sheet</button><button type="button" class="btn jungle" id="shBill">📦 Stock in (bill)</button></div>';
     h += '<input type="file" id="shFile" accept="image/*" multiple hidden><input type="file" id="shBillFile" accept="image/*" multiple hidden>';
