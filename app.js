@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '71';
+  var APP_VERSION = '72';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -8471,7 +8471,7 @@
   // ---------- daily card: one picture for stakeholders on WhatsApp ----------
   function cardCfg() {
     var s2 = shop(), c = s2.card = s2.card || {};
-    var def = { sales: true, profit: true, exp: false, trend: true, top: true, stock: true, month: true, aftertax: true, tax: 30, fixed: 0, theme: 'green', lang: 'en', knName: '' };
+    var def = { sales: true, profit: true, exp: false, trend: true, top: true, stock: true, month: true, aftertax: true, sav: true, tax: 30, fixed: 0, theme: 'green', lang: 'en', knName: '' };
     Object.keys(def).forEach(function (k) { if (c[k] == null) c[k] = def[k]; });
     return c;
   }
@@ -8490,6 +8490,13 @@
     var fixed = num(c.fixed) * Math.min(1, day / dim), pre = net - fixed, tax = pre > 0 ? pre * num(c.tax) / 100 : 0;
     return { sales: sales, net: net, fixed: fixed, pre: pre, tax: tax, after: pre - tax, n: n };
   }
+  // this month up to a day: what went to savings (by head) and the profit left in the shop after expenses and savings
+  function monthSav(k) {
+    var s2 = shop(), m = k.slice(0, 7), by = {}, tot = 0, net = 0, n = 0;
+    Object.keys(s2.days).forEach(function (x) { if (x.slice(0, 7) !== m || x > k) return; var d = s2.days[x]; if (d.status === 'closed') { net += d.net || 0; n++; } (d.exp || []).forEach(function (e) { if (!isSave(e) || !num(e.v)) return; var h = headOf(e.t), nm = h ? h.n : (String(e.t || '').trim() || 'Savings'); by[nm] = (by[nm] || 0) + num(e.v); tot += num(e.v); }); });
+    var split = Object.keys(by).sort(function (a, b) { return by[b] - by[a]; }).map(function (x) { return { n: x, v: by[x] }; });
+    return { tot: tot, split: split, net: net, left: net - tot, n: n, from: m + '-01', to: k };
+  }
   function cardData(k) {
     var s2 = shop(), d = s2.days[k], sales = daySalesOf(d) || 0;
     var wk = dkey(new Date(new Date(k + 'T00:00:00').getTime() - 7 * 864e5)), prev = daySalesOf(s2.days[wk]);
@@ -8498,10 +8505,10 @@
     var bl = Object.keys(bills()).map(function (id) { return s2.bills[id]; }).filter(function (b) { return b.applied === k; });
     var cases = 0, first = ''; bl.forEach(function (b) { b.items.forEach(function (it) { cases += it.cases; if (!first) first = shortBillName(it.name) + ' ' + it.ml; }); });
     var et = expSum(d);
-    return { k: k, name: s2.name, sales: sales, chg: prev ? (sales - prev) / prev * 100 : null, closed: d.status === 'closed', net: d.net, pct: d.pct, exp: et, cash: sales - et, trend: trend, top: top, cases: cases, first: first, mon: monthAfterTax(k) };
+    return { k: k, name: s2.name, sales: sales, chg: prev ? (sales - prev) / prev * 100 : null, closed: d.status === 'closed', net: d.net, pct: d.pct, exp: et, cash: sales - et, trend: trend, top: top, cases: cases, first: first, mon: monthAfterTax(k), sav: monthSav(k) };
   }
   function drawCard(k) {
-    var c = cardCfg(), D = cardData(k), W = 1080, H = 1350, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    var c = cardCfg(), D = cardData(k), showSav = c.sav && (D.sav.tot || D.sav.n), W = 1080, H = 1350 + (showSav ? 250 : 0), cv = document.createElement('canvas'); cv.width = W; cv.height = H;
     var x = cv.getContext('2d'), kn = c.lang === 'kn', F = '"Space Grotesk", "Noto Sans Kannada", system-ui, sans-serif', M = kn ? F : '"Space Mono", monospace', Wd = cardWords(kn, new Date(k + 'T00:00:00'));
     var blue = c.theme === 'blue', g = x.createLinearGradient(0, 0, W * .6, H);
     g.addColorStop(0, blue ? '#1B2F5A' : '#0F4D40'); g.addColorStop(.65, blue ? '#24407A' : '#12665A'); g.addColorStop(1, blue ? '#2E5296' : '#12A39A');
@@ -8537,6 +8544,16 @@
     rows.forEach(function (r) { txt(r[0], P, y + 38, 32, { c: 'rgba(255,255,255,.8)' }); txt(r[1], W - P, y + 38, 32, { w: 700, a: 'right', max: 600 }); x.fillStyle = 'rgba(255,255,255,.16)'; x.fillRect(P, y + 60, W - 2 * P, 2); y += 76; });
     if (c.top && D.top.length) { y += 10; txt(Wd.top, P, y + 30, 28, { c: 'rgba(255,255,255,.75)' }); txt(D.top.map(function (t) { return t.n + ' · ' + t.q; }).join('    '), P, y + 76, 32, { w: 600, max: W - 2 * P }); y += 110; }
     var by = H - 90;
+    if (showSav) {
+      var S = D.sav, sh = 230, st = by - sh - 20 - (c.aftertax && D.mon.n ? 170 : 0), mN = new Date(k + 'T00:00:00').toLocaleDateString('en', { month: 'long' });
+      rr(P, st, W - 2 * P, sh, 30, 'rgba(255,255,255,.15)');
+      txt(kn ? KN.mo[+k.slice(5, 7) - 1] + ' ಇಲ್ಲಿಯವರೆಗೆ · ಉಳಿತಾಯ' : mN + ' so far · savings', P + 32, st + 56, 30, { c: 'rgba(255,255,255,.85)', max: 560 });
+      txt(inr(S.tot), P + 32, st + 124, 56, { w: 700, max: 470 });
+      txt(S.split.length ? S.split.slice(0, 3).map(function (z) { return z.n + ' ' + inrK(z.v); }).join(' · ') + (S.split.length > 3 ? ' · +' + (S.split.length - 3) : '') : (kn ? 'ಈ ತಿಂಗಳು ಇನ್ನೂ ಇಲ್ಲ' : 'nothing saved yet this month'), P + 32, st + 178, 26, { c: 'rgba(255,255,255,.7)', max: 500 });
+      txt(kn ? 'ಅಂಗಡಿಯಲ್ಲಿ ಉಳಿದ ಲಾಭ' : 'Left in the shop', W - P - 32, st + 56, 28, { c: 'rgba(255,255,255,.85)', a: 'right', max: 380 });
+      txt(inr(S.left), W - P - 32, st + 124, 56, { w: 700, a: 'right', c: S.left < 0 ? '#FFC2B8' : '#FFD27A', max: 380 });
+      txt((kn ? 'ಲಾಭ ' : 'net profit ') + inrK(S.net) + ' − ' + (kn ? 'ಉಳಿತಾಯ ' : 'saved ') + inrK(S.tot), W - P - 32, st + 178, 24, { c: 'rgba(255,255,255,.65)', a: 'right', max: 380 });
+    }
     if (c.aftertax && D.mon.n) {
       var bh = 150, bt = by - bh - 20; rr(P, bt, W - 2 * P, bh, 30, 'rgba(255,255,255,.15)');
       txt(Wd.after, P + 32, bt + 60, 30, { c: 'rgba(255,255,255,.85)', max: 560 });
@@ -8568,10 +8585,12 @@
     h += '<img id="cardImg" class="cardimg" alt="Daily card preview">';
     h += '<button type="button" class="btn wa" id="cardGo">Share the card on WhatsApp</button>';
     h += '<details class="card"' + (s2.cardOpen ? ' open' : '') + ' id="cardOpts"><summary><b>What to show</b></summary><div class="stack" style="gap:8px;margin-top:10px">' +
-      tg('sales', 'Sales', 'with the change vs the same day last week') + tg('profit', 'Profit and net', 'margin %, net after expenses (closed days)') + tg('exp', 'Expenses and cash in hand', '') + tg('trend', '7-day trend', '') + tg('top', 'Top sellers', 'top 3 items') + tg('stock', 'Stock in', 'KSBCL bills that arrived') + tg('month', 'Month so far', 'sales this month') + tg('aftertax', 'Month profit after tax', 'this month’s net − fixed costs − tax') +
+      tg('sales', 'Sales', 'with the change vs the same day last week') + tg('profit', 'Profit and net', 'margin %, net after expenses (closed days)') + tg('exp', 'Expenses and cash in hand', '') + tg('trend', '7-day trend', '') + tg('top', 'Top sellers', 'top 3 items') + tg('stock', 'Stock in', 'KSBCL bills that arrived') + tg('month', 'Month so far', 'sales this month') + tg('aftertax', 'Month profit after tax', 'this month’s net − fixed costs − tax') + tg('sav', 'Savings and money left in the shop', 'this month so far: saved, by head (MCC…), and net profit − savings') +
       '<label class="brf"><span>Tax rate</span><input inputmode="decimal" data-cn="tax" value="' + c.tax + '"><small>% of profit</small></label>' +
       '<label class="brf"><span>Fixed monthly costs</span><input inputmode="decimal" data-cn="fixed" value="' + (c.fixed || 0) + '"><small>₹ a month</small></label>' +
       '<div class="row" style="gap:6px">' + [['green', 'Green'], ['blue', 'Blue']].map(function (t) { return '<button type="button" class="mschip sm' + (c.theme === t[0] ? ' on' : '') + '" data-cth="' + t[0] + '">' + t[1] + '</button>'; }).join('') + '</div></div></details>';
+    var SV = monthSav(k);
+    if (c.sav) h += '<div class="card stack" style="gap:6px"><span class="cap">' + new Date(k + 'T00:00:00').toLocaleDateString('en', { month: 'long' }) + ' 1–' + (+k.slice(8, 10)) + ' · starts again each month</span><div class="row between"><span>Net profit (after expenses)</span><b>' + inr(SV.net) + '</b></div>' + SV.split.map(function (z) { return '<div class="row between"><span class="muted">− saved in ' + esc(z.n) + '</span><b>' + inr(z.v) + '</b></div>'; }).join('') + '<div class="row between" style="border-top:1px solid #eee;padding-top:6px"><span><b>Left in the shop</b></span><b style="font-size:17px">' + inr(SV.left) + '</b></div></div>';
     h += '<p class="muted small">Fixed monthly costs (licence fee, rent…) are spread over the days. Tax is taken off this month’s profit when it’s above zero. The TCS is already inside the bottle costs.</p>';
     return { title: 'Daily card', cap: new Date(k + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }), html: '<div class="stack" style="gap:12px">' + h + '</div>', bind: function (r) {
       var paint = function () { cardFonts().then(function () { var im = r.querySelector('#cardImg'); if (im) im.src = drawCard(k).toDataURL('image/png'); }); };
