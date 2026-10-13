@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '68';
+  var APP_VERSION = '70';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -5633,7 +5633,7 @@
     var xs = q('#exSum'); if (xs) xs.onclick = function () { closeShopDay(); openSheet('shopexpsum'); };
     o.querySelectorAll('[data-exh]').forEach(function (el) { el.onchange = function () {
       var e = exp[+el.dataset.exh], v = el.value, s2 = shop(); if (!e) return;
-      if (v === '__new') { var nn = prompt('Name of the new head (e.g. Van, Generator diesel):', e.raw || ''); if (!nn || !nn.trim()) { drawShopDay(); return; } nn = titleCase(nn.trim()); var sv = confirm('Is “' + nn + '” savings (money put aside), not an expense?\n\nOK = savings · Cancel = expense'); if (!headOf(nn)) heads().push({ n: nn, k: sv ? 'save' : 'exp' }); v = nn; }
+      if (v === '__new') { var nn = prompt('Name of the new head (e.g. Van, Generator diesel):', e.raw || ''); if (!nn || !nn.trim()) { drawShopDay(); return; } nn = titleCase(nn.trim()); var sv = confirm('Is “' + nn + '” savings (money put aside), not an expense?\n\nOK = savings · Cancel = expense'); var ex0 = headOf(nn); if (!ex0) heads().push({ n: nn, k: sv ? 'save' : 'exp' }); else { ex0.k = sv ? 'save' : 'exp'; nn = ex0.n; reExpDays(); } v = nn; }
       var raw = e.raw || (headOf(e.t) ? '' : e.t); e.t = v; if (raw && normName(raw) !== normName(v)) { heads(); s2.headAlias[normName(raw)] = v; e.raw = raw; }
       save(); drawShopDay();
     }; });
@@ -6388,6 +6388,7 @@
     var it = function (ok, t, sub, act) { out.push({ ok: ok, t: t, sub: sub || '', act: act || '' }); };
     var nm = function (key) { var x = regItem(key); return x ? x.item + ' ' + x.size : key; };
     if (left) it(false, left + ' row' + (left > 1 ? 's' : '') + ' not named yet', 'tap to name them', 'nm');
+    var GP = gapsOf(d); sp.gapList = GP; GP.forEach(function (G, i) { it(false, 'A row on the photo wasn’t read', 'between “' + gapLbl(d, G.before).trim() + '” and “' + gapLbl(d, G.after).trim() + '” · tap to see it and add it', 'gap:' + i); });
     var pk = prevDayKey(k), MF = pk && !left ? missFix(d, k) : [], swr = {}; MF.forEach(function (x) { if (x.swap) swr[x.r] = 1; });
     var om = ck.msgs.filter(function (m) { return m.c === SC.open && !swr[m.r]; });
     if (!pk) it(true, 'First sheet: nothing to compare the opening with', '');
@@ -6434,6 +6435,7 @@
       if (a === 'nm') openNm(); else if (a === 'miss') { sp.step = 'sheet'; sp.view = 'list'; drawShopDay(); } else if (a === 'indent') { closeShopDay(); openSheet('shopindent'); }
       else if (a.indexOf('row:') === 0) openRowEd(+a.slice(4), 'open', 'check');
       else if (a.indexOf('yday:') === 0) openYday(+a.slice(5), 'check');
+      else if (a.indexOf('gap:') === 0) { var gx = (sp.gapList || [])[+a.slice(4)]; if (gx) { sp.gap = gx; sp.step = 'gap'; drawShopDay(); var ov = document.getElementById('overlay'); if (ov) ov.scrollTop = 0; } }
       else if (a.indexOf('mf:') === 0) { var mx = (sp.mfList || [])[+a.slice(3)]; if (mx) openMfix(mx, 'check'); }
       else if (a.indexOf('link:') === 0) { var pr = a.slice(5).split('>>'); regMerge(pr[0], pr[1]); save(); toast('Linked: next time they count as one item'); drawShopDay(); }
     }; });
@@ -6567,8 +6569,9 @@
       i = N; j = M;
       while (i > 0 && j >= 0) { if (j === 0) { i--; continue; } var t = T[i][j]; if (t === 0) { if (cost(i - 1, j - 1) < 1.2) d.rband[R[i - 1].r] = { p: +p, i: j - 1 }; i--; j--; } else if (t === 1) i--; else j--; }
     });
+    Object.keys(d.gapRows || {}).forEach(function (r) { if (d.grid[r]) d.rband[r] = d.gapRows[r]; });
   }
-  function bandOf(d, r) { var rb = d.rband && d.rband[r]; if (!rb) return null; var sc = d.scan && d.scan[d.photos[rb.p]]; if (!sc || !sc.bands[rb.i]) return null; return { p: rb.p, sc: sc, t: sc.bands[rb.i][0], b: sc.bands[rb.i][1] }; }
+  function bandOf(d, r) { var rb = typeof r === 'object' ? r : d.rband && d.rband[r]; if (!rb) return null; var sc = d.scan && d.scan[d.photos[rb.p]]; if (!sc || !sc.bands[rb.i]) return null; return { p: rb.p, sc: sc, t: sc.bands[rb.i][0], b: sc.bands[rb.i][1] }; }
   function bandPoly(d, r) {
     var B = bandOf(d, r); if (!B) return null; var top = [], bot = [], y0 = 1, y1 = 0;
     for (var x = 0; x <= 1.0001; x += .05) { var a = lineY(B.sc, B.t, x), b = lineY(B.sc, B.b, x); top.push([x, a]); bot.unshift([x, b]); y0 = Math.min(y0, a); y1 = Math.max(y1, b); }
@@ -6958,13 +6961,16 @@
     h += '<p class="muted small">From every day’s Expenses tab. Savings are kept out of the expenses and the net profit, but they come out of the cash in hand. Tap a head to see each entry.</p>';
     return { title: 'Expenses by head', cap: 'till date', html: '<div class="stack" style="gap:10px">' + h + '</div>', bind: function () {} };
   }
+  // a head moved between expense and savings: the closed days' expenses, net and cash follow
+  function reExpDays() { var s2 = shop(); Object.keys(s2.days).forEach(function (k) { var d = s2.days[k]; if (d.status !== 'closed') return; var et = expSum(d); d.expTotal = et; if (d.profit != null) d.net = d.profit - et; if (d.sales != null) d.cash = d.sales - et - saveSum(d); }); }
   function shopExpHeadSheet(name) {
     var x = expTotals().filter(function (t) { return t.n === name; })[0], fk = function (k) { return new Date(k + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short', year: '2-digit' }); };
     if (!x) return { title: esc(name), cap: '', html: '<p class="muted">No entries.</p>', bind: function () {} };
     var h = '<div class="shtiles ttq"><div><b class="display">' + inr(x.all) + '</b><small>till date</small></div><div><b class="display">' + inr(x.month) + '</b><small>this month</small></div><div><b class="display">' + x.cnt + '</b><small>entries</small></div></div>';
     h += '<div class="list">' + x.list.slice().reverse().map(function (e) { return '<button type="button" class="r" data-shday="' + e.k + '"><span class="t">' + fk(e.k) + (e.raw && normName(e.raw) !== normName(name) ? '<small>written as “' + esc(e.raw) + '”</small>' : '') + '</span><span class="v">' + inr(e.v) + '</span></button>'; }).join('') + '</div>';
+    h += '<div class="notice' + (x.save ? ' ok' : '') + '">' + (x.save ? '<b>Savings:</b> money put aside (like a bank). Not counted as an expense or taken off the profit, only off the cash in hand.' : '<b>Expense:</b> taken off the day’s profit.') + '</div><button type="button" class="btn ' + (x.save ? 'line' : 'jungle') + '" id="hdKind">' + (x.save ? 'It’s an expense, not savings' : 'It’s savings (a bank, money put aside): move to Savings') + '</button>';
     h += '<button type="button" class="btn line" data-sheet="shopexpsum">‹ All heads</button>';
-    return { title: esc(name), cap: x.save ? 'savings' : 'expense', html: '<div class="stack" style="gap:10px">' + h + '</div>', bind: function (r) { r.querySelectorAll('[data-shday]').forEach(function (b) { b.onclick = function () { var k = b.dataset.shday; openShopDay(k); sp.view = 'exp'; drawShopDay(); }; }); } };
+    return { title: esc(name), cap: x.save ? 'savings' : 'expense', html: '<div class="stack" style="gap:10px">' + h + '</div>', bind: function (r) { var hk = r.querySelector('#hdKind'); if (hk) hk.onclick = function () { var H = heads(), hd = headOf(name); if (!hd) { hd = { n: name, k: 'exp' }; H.push(hd); } hd.k = x.save ? 'exp' : 'save'; reExpDays(); save(); drawSheet(); toast(name + (hd.k === 'save' ? ' is now savings: profits recalculated' : ' is now an expense')); }; r.querySelectorAll('[data-shday]').forEach(function (b) { b.onclick = function () { var k = b.dataset.shday; openShopDay(k); sp.view = 'exp'; drawShopDay(); }; }); } };
   }
   // ---------- v61: "missing" items that are only named differently today ----------
   function missFix(d, k) {
@@ -6983,6 +6989,71 @@
       if (best != null) used[best] = 1;
       return { key: x.key, name: x.name, size: x.size, close: x.close, pk: pk, yr: yr, r: best, swap: best != null && wrong[best] != null, was: best != null ? wrong[best] : null };
     });
+  }
+  // ---- v69: a printed row on the photo that the reading skipped (no row was pinned to it) ----
+  function gapsOf(d) {
+    if (!d.scan || !d.rband || !d.photos || !d.grid) return [];
+    var by = {}, out = [], ok = d.gapOk || {};
+    dataRows(d.grid).forEach(function (r) { var rb = d.rband[r]; if (rb) (by[rb.p] = by[rb.p] || []).push({ r: r, i: rb.i }); });
+    Object.keys(by).forEach(function (p) {
+      var sc = d.scan[d.photos[+p]]; if (!sc || !sc.bands) return; var L = by[p].sort(function (a, b) { return a.i - b.i; }), used = {}, g = [];
+      L.forEach(function (x) { used[x.i] = 1; });
+      for (var j = L[0].i + 1; j < L[L.length - 1].i; j++) {
+        if (used[j] || ok[p + ':' + j]) continue; var bd = sc.bands[j]; if (!bd) continue;
+        var hgt = lineY(sc, bd[1], .5) - lineY(sc, bd[0], .5); if (sc.sp && hgt < sc.sp * .6) continue;
+        var before = null, after = null; L.forEach(function (x) { if (x.i < j) before = x.r; else if (after == null && x.i > j) after = x.r; });
+        g.push({ p: +p, i: j, before: before, after: after, n: j - L[0].i });
+      }
+      if (g.length <= 6) out = out.concat(g);
+    });
+    return out;
+  }
+  function gapLbl(d, r) { var g = d.grid; return r == null ? '' : String(g[r][SC.item] || '') + ' ' + String(g[r][SC.size] || ''); }
+  // the row above with a name (rows with only a size carry the brand from above)
+  function gapGuess(d, G, k) {
+    var g = d.grid, nm = G.before != null ? String(g[G.before][SC.item] || '') : '', MF = missFix(d, k).filter(function (x) { return x.r == null; });
+    var m = MF.filter(function (x) { return nm && normName(x.name).split(' ')[0] === normName(nm).split(' ')[0]; })[0] || (MF.length === 1 ? MF[0] : null);
+    return { name: m ? m.name : nm, size: m ? m.size : '', key: m ? m.key : null, open: m ? m.close : null };
+  }
+  function gapHtml(d) {
+    var G = sp.gap, h = '<h1 class="display" style="font-size:28px;margin:0">A row the reading skipped</h1>';
+    h += '<div class="card stack" style="gap:8px"><span class="cap">On the photo · between “' + esc(gapLbl(d, G.before)) + '” and “' + esc(gapLbl(d, G.after)) + '”</span><div class="sqimg bw" id="gpImg"><span class="muted small">Cutting the row…</span></div></div>';
+    var gu = gapGuess(d, G, sp.k);
+    if (gu.key) h += '<div class="notice ok"><b>' + esc(gu.name) + ' ' + esc(gu.size) + '</b> is not on today’s list and closed <b>' + fmtN(gu.open) + '</b> yesterday: this is most likely its row.</div>';
+    h += '<div class="notice">There is writing on this line of the sheet, but no row was read from it. Add it so the stock and the sales total are right.</div>';
+    if (hasAI()) h += '<button type="button" class="btn jungle" id="gpRead">Read this row from the photo</button>';
+    h += '<button type="button" class="btn line" id="gpType">Type it in myself' + (gu.name ? ' (' + esc(gu.name + (gu.size ? ' ' + gu.size : '')) + ')' : '') + '</button>';
+    h += '<button type="button" class="btn line" id="gpNo">It’s not a row (blank or crossed out)</button><button type="button" class="btn ghost small" id="gpBack">‹ Back</button>';
+    return h;
+  }
+  function bindGap(o, d) {
+    var G = sp.gap, q = function (x) { return o.querySelector(x); }, crop = null;
+    bandCrop(d, { p: G.p, i: G.i }).then(function (u) { crop = u; var bx = q('#gpImg'); if (bx) bx.innerHTML = u ? '<img alt="Row on the photo" src="' + u + '">' : '<span class="muted small">No photo for this row</span>'; });
+    o.querySelectorAll('.sqimg').forEach(function (bx) { bx.onclick = function () { bx.classList.toggle('z'); }; });
+    var back = function () { sp.step = 'check'; drawShopDay(); };
+    q('#gpBack').onclick = back;
+    q('#gpNo').onclick = function () { d.gapOk = d.gapOk || {}; d.gapOk[G.p + ':' + G.i] = 1; save(); toast('Marked as not a row'); back(); };
+    var add = function (v) {
+      var g = d.grid, gu = gapGuess(d, G, sp.k), nr = SHCOLS.map(function () { return ''; });
+      var nm = String(v.name || '').trim(), sz = String(v.size || '').replace(/[^0-9]/g, '');
+      if (!nm) nm = gu.name; if (!sz) sz = gu.size;
+      if (gu.key && normName(nm).split(' ')[0] === normName(gu.name).split(' ')[0] && (!sz || sz === String(gu.size).replace(/[^0-9]/g, ''))) { nm = gu.name; sz = gu.size; }
+      nr[SC.item] = nm; nr[SC.size] = sz; [['open', SC.open], ['recv', SC.recv], ['sales', SC.sales], ['rate', SC.rate], ['amt', SC.amt], ['close', SC.close]].forEach(function (c) { var x = v[c[0]]; if (x != null && String(x).trim() !== '' && isNum(x)) nr[c[1]] = String(num(x)); });
+      if (nr[SC.open] === '' && gu.open != null && nm === gu.name) nr[SC.open] = String(gu.open);
+      spSnap(d); g.splice(g.length - 1, 0, nr); if (d.ai) d.ai.splice(d.ai.length - 1, 0, SHCOLS.map(function () { return ''; })); d.grid = withTotalRow(g);
+      var r = g.length - 2; d.rid = d.rid || {}; var key = gu.key && nm === gu.name && sz === gu.size ? gu.key : regKey(nm, sz); if (regItem(key)) d.rid[r] = key;
+      if (d.learn) { d.named = d.named || {}; d.named[r] = 1; }
+      d.rband = d.rband || {}; d.rband[r] = { p: G.p, i: G.i }; d.gapRows = d.gapRows || {}; d.gapRows[r] = { p: G.p, i: G.i };
+      save(); openRowEd(r, nr[SC.sales] === '' ? 'sales' : 'open', 'check');
+    };
+    q('#gpType').onclick = function () { add({}); };
+    var rd = q('#gpRead'); if (rd) rd.onclick = function () {
+      rd.disabled = true; rd.textContent = 'Reading…';
+      var go = crop ? Promise.resolve(crop) : bandCrop(d, { p: G.p, i: G.i });
+      go.then(function (u) { if (!u) throw new Error('no photo'); return geminiImages('This image is ONE row cut from a handwritten liquor shop "Stock & Sales" sheet. Columns from left to right: Sl. No., Type of Liquor (name), size in ml, Opening Balance, Stock Received, Total, Sales, Rate, Amount (Rs.), Closing Balance. A row may have only a size and no name (it is the same brand as the row above: “' + gapLbl(d, G.before) + '”). Reply JSON only: {"name": the written name or "" if none, "size": ml digits, "open": "", "recv": "", "sales": "", "rate": "", "amt": "", "close": ""} using digits as written, "" for blank or dashes.', [u], .1); })
+        .then(function (v) { toast('Read: check the numbers against the photo'); add(v || {}); })
+        .catch(function (e) { rd.disabled = false; rd.textContent = 'Read this row from the photo'; toast('Couldn’t read it: ' + (e.message || 'failed') + ' · type it in instead'); });
+    };
   }
   function mfixHtml(d) {
     var M = sp.mf, pd = shop().days[M.pk], fd = function (k) { return new Date(k + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }); };
@@ -7050,6 +7121,8 @@
     if (sp.step === 'yday') sp.step = 'sheet';
     if (sp.step === 'mfix' && sp.mf && d.grid) { o.innerHTML = h + mfixHtml(d) + '</div>'; head(); bindMfix(o, d); return; }
     if (sp.step === 'mfix') sp.step = 'sheet';
+    if (sp.step === 'gap' && sp.gap && d.grid) { o.innerHTML = h + gapHtml(d) + '</div>'; head(); bindGap(o, d); return; }
+    if (sp.step === 'gap') sp.step = 'sheet';
     if (sp.step === 'nm' && d.grid && d.grid[sp.nr]) { o.innerHTML = h + nmHtml(d) + '</div>'; head(); bindNm(o, d); return; }
     if (sp.step === 'nm') sp.step = 'sheet';
     if (sp.step === 'check' && d.grid) { o.innerHTML = h + checkHtml(d) + '</div>'; head(); bindCheck(o, d); o.scrollTop = 0; return; }
