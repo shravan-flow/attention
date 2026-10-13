@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '72';
+  var APP_VERSION = '73';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -3114,6 +3114,8 @@
       case 'shopdupes': return shopDupesSheet();
       case 'shopfresh': return shopFreshSheet();
       case 'shopexpsum': return shopExpSumSheet();
+      case 'shopcash': return shopCashSheet();
+      case 'shopindpay': return shopIndPaySheet(arg);
       case 'shopexphead': return shopExpHeadSheet(arg);
       case 'shopnames': return shopNamesSheet();
       case 'shopname': return shopNameSheet(arg);
@@ -4447,7 +4449,11 @@
   // savings (bank, money put aside): this month and till date, on the shop's front page
   function savStrip(m) {
     var s2 = shop(), mo = 0, all = 0; Object.keys(s2.days).forEach(function (k) { var v = saveSum(s2.days[k]); all += v; if (k.slice(0, 7) === m) mo += v; });
-    return '<button type="button" class="savst" data-sheet="shopexpsum"><span>🏦 Savings</span><b>' + inrK(mo) + '<small> this month</small></b><b>' + inrK(all) + '<small> till date</small></b><span>›</span></button>';
+    return '<button type="button" class="savst" data-sheet="shopexpsum"><span>🏦 Savings</span><b>' + inrK(mo) + '<small> this month</small></b><b>' + inrK(all) + '<small> till date</small></b><span>›</span></button>' + cashStrip();
+  }
+  function cashStrip() {
+    var L = cashLedger(); if (!L.ev.length) return '';
+    return '<button type="button" class="savst" data-sheet="shopcash"><span>💵 Shop money</span><b>' + inrK(L.bal) + '<small> should be with him</small></b><span>›</span></button>';
   }
   function renderShop() {
     try { var s0 = shop(); if (!s0.billsMirrored || !s0.billRowsCleaned) { mirrorAllBills(); cleanBillRows(); save(); } if ((s0.indQueue || []).length && !indRun && hasAI() && navigator.onLine) setTimeout(function () { toast('Carrying on reading ' + s0.indQueue.length + ' indent photos'); runIndQueue(); }, 1500); } catch (e) {}
@@ -6061,7 +6067,7 @@
       f.onchange = function () { var fs = [].slice.call(f.files); f.value = ''; if (fs.length) importIndents(fs); };
       var iq = r.querySelector('#indQ'); if (iq) iq.addEventListener('input', function () { shopUi.indq = iq.value; var box = r.querySelector('#indItems'); box.innerHTML = indItemRows(); bindIndRows(r); });
       bindIndRows(r);
-      r.querySelectorAll('[data-inddt]').forEach(function (b) { b.onclick = function () { var n = (shop().indents || {})[b.dataset.inddt]; if (!n) return; var v = prompt('Date of indent ' + (n.no || '') + ' (DD-MM-YYYY):', n.date ? n.date.split('-').reverse().join('-') : ''); if (v == null) return; var dt = indDate(v); if (!dt) { toast('Couldn’t read that date'); return; } n.date = dt; n.dateGuess = false; save(); drawSheet(); toast('Date set · the latest prices are updated'); }; });
+      r.querySelectorAll('[data-inddt]').forEach(function (b) { b.onclick = function () { var n = (shop().indents || {})[b.dataset.inddt]; if (!n) return; if (n.date && !n.dateGuess) openSheet('shopindpay:' + b.dataset.inddt); else indDatePrompt(b.dataset.inddt, function () { drawSheet(); }); }; });
       r.querySelectorAll('[data-ccost]').forEach(function (b) { b.onclick = function () { shopUi.itemFrom = 'shopindent'; openSheet('shopitem:' + b.dataset.ccost); }; });
       bindIndLink(r);
     } };
@@ -6965,6 +6971,75 @@
     if (S.length) h += '<span class="cap">Savings</span><div class="list">' + S.map(card).join('') + '</div>';
     h += '<p class="muted small">From every day’s Expenses tab. Savings are kept out of the expenses and the net profit, but they come out of the cash in hand. Tap a head to see each entry.</p>';
     return { title: 'Expenses by head', cap: 'till date', html: '<div class="stack" style="gap:10px">' + h + '</div>', bind: function () {} };
+  }
+  // ---------- v73: the shop's money: each day's collection in, each indent paid out ----------
+  function indDatePrompt(id, after) { var n = (shop().indents || {})[id]; if (!n) return; var v = prompt('Date of indent ' + (n.no || '') + ' (DD-MM-YYYY):', n.date ? n.date.split('-').reverse().join('-') : ''); if (v == null) return; var dt = indDate(v); if (!dt) { toast('Couldn’t read that date'); return; } n.date = dt; n.dateGuess = false; save(); toast('Date set · the latest prices are updated'); if (after) after(); }
+  function indPay(n) { var items = n.items || [], tot = num(n.itemTotal) || items.reduce(function (a, it) { return a + num(it.amount); }, 0); return num(n.invoiceValue) || tot * indTcs(n); }
+  function dayCash(d) { if (!d || !d.grid) return null; var sl = d.status === 'closed' && d.sales != null ? d.sales : daySales(d); return sl - expSum(d) - saveSum(d); }
+  function cashLedger() {
+    var s2 = shop(), st = s2.cashStart || null, ks = Object.keys(s2.days).filter(function (k) { return s2.days[k].grid; }).sort();
+    var from = st ? st.k : (s2.fresh && s2.fresh.from) || ks[0]; var bal = st ? num(st.v) : 0, ev = [], seen = {}, nodate = 0, t = dkey(new Date());
+    if (!from) return { ev: [], bal: 0, from: null, st: st, gaps: [], nodate: 0 };
+    var ind = s2.indents || {}, byD = {};
+    Object.keys(ind).forEach(function (id) { var n = ind[id]; if (!n.date) { nodate++; return; } var key = n.no ? 'no:' + n.no : id; if (seen[key]) return; seen[key] = 1; if (n.date < from) return; (byD[n.date] = byD[n.date] || []).push({ id: id, n: n }); });
+    var dates = {}; ks.forEach(function (k) { if (k >= from) dates[k] = 1; }); Object.keys(byD).forEach(function (k) { dates[k] = 1; });
+    var gaps = []; for (var dd = new Date(from + 'T00:00:00'); dkey(dd) < t; dd.setDate(dd.getDate() + 1)) { var k0 = dkey(dd); if (!(s2.days[k0] && s2.days[k0].grid)) gaps.push(k0); }
+    Object.keys(dates).sort().forEach(function (k) {
+      var d = s2.days[k], c = dayCash(d);
+      // a day's collection comes before the indent paid that day: if he paid mid-day from the morning's money, the day still ends right
+      if (c != null) { bal += c; ev.push({ k: k, kind: 'day', v: c, bal: bal, open: d.status !== 'closed', d: d }); }
+      (byD[k] || []).forEach(function (x) { var v = indPay(x.n); bal -= v; ev.push({ k: k, kind: 'ind', v: v, bal: bal, id: x.id, n: x.n, noDay: c == null }); });
+    });
+    return { ev: ev, bal: bal, from: from, st: st, gaps: gaps, nodate: nodate };
+  }
+  function fdk(k) { return new Date(k + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }); }
+  function cashSetStart(after) {
+    var s2 = shop(), L = cashLedger(), v = prompt('Cash with him at the START of which day? (DD-MM-YYYY)', (L.from || dkey(new Date())).split('-').reverse().join('-')); if (v == null) return; var dt = indDate(v); if (!dt) { toast('Couldn’t read that date'); return; }
+    var a = prompt('How much cash did he have at the start of ' + fdk(dt) + '? (₹)', s2.cashStart ? s2.cashStart.v : '0'); if (a == null) return; s2.cashStart = { k: dt, v: num(a) }; save(); toast('Starting cash set'); if (after) after();
+  }
+  function shopCashSheet() {
+    var s2 = shop(), L = cashLedger(), last = (s2.cashCount || []).slice(-1)[0], h = '';
+    var openN = L.ev.filter(function (e) { return e.kind === 'day' && e.open; }).length;
+    h += '<div class="cashbig"><span>Should be with him now</span><b>' + inr(L.bal) + '</b></div>';
+    if (L.bal < -1) h += '<div class="notice">The indents cost more than he collected: <b>' + inr(-L.bal) + '</b> came from somewhere else (your money?) or a sheet is missing.</div>';
+    if (L.gaps.length) h += '<div class="notice">' + L.gaps.length + ' day' + (L.gaps.length > 1 ? 's have' : ' has') + ' no sheet yet (' + L.gaps.slice(-3).map(fdk).join(', ') + (L.gaps.length > 3 ? '…' : '') + '): their collection is missing from the balance.</div>';
+    if (openN) h += '<p class="muted small" style="margin:0">' + openN + ' day' + (openN > 1 ? 's are' : ' is') + ' not closed yet: their figures may still change.</p>';
+    if (last) { var dif = last.v - last.bal; h += '<div class="notice' + (Math.abs(dif) < 1 ? ' ok' : '') + '">On ' + fdk(last.k) + ' he had <b>' + inr(last.v) + '</b>; it should have been ' + inr(last.bal) + (Math.abs(dif) < 1 ? ' ✓' : ': <b>' + (dif < 0 ? 'short ' : 'extra ') + inr(Math.abs(dif)) + '</b>') + '</div>'; }
+    h += '<button type="button" class="btn line" id="cashCount">✎ He says he has … (count the cash)</button>';
+    h += '<div class="stack" style="gap:6px">' + L.ev.slice().reverse().slice(0, 90).map(function (e) {
+      if (e.kind === 'ind') return '<button type="button" class="cashrow" data-sheet="shopindpay:' + esc(e.id) + '"><span class="t"><b>📦 Indent ' + esc(e.n.no || '') + '</b><small>' + fdk(e.k) + '</small></span><b class="neg">− ' + inr(e.v) + '</b><small class="bal">' + inr(e.bal) + '</small></button>';
+      return '<button type="button" class="cashrow" data-cashday="' + e.k + '"><span class="t"><b>Day’s cash' + (e.open ? ' <i>not closed</i>' : '') + '</b><small>' + fdk(e.k) + ' · sales − expenses − savings</small></span><b class="pos">+ ' + inr(e.v) + '</b><small class="bal">' + inr(e.bal) + '</small></button>';
+    }).join('') + '</div>';
+    h += '<button type="button" class="cashrow" id="cashStart"><span class="t"><b>✎ Starting cash</b><small>' + (L.st ? 'at the start of ' + fdk(L.st.k) : 'not set: counted from ' + (L.from ? fdk(L.from) : 'the first sheet') + ' with ₹0') + '</small></span><b>' + inr(L.st ? L.st.v : 0) + '</b></button>';
+    if (L.nodate) h += '<p class="muted small">' + L.nodate + ' indent' + (L.nodate > 1 ? 's have' : ' has') + ' no date and isn’t counted: set the date in Past indents.</p>';
+    h += '<p class="muted small">Each day adds what he collected after expenses and savings; each indent takes off what KSBCL charged (TCS included). If he deposits part of a day’s collection mid-day for an indent, that’s fine: the day’s money is counted before the indent of the same day, so the balance at the end of the day comes out right.</p>';
+    return { title: 'Shop money', cap: 'running balance', html: '<div class="stack" style="gap:10px">' + h + '</div>', bind: function (r) {
+      r.querySelector('#cashStart').onclick = function () { cashSetStart(drawSheet); };
+      r.querySelector('#cashCount').onclick = function () { var L2 = cashLedger(), a = prompt('How much cash does he have now? (₹)\nIt should be ' + inr(L2.bal) + '.'); if (a == null || a.trim() === '') return; s2.cashCount = (s2.cashCount || []).concat([{ k: dkey(new Date()), v: num(a), bal: L2.bal }]).slice(-30); save(); drawSheet(); };
+      r.querySelectorAll('[data-cashday]').forEach(function (b) { b.onclick = function () { openShopDay(b.dataset.cashday); }; });
+    } };
+  }
+  // one indent: paid from the money collected since the one before
+  function shopIndPaySheet(id) {
+    var s2 = shop(), n = (s2.indents || {})[id]; if (!n) return { title: 'Indent', cap: '', html: '<p class="muted">Not found.</p>', bind: function () {} };
+    var L = cashLedger(), i = -1; L.ev.forEach(function (e, j) { if (e.kind === 'ind' && e.id === id) i = j; });
+    var h = '';
+    if (i < 0) h += '<div class="notice">This indent is before the starting date of the shop money (' + (L.from ? fdk(L.from) : '—') + '), so it isn’t checked.</div>';
+    else {
+      var e = L.ev[i], j = i - 1, days = []; while (j >= 0 && L.ev[j].kind !== 'ind') { days.unshift(L.ev[j]); j--; }
+      var carry = j >= 0 ? L.ev[j].bal : (L.st ? num(L.st.v) : 0), prev = j >= 0 ? L.ev[j] : null, avail = carry + days.reduce(function (a, x) { return a + x.v; }, 0), left = avail - e.v;
+      h += '<div class="card stack" style="gap:8px"><span class="cap">Money collected since ' + (prev ? 'the last indent (' + fdk(prev.k) + ')' : (L.st ? 'the starting cash' : 'the first sheet')) + '</span>';
+      h += '<div class="row between"><span>' + (prev ? 'Left over from the last indent' : 'Starting cash') + '</span><b>' + inr(carry) + '</b></div>';
+      h += days.map(function (x) { var d = x.d, ex = expSum(d), sv = saveSum(d); return '<div class="row between" style="align-items:flex-start"><span>' + fdk(x.k) + (x.open ? ' <i class="muted">not closed</i>' : '') + '<small class="muted" style="display:block;font-size:11px">sales ' + inr(x.v + ex + sv) + (ex ? ' − expenses ' + inr(ex) : '') + (sv ? ' − savings ' + inr(sv) : '') + '</small></span><b>' + inr(x.v) + '</b></div>'; }).join('');
+      h += '<div class="row between" style="border-top:1px solid #eee;padding-top:6px"><b>Money available</b><b>' + inr(avail) + '</b></div></div>';
+      h += '<div class="card stack" style="gap:8px"><div class="row between"><span>This indent (with TCS)</span><b class="neg">− ' + inr(e.v) + '</b></div><div class="row between" style="border-top:1px solid #eee;padding-top:6px"><b>Left in the shop after it</b><b style="font-size:18px;color:' + (left < -1 ? '#B3372B' : '#0F4D40') + '">' + inr(left) + '</b></div></div>';
+      if (left < -1 && e.noDay) h += '<div class="notice">Short by <b>' + inr(-left) + '</b> so far. The sheet for ' + fdk(e.k) + ' isn’t in yet: if he paid part of it from that day’s collection (deposited mid-day), it will add up once that sheet is added.</div>';
+      else if (left < -1) h += '<div class="notice">Short by <b>' + inr(-left) + '</b>: the indent cost more than the money collected. It was paid with money from somewhere else, or a sheet or an expense is missing.</div>';
+      else h += '<div class="notice ok"><b>✓ Adds up.</b> ' + inr(left) + ' should still be with him after this indent' + (days.some(function (x) { return x.k === e.k; }) ? ' (what was left of ' + fdk(e.k) + '’s collection is included)' : '') + '.</div>';
+      var gp = L.gaps.filter(function (k) { return (!prev || k > prev.k) && k <= e.k; }); if (gp.length) h += '<div class="notice">No sheet for ' + gp.map(fdk).join(', ') + ' yet: that day’s collection is missing here.</div>';
+    }
+    h += '<button type="button" class="btn line" id="ipDate">✎ Change the indent date (' + (n.date ? fdk(n.date) : 'missing') + ')</button><button type="button" class="btn line" data-sheet="shopcash">💵 Shop money · running balance</button><button type="button" class="btn ghost small" data-sheet="shopindent">‹ Past indents</button>';
+    return { title: 'Indent ' + esc(n.no || ''), cap: n.date ? fdk(n.date) : '', html: '<div class="stack" style="gap:10px"><h1 class="display" style="font-size:26px;margin:0">Paid from the shop’s money</h1>' + h + '</div>', bind: function (r) { r.querySelector('#ipDate').onclick = function () { indDatePrompt(id, drawSheet); }; } };
   }
   // a head moved between expense and savings: the closed days' expenses, net and cash follow
   function reExpDays() { var s2 = shop(); Object.keys(s2.days).forEach(function (k) { var d = s2.days[k]; if (d.status !== 'closed') return; var et = expSum(d); d.expTotal = et; if (d.profit != null) d.net = d.profit - et; if (d.sales != null) d.cash = d.sales - et - saveSum(d); }); }
