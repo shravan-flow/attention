@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '77';
+  var APP_VERSION = '79';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -4456,6 +4456,7 @@
     return '<button type="button" class="savst" data-sheet="shopcash"><span>💵 Shop money</span><b>' + inrK(L.bal) + '<small> should be with him</small></b><span>›</span></button>';
   }
   function renderShop() {
+    try { tcsMigrate(); } catch (e) {}
     try { var s0 = shop(); if (!s0.billsMirrored || !s0.billRowsCleaned) { mirrorAllBills(); cleanBillRows(); save(); } if ((s0.indQueue || []).length && !indRun && hasAI() && navigator.onLine) setTimeout(function () { toast('Carrying on reading ' + s0.indQueue.length + ' indent photos'); runIndQueue(); }, 1500); } catch (e) {}
     var s2 = shop(), tk = dkey(new Date()), m = shopUi.month || tk.slice(0, 7), mt = monthTotals(m), md = new Date(m + '-01T00:00:00');
     var h = '<div class="stack">' + topbar(esc(s2.name));
@@ -5620,7 +5621,7 @@
   function costFor(item, size, asOf) {
     var xo = regItem(regKey(item, size)), ov = xo && xo.costOv, hs = costHist(regKey(item, size));
     // your price holds until a newer indent or bill brings a new rate (v64)
-    if (ov && (!asOf || !ov.d || asOf >= ov.d) && !hs.some(function (h) { return h.d && h.d > (ov.d || '') && h.d > (ov.at || '') && (!asOf || h.d <= asOf); })) return { c: ov.c, base: ov.c, src: 'your price', d: ov.d || '', tcs: false, you: true };
+    if (ov && (!asOf || !ov.d || asOf >= ov.d) && !hs.some(function (h) { return h.d && h.d > (ov.d || '') && h.d > (ov.at || '') && (!asOf || h.d <= asOf); })) return { c: ov.rate && ov.per ? ov.rate / ov.per * (1 + tcsPct() / 100) : ov.c, base: ov.c, src: 'your price', d: ov.d || '', tcs: false, you: true };
     if (!hs.length) return null;
     var pick = null; if (asOf) hs.forEach(function (h) { if (h.d && h.d <= asOf) pick = h; });
     return pick || (asOf ? hs[0] : hs[hs.length - 1]);
@@ -5877,7 +5878,7 @@
         var dt = indDate(x.date), guess = false; if (!dt && fbDate) { dt = fbDate; guess = true; }
         var id = String(x.no || '').trim() || (dt + '#' + i + '#' + (x.items || []).length);
         Object.keys(s2.indents).forEach(function (k2) { if (s2.indents[k2].fromBill && s2.indents[k2].no && s2.indents[k2].no === String(x.no || '').trim()) delete s2.indents[k2]; });
-        var cur = s2.indents[id] = s2.indents[id] || { no: String(x.no || ''), date: dt, items: [] };
+        var cur = s2.indents[id] = s2.indents[id] || { no: String(x.no || ''), date: dt, items: [], at: dkey(new Date()) };
         if (dt && (!cur.date || (cur.dateGuess && !guess))) { cur.date = dt; cur.dateGuess = guess; } else if (!cur.date) cur.dateGuess = guess;
         ['itemTotal', 'tcs', 'invoiceValue'].forEach(function (f) { if (num(x[f])) cur[f] = num(x[f]); });
         (x.items || []).forEach(function (it) {
@@ -6030,13 +6031,13 @@
     return L.slice(0, 200).map(function (e) {
       var ov = e.x && e.x.costOv, fmt = function (k) { return k ? new Date(k + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short', year: '2-digit' }) : '—'; };
       return '<div class="indit"><div class="row between" style="gap:8px;align-items:flex-start"><span class="t"><b>' + (e.x ? esc(e.x.item) + ' ' + esc(e.ml) : '<span class="muted">not linked</span> ' + esc(e.ml)) + '</b><small>' + esc(e.full) + '</small></span>' + (e.key ? '<button type="button" class="nib sm" data-indc="' + esc(e.key) + '">✎ Cost</button>' : '') + '</div>' + (e.key ? '' : linkSelHtml({ full: e.full, ml: e.ml, mk: e.mk, key: null }, 'data-inds="' + esc(e.mk) + '"', ctx)) +
-        '<div class="indc"><span>' + (e.base != null ? inr(e.base, 2) + '<small>indent cost</small>' : '—<small>no rate</small>') + '</span><span>+' + ((e.f - 1) * 100).toFixed(e.own ? 2 : 0) + '%<small>' + (e.own ? 'TCS on the indent' : 'TCS') + '</small></span><span class="' + (ov ? 'old' : 'hi') + '">' + (e.c != null ? inr(e.c, 2) : '—') + '<small>with TCS</small></span>' + (ov ? '<span class="hi">' + inr(ov.c, 2) + '<small>your price</small></span>' : '') + '</div>' +
+        '<div class="indc"><span>' + (e.base != null ? inr(e.base, 2) + '<small>indent cost</small>' : '—<small>no rate</small>') + '</span><span>+' + (Math.round((e.f - 1) * 10000) / 100) + '%<small>' + (e.own ? 'TCS on the indent' : 'TCS') + '</small></span><span class="' + (ov ? 'old' : 'hi') + '">' + (e.c != null ? inr(e.c, 2) : '—') + '<small>with TCS</small></span>' + (ov ? '<span class="hi">' + inr(ov.c, 2) + '<small>your price</small></span>' : '') + '</div>' +
         '<small class="muted">' + (e.rate ? inr(e.rate, 2) + ' a case of ' + e.per : '') + ' · latest ' + fmt(e.d) + (e.n > 1 ? ' · on ' + e.n + ' indents' : '') + '</small></div>';
     }).join('') + (L.length > 200 ? '<p class="muted small">Showing 200 of ' + L.length + '. Search to find the rest.</p>' : '');
   }
   function indItemsHtml() {
     var n = indItemList().length;
-    return '<span class="cap">Items found on your indents · ' + n + '</span><input class="text" id="indQ" placeholder="Search: name or ml" value="' + esc(shopUi.indq || '') + '" autocomplete="off"><div class="stack" style="gap:8px" id="indItems">' + indItemRows() + '</div><p class="muted small" style="margin:0">Cost per bottle = rate per case ÷ bottles per case, plus TCS (' + tcsPct() + '% unless the indent shows its own TCS; change it in Shop settings). Tap ✎ Cost to type your own price; it is used for the profit from that indent’s date.</p>';
+    return '<span class="cap">Items found on your indents · ' + n + '</span><input class="text" id="indQ" placeholder="Search: name or ml" value="' + esc(shopUi.indq || '') + '" autocomplete="off"><div class="stack" style="gap:8px" id="indItems">' + indItemRows() + '</div><p class="muted small" style="margin:0">Cost per bottle = rate per case ÷ bottles per case, plus TCS: each indent’s own TCS when it shows one, else ' + tcsPct() + '%' + (shop().tcsManual == null && tcsLearn().n ? ' (read from ' + tcsLearn().n + ' of your indents)' : '') + '. Tap ✎ Cost to type your own price; it is used for the profit from that indent’s date.</p>';
   }
   function bindIndRows(r) {
     r.querySelectorAll('select[data-inds]').forEach(function (sl) { sl.onchange = function () { var e = indItemList().filter(function (x) { return x.mk === sl.dataset.inds; })[0]; if (!e) return; var res = linkPick({ full: e.full, ml: e.ml, mk: e.mk, key: null }, sl.value); if (!res) { sl.value = ''; return; } save(); var box = r.querySelector('#indItems'); if (box) { box.innerHTML = indItemRows(); bindIndRows(r); } toast(res); }; });
@@ -6982,7 +6983,15 @@
     var from = st ? st.k : (s2.fresh && s2.fresh.from) || ks[0]; var bal = st ? num(st.v) : 0, ev = [], seen = {}, nodate = 0, t = dkey(new Date());
     if (!from) return { ev: [], bal: 0, from: null, st: st, gaps: [], nodate: 0 };
     var ind = s2.indents || {}, byD = {};
-    Object.keys(ind).forEach(function (id) { var n = ind[id]; if (!n.date) { nodate++; return; } var key = n.no ? 'no:' + n.no : id; if (seen[key]) return; seen[key] = 1; if (n.date < from) return; (byD[n.date] = byD[n.date] || []).push({ id: id, n: n }); });
+    var undated = [];
+    Object.keys(ind).forEach(function (id) { var n = ind[id]; if (!n.date) { nodate++; undated.push({ id: id, n: n }); return; } var key = n.no && n.no !== 'Bill' ? 'no:' + n.no : id; if (seen[key]) return; seen[key] = 1; if (n.date < from) return; (byD[n.date] = byD[n.date] || []).push({ id: id, n: n }); });
+    // stock bills that were read but never confirmed are not in the indents yet: they were still paid for
+    Object.keys(s2.bills || {}).forEach(function (bid) { var b = s2.bills[bid]; if (!b || !b.items || !b.items.length || ind['bill:' + bid] || /^(dup|reading|queued|pending)$/.test(b.status || '')) return; var no = String(b.invoice || '').trim(); if (no && seen['no:' + no]) return; if (no) seen['no:' + no] = 1;
+      var n = { no: no || 'Bill', date: b.target || b.date || '', items: b.items, itemTotal: num(b.itemTotal) || null, invoiceValue: num(b.invoiceValue) || null, billId: bid }; var id = 'bill:' + bid;
+      if (!n.date) { nodate++; undated.push({ id: id, n: n }); return; } if (n.date < from) return;
+      // the same order uploaded as an indent too (no number to match): same day, about the same amount
+      var amt = indPay(n); if ((byD[n.date] || []).some(function (y) { var v = indPay(y.n); return v && Math.abs(v - amt) / v < .03; })) return;
+      (byD[n.date] = byD[n.date] || []).push({ id: id, n: n }); });
     var dates = {}; ks.forEach(function (k) { if (k >= from) dates[k] = 1; }); Object.keys(byD).forEach(function (k) { dates[k] = 1; });
     var gaps = []; for (var dd = new Date(from + 'T00:00:00'); dkey(dd) < t; dd.setDate(dd.getDate() + 1)) { var k0 = dkey(dd); if (!(s2.days[k0] && s2.days[k0].grid)) gaps.push(k0); }
     Object.keys(dates).sort().forEach(function (k) {
@@ -6991,7 +7000,13 @@
       if (c != null) { bal += c; ev.push({ k: k, kind: 'day', v: c, bal: bal, open: d.status !== 'closed', d: d }); }
       (byD[k] || []).forEach(function (x) { var v = indPay(x.n); bal -= v; ev.push({ k: k, kind: 'ind', v: v, bal: bal, id: x.id, n: x.n, noDay: c == null }); });
     });
-    return { ev: ev, bal: bal, from: from, st: st, gaps: gaps, nodate: nodate };
+    return { ev: ev, bal: bal, from: from, st: st, gaps: gaps, nodate: nodate, undated: undated };
+  }
+  function indLabel(n) { return n.no && n.no !== 'Bill' ? 'Indent ' + n.no : (n.billId || n.fromBill ? 'Stock bill' : 'Indent'); }
+  function payDatePrompt(id, n, after) {
+    if (n && n.billId) { var b = shop().bills[n.billId]; var v = prompt('Date of this stock bill (DD-MM-YYYY):', ''); if (v == null) return; var dt = indDate(v); if (!dt) { toast('Couldn’t read that date'); return; } b.target = dt; save(); toast('Date set'); if (after) after(); return; }
+    if (n && n.fromBill) { var b2 = shop().bills[n.fromBill]; var v2 = prompt('Date of this stock bill (DD-MM-YYYY):', n.date ? n.date.split('-').reverse().join('-') : ''); if (v2 == null) return; var dt2 = indDate(v2); if (!dt2) { toast('Couldn’t read that date'); return; } n.date = dt2; n.dateGuess = false; if (b2) b2.target = dt2; save(); toast('Date set'); if (after) after(); return; }
+    indDatePrompt(id, after);
   }
   function fdk(k) { return new Date(k + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }); }
   function cashSetStart(after) {
@@ -7008,22 +7023,23 @@
     if (last) { var dif = last.v - last.bal; h += '<div class="notice' + (Math.abs(dif) < 1 ? ' ok' : '') + '">On ' + fdk(last.k) + ' he had <b>' + inr(last.v) + '</b>; it should have been ' + inr(last.bal) + (Math.abs(dif) < 1 ? ' ✓' : ': <b>' + (dif < 0 ? 'short ' : 'extra ') + inr(Math.abs(dif)) + '</b>') + '</div>'; }
     h += '<button type="button" class="btn line" id="cashCount">✎ He says he has … (count the cash)</button>';
     h += '<div class="stack" style="gap:6px">' + L.ev.slice().reverse().slice(0, 90).map(function (e) {
-      if (e.kind === 'ind') return '<button type="button" class="cashrow" data-sheet="shopindpay:' + esc(e.id) + '"><span class="t"><b>📦 Indent ' + esc(e.n.no || '') + '</b><small>' + fdk(e.k) + '</small></span><b class="neg">− ' + inr(e.v) + '</b><small class="bal">' + inr(e.bal) + '</small></button>';
+      if (e.kind === 'ind') return '<button type="button" class="cashrow" data-sheet="shopindpay:' + esc(e.id) + '"><span class="t"><b>📦 ' + esc(indLabel(e.n)) + '</b><small>' + fdk(e.k) + '</small></span><b class="neg">− ' + inr(e.v) + '</b><small class="bal">' + inr(e.bal) + '</small></button>';
       return '<button type="button" class="cashrow" data-cashday="' + e.k + '"><span class="t"><b>Day’s cash' + (e.open ? ' <i>not closed</i>' : '') + '</b><small>' + fdk(e.k) + ' · sales − expenses − savings</small></span><b class="pos">+ ' + inr(e.v) + '</b><small class="bal">' + inr(e.bal) + '</small></button>';
     }).join('') + '</div>';
     h += '<button type="button" class="cashrow" id="cashStart"><span class="t"><b>✎ Starting cash</b><small>' + (L.st ? 'at the start of ' + fdk(L.st.k) : 'not set: counted from ' + (L.from ? fdk(L.from) : 'the first sheet') + ' with ₹0') + '</small></span><b>' + inr(L.st ? L.st.v : 0) + '</b></button>';
-    if (L.nodate) h += '<p class="muted small">' + L.nodate + ' indent' + (L.nodate > 1 ? 's have' : ' has') + ' no date and isn’t counted: set the date in Past indents.</p>';
+    if (L.undated.length) h = '<div class="notice"><b>' + L.undated.length + ' indent' + (L.undated.length > 1 ? 's have' : ' has') + ' no date</b>, so ' + (L.undated.length > 1 ? 'they are' : 'it is') + ' not taken off yet. Set the date:</div>' + L.undated.map(function (u, i) { var items = u.n.items || []; return '<button type="button" class="cashrow" data-undt="' + i + '"><span class="t"><b>📦 ' + esc(indLabel(u.n)) + ' · set the date</b><small>' + items.length + ' items · ' + items.slice(0, 2).map(function (it) { return esc(shortLiq(it.name)) + ' ' + esc(it.ml); }).join(', ') + (items.length > 2 ? '…' : '') + '</small></span><b class="neg">− ' + inr(indPay(u.n)) + '</b></button>'; }).join('') + h;
     h += '<p class="muted small">Each day adds what he collected after expenses and savings; each indent takes off what KSBCL charged (TCS included). If he deposits part of a day’s collection mid-day for an indent, that’s fine: the day’s money is counted before the indent of the same day, so the balance at the end of the day comes out right.</p>';
     return { title: 'Shop money', cap: 'running balance', html: '<div class="stack" style="gap:10px">' + h + '</div>', bind: function (r) {
       r.querySelector('#cashStart').onclick = function () { cashSetStart(drawSheet); };
+      r.querySelectorAll('[data-undt]').forEach(function (b) { b.onclick = function () { var u = L.undated[+b.dataset.undt]; if (u) payDatePrompt(u.id, u.n, drawSheet); }; });
       r.querySelector('#cashCount').onclick = function () { var L2 = cashLedger(), a = prompt('How much cash does he have now? (₹)\nIt should be ' + inr(L2.bal) + '.'); if (a == null || a.trim() === '') return; s2.cashCount = (s2.cashCount || []).concat([{ k: dkey(new Date()), v: num(a), bal: L2.bal }]).slice(-30); save(); drawSheet(); };
       r.querySelectorAll('[data-cashday]').forEach(function (b) { b.onclick = function () { openShopDay(b.dataset.cashday); }; });
     } };
   }
   // one indent: paid from the money collected since the one before
   function shopIndPaySheet(id) {
-    var s2 = shop(), n = (s2.indents || {})[id]; if (!n) return { title: 'Indent', cap: '', html: '<p class="muted">Not found.</p>', bind: function () {} };
-    var L = cashLedger(), i = -1; L.ev.forEach(function (e, j) { if (e.kind === 'ind' && e.id === id) i = j; });
+    var s2 = shop(), L = cashLedger(), n = (s2.indents || {})[id]; if (!n) L.ev.concat(L.undated).forEach(function (e) { if (e.id === id) n = e.n; }); if (!n) return { title: 'Indent', cap: '', html: '<p class="muted">Not found.</p>', bind: function () {} };
+    var i = -1; L.ev.forEach(function (e, j) { if (e.kind === 'ind' && e.id === id) i = j; });
     var h = '';
     if (i < 0) h += '<div class="notice">This indent is before the starting date of the shop money (' + (L.from ? fdk(L.from) : '—') + '), so it isn’t checked.</div>';
     else {
@@ -7040,7 +7056,7 @@
       var gp = L.gaps.filter(function (k) { return (!prev || k > prev.k) && k <= e.k; }); if (gp.length) h += '<div class="notice">No sheet for ' + gp.map(fdk).join(', ') + ' yet: that day’s collection is missing here.</div>';
     }
     h += '<button type="button" class="btn line" id="ipDate">✎ Change the indent date (' + (n.date ? fdk(n.date) : 'missing') + ')</button><button type="button" class="btn line" data-sheet="shopcash">💵 Shop money · running balance</button><button type="button" class="btn ghost small" data-sheet="shopindent">‹ Past indents</button>';
-    return { title: 'Indent ' + esc(n.no || ''), cap: n.date ? fdk(n.date) : '', html: '<div class="stack" style="gap:10px"><h1 class="display" style="font-size:26px;margin:0">Paid from the shop’s money</h1>' + h + '</div>', bind: function (r) { r.querySelector('#ipDate').onclick = function () { indDatePrompt(id, drawSheet); }; } };
+    return { title: esc(indLabel(n)), cap: n.date ? fdk(n.date) : '', html: '<div class="stack" style="gap:10px"><h1 class="display" style="font-size:26px;margin:0">Paid from the shop’s money</h1>' + h + '</div>', bind: function (r) { r.querySelector('#ipDate').onclick = function () { payDatePrompt(id, n, drawSheet); }; } };
   }
   // a head moved between expense and savings: the closed days' expenses, net and cash follow
   function reExpDays() { var s2 = shop(); Object.keys(s2.days).forEach(function (k) { var d = s2.days[k]; if (d.status !== 'closed') return; var et = expSum(d); d.expTotal = et; if (d.profit != null) d.net = d.profit - et; if (d.sales != null) d.cash = d.sales - et - saveSum(d); }); }
@@ -7566,8 +7582,8 @@
   }
   function shopSetSheet() {
     var s2 = shop();
-    var h = '<label class="lab rng">Shop name<input class="text" id="ssName" value="' + esc(s2.name) + '"></label><label class="lab rng">Usual profit %<input class="text" id="ssPct" inputmode="decimal" value="' + (s2.pct == null ? '' : s2.pct) + '" placeholder="e.g. 20"></label><label class="lab rng">TCS added to indent costs (%)<input class="text" id="ssTcs" inputmode="decimal" value="' + tcsPct() + '"><small class="muted">used when an indent doesn’t show its own TCS amount</small></label><label class="lab rng">Handwriting match needed (%)<input class="text" id="ssInk" inputmode="numeric" value="' + inkThr() + '"><small class="muted">80 = his writing must look at least 80% like earlier samples to count as the same name</small></label><button type="button" class="btn jungle" id="ssSave">Save</button><div class="list" style="margin-top:8px">' + row({ t: '🧹 Start fresh', sub: 'clear the sheets and learning, keep the items from your indents', sheet: 'shopfresh' }) + '</div>';
-    return { title: 'Shop settings', cap: '', html: h, bind: function (r) { r.querySelector('#ssSave').onclick = function () { s2.name = r.querySelector('#ssName').value.trim() || 'My shop'; var p = r.querySelector('#ssPct').value.trim(); s2.pct = p === '' ? null : num(p); var ik = num(r.querySelector('#ssInk').value); s2.inkThr = ik >= 40 && ik <= 99 ? ik : 80; var tc = r.querySelector('#ssTcs').value.trim(); s2.tcsPct = tc === '' ? 10 : Math.max(0, Math.min(50, num(tc))); save(); closeSheet(); render(); }; } };
+    var h = '<label class="lab rng">Shop name<input class="text" id="ssName" value="' + esc(s2.name) + '"></label><label class="lab rng">Usual profit %<input class="text" id="ssPct" inputmode="decimal" value="' + (s2.pct == null ? '' : s2.pct) + '" placeholder="e.g. 20"></label><label class="lab rng">TCS added to indent costs (%)<input class="text" id="ssTcs" inputmode="decimal" placeholder="auto" value="' + (s2.tcsManual != null ? s2.tcsManual : '') + '"><small class="muted">' + (tcsLearn().n ? 'Read from ' + tcsLearn().n + ' indent' + (tcsLearn().n > 1 ? 's' : '') + ': <b>' + tcsLearn().pct + '%</b>. Leave empty to use it.' : 'No indent shows its TCS yet: 1% is used. Leave empty to keep it automatic.') + '</small><small class="muted">used when an indent doesn’t show its own TCS amount</small></label><label class="lab rng">Handwriting match needed (%)<input class="text" id="ssInk" inputmode="numeric" value="' + inkThr() + '"><small class="muted">80 = his writing must look at least 80% like earlier samples to count as the same name</small></label><button type="button" class="btn jungle" id="ssSave">Save</button><div class="list" style="margin-top:8px">' + row({ t: '🧹 Start fresh', sub: 'clear the sheets and learning, keep the items from your indents', sheet: 'shopfresh' }) + '</div>';
+    return { title: 'Shop settings', cap: '', html: h, bind: function (r) { r.querySelector('#ssSave').onclick = function () { s2.name = r.querySelector('#ssName').value.trim() || 'My shop'; var p = r.querySelector('#ssPct').value.trim(); s2.pct = p === '' ? null : num(p); var ik = num(r.querySelector('#ssInk').value); s2.inkThr = ik >= 40 && ik <= 99 ? ik : 80; var tc = r.querySelector('#ssTcs').value.trim(); var oldP = tcsDayPcts(); s2.tcsManual = tc === '' ? null : Math.max(0, Math.min(50, num(tc))); tcsRedo(oldP); save(); closeSheet(); render(); }; } };
   }
 
   // ---------- Teach from old sheets: read many past sheets once, learn his names, habits and usual list ----------
@@ -8441,7 +8457,20 @@
     var inv = num(x.invoiceValue) || (num(x.tcs) ? tot + num(x.tcs) : 0);
     return tot && inv > tot && inv / tot < 1.2 ? inv / tot : 1;
   }
-  function tcsPct() { var t = shop().tcsPct; return t == null ? 10 : t; }
+  // TCS %: read from your indents (item total vs final invoice value); you can still type your own in Shop settings (v79)
+  var _tcsC = null, _tcsT = 0;
+  function tcsLearn() {
+    if (_tcsC && Date.now() - _tcsT < 1500) return _tcsC;
+    var ind = shop().indents || {}, L = [];
+    Object.keys(ind).forEach(function (id) { var f = tcsFactor(ind[id]); if (f > 1) L.push((f - 1) * 100); });
+    L.sort(function (a, b) { return a - b; });
+    _tcsC = { n: L.length, pct: L.length ? Math.round(L[Math.floor(L.length / 2)] * 100) / 100 : null }; _tcsT = Date.now(); return _tcsC;
+  }
+  function tcsPct() { var s2 = shop(); if (s2.tcsManual != null) return s2.tcsManual; var L = tcsLearn(); return L.pct != null ? L.pct : 1; }
+  function tcsDayPcts() { var s2 = shop(), old = {}; Object.keys(s2.days).forEach(function (k) { var d = s2.days[k]; if (d.status === 'closed' && d.grid) { var pr = profitRows(d, k); old[k] = pr.avg != null ? Math.round(pr.avg * 10) / 10 : null; } }); return old; }
+  // the TCS changed: closed days take the new profit %, unless you had typed that day's % yourself
+  function tcsRedo(old) { var s2 = shop(), n = 0; _tcsC = null; Object.keys(old).forEach(function (k) { var d = s2.days[k], pr = profitRows(d, k); if (pr.avg == null) return; var np = Math.round(pr.avg * 10) / 10; if (np === old[k] || (d.pct != null && old[k] != null && Math.abs(d.pct - old[k]) > .06)) return; d.pct = np; d.profit = (d.sales || 0) * np / 100; d.net = d.profit - (d.expTotal || 0); n++; }); save(); return n; }
+  function tcsMigrate() { var s2 = shop(); if (s2.tcsV2) return; s2.tcsManual = s2.tcsPct != null ? s2.tcsPct : 10; var old = tcsDayPcts(); s2.tcsManual = null; delete s2.tcsPct; s2.tcsV2 = 1; var n = tcsRedo(old); if (n) setTimeout(function () { toast('TCS now ' + tcsPct() + '% (read from your indents) · ' + n + ' closed day' + (n > 1 ? 's' : '') + ' recalculated'); }, 1200); }
   function indTcs(n) { var f = tcsFactor(n); return f > 1 ? f : 1 + tcsPct() / 100; }
   function costHist(key) {
     var s2 = shop(), out = []; key = resolveKey(key); var me = s2.items[key], keys = {}; keys[key] = 1;
@@ -8658,10 +8687,24 @@
     });
   }
   // ---------- v77: a second picture for WhatsApp: profit per liquor for the day ----------
+  // a short, readable liquor name for the picture: drop pack words and fillers, keep 2–3 words
+  var LIQDROP = { indian: 1, made: 1, foreign: 1, liquor: 1, imfl: 1, very: 1, old: 0, vatted: 1, batch: 1, grain: 1, french: 1, lager: 1, pet: 1, bottle: 1, bottles: 1, can: 1, cans: 1, tetra: 1, pack: 1, aseptic: 1, brick: 1, glass: 1 };
+  function shortLiq(name) {
+    var w = String(name || '').replace(/\(.*?\)/g, ' ').replace(/[’`]/g, "'").split(/\s+/).filter(Boolean);
+    var seenW = {}, keep = w.filter(function (x) { var l = x.toLowerCase().replace(/[^a-z0-9]/g, ''); if (!l || FGEN[l] || LIQDROP[l] || FTYPES[l] || seenW[l]) return false; seenW[l] = 1; return true; }).map(function (x) { return x.replace(/'S\b/g, "'s"); });
+    if (!keep.length) keep = w.slice(0, 2); var out = keep.slice(0, 3).join(' ');
+    if (out.length > 20 && keep.length > 2) out = keep.slice(0, 2).join(' ');
+    if (out.length > 22) out = out.slice(0, 21) + '…';
+    return out;
+  }
+  function liqType(name) { var t = ''; String(name || '').toLowerCase().replace(/[^a-z ]/g, ' ').split(/\s+/).forEach(function (x) { if (!t && FTYPES[x]) t = x; }); return t; }
   function drawProfitSheet(k) {
     var c = cardCfg(), s2 = shop(), d = s2.days[k], kn = c.lang === 'kn', pr = profitRows(d, k), dd = new Date(k + 'T00:00:00');
     var rows = pr.rows.filter(function (x) { return x.sold; }).map(function (x) { x.p = x.cost != null ? (x.rate - x.cost) * x.sold : null; return x; })
       .sort(function (a, b) { if ((a.p == null) !== (b.p == null)) return a.p == null ? 1 : -1; return (b.p || 0) - (a.p || 0) || b.sold * b.rate - a.sold * a.rate; });
+    // short names; when two come out the same, add Whisky / Brandy / Rum… to tell them apart
+    var cnt = {}; rows.forEach(function (r) { r.sn = shortLiq(r.name); var kk = r.sn.toLowerCase(), t0 = liqType(r.name); cnt[kk] = cnt[kk] || {}; cnt[kk][t0] = 1; });
+    rows.forEach(function (r) { if (Object.keys(cnt[r.sn.toLowerCase()]).length > 1) { var t = liqType(r.name); if (t) r.sn = r.sn.split(' ').slice(0, 2).join(' ') + ' ' + titleCase(t); } });
     var sales = daySales(d), prof = rows.reduce(function (a, x) { return a + (x.p || 0); }, 0), pct = pr.avg, miss = rows.filter(function (x) { return x.p == null; });
     var W = 1080, P = 56, RH = 62, top = 470, H = top + 70 + rows.length * RH + 150 + (miss.length ? 50 : 0);
     var cv = document.createElement('canvas'); cv.width = W; cv.height = H; var x = cv.getContext('2d');
@@ -8680,7 +8723,7 @@
     rows.forEach(function (r, i) {
       if (i % 2 === 0) rr(P - 12, y + 4, W - 2 * P + 24, RH - 6, 12, '#fff');
       var yy = y + RH / 2 + 12, neg = r.p != null && r.p < 0, lo = r.pct != null && r.pct < 10;
-      txt(r.name + (r.size ? ' ' + r.size : ''), P, yy, 30, { w: 600, max: 420 });
+      txt(r.sn, P, yy, 31, { w: 600, max: 360 }); if (r.size) txt(String(r.size), P + 372, yy, 26, { c: '#6F7D74', a: 'left' });
       txt(String(r.sold), 560, yy, 30, { a: 'right' });
       txt(r.rate ? String(Math.round(r.rate)) : '—', 690, yy, 30, { a: 'right' });
       txt(r.cost != null ? String(Math.round(r.cost)) : '—', 820, yy, 30, { a: 'right', c: r.cost != null ? '#16302A' : '#B07A12' });
