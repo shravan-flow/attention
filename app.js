@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '73';
+  var APP_VERSION = '76';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -8583,7 +8583,7 @@
     return { k: k, name: s2.name, sales: sales, chg: prev ? (sales - prev) / prev * 100 : null, closed: d.status === 'closed', net: d.net, pct: d.pct, exp: et, cash: sales - et, trend: trend, top: top, cases: cases, first: first, mon: monthAfterTax(k), sav: monthSav(k) };
   }
   function drawCard(k) {
-    var c = cardCfg(), D = cardData(k), showSav = c.sav && (D.sav.tot || D.sav.n), W = 1080, H = 1350 + (showSav ? 250 : 0), cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    var c = cardCfg(), D = cardData(k), showSav = c.sav && (D.sav.tot || D.sav.n), W = 1080, H = 1400 + (c.trend ? 60 : 0) + (showSav ? 290 : 0), cv = document.createElement('canvas'); cv.width = W; cv.height = H;
     var x = cv.getContext('2d'), kn = c.lang === 'kn', F = '"Space Grotesk", "Noto Sans Kannada", system-ui, sans-serif', M = kn ? F : '"Space Mono", monospace', Wd = cardWords(kn, new Date(k + 'T00:00:00'));
     var blue = c.theme === 'blue', g = x.createLinearGradient(0, 0, W * .6, H);
     g.addColorStop(0, blue ? '#1B2F5A' : '#0F4D40'); g.addColorStop(.65, blue ? '#24407A' : '#12665A'); g.addColorStop(1, blue ? '#2E5296' : '#12A39A');
@@ -8592,51 +8592,57 @@
     var rr = function (X, Y, w, h, r, fill) { x.beginPath(); x.moveTo(X + r, Y); x.arcTo(X + w, Y, X + w, Y + h, r); x.arcTo(X + w, Y + h, X, Y + h, r); x.arcTo(X, Y + h, X, Y, r); x.arcTo(X, Y, X + w, Y, r); x.closePath(); x.fillStyle = fill; x.fill(); };
     var txt = function (t, X, Y, size, opt) { opt = opt || {}; x.font = (opt.w || 400) + ' ' + size + 'px ' + (opt.mono ? M : F); x.fillStyle = opt.c || '#fff'; x.textAlign = opt.a || 'left'; x.textBaseline = 'alphabetic'; var mw = opt.max; if (mw) { var s = size; while (x.measureText(t).width > mw && s > 12) { s -= 2; x.font = (opt.w || 400) + ' ' + s + 'px ' + (opt.mono ? M : F); } } x.fillText(t, X, Y); };
     var P = 72, y = 110;
-    txt(Wd.report, P, y, 26, { mono: true, c: 'rgba(255,255,255,.8)' }); y += 66;
+    txt(Wd.report, P, y, 30, { mono: true, c: 'rgba(255,255,255,.8)' }); y += 66;
     txt(kn && c.knName ? c.knName : D.name, P, y, 66, { w: 700, max: 760 }); y += 50;
-    txt(Wd.date, P, y, 34, { c: 'rgba(255,255,255,.85)' }); y += 50;
+    txt(Wd.date, P, y, 40, { c: 'rgba(255,255,255,.85)' }); y += 50;
     var showNet = c.profit && D.closed, tw = showNet ? 560 : W - 2 * P;
     if (c.sales) {
       rr(P, y, tw, 250, 34, 'rgba(255,255,255,.13)');
-      txt(Wd.sales, P + 34, y + 58, 30, { c: 'rgba(255,255,255,.8)' });
+      txt(Wd.sales, P + 34, y + 60, 38, { c: 'rgba(255,255,255,.8)' });
       txt(inr(D.sales), P + 34, y + 160, 96, { w: 700, max: tw - 68 });
-      if (D.chg != null) txt(Wd.vs((D.chg >= 0 ? '▲ ' : '▼ ') + Math.abs(D.chg).toFixed(0) + '%'), P + 34, y + 214, 28, { c: D.chg >= 0 ? '#9FF0D9' : '#FFC2B8', max: tw - 68 });
+      if (D.chg != null) txt(Wd.vs((D.chg >= 0 ? '▲ ' : '▼ ') + Math.abs(D.chg).toFixed(0) + '%'), P + 34, y + 218, 34, { c: D.chg >= 0 ? '#9FF0D9' : '#FFC2B8', max: tw - 68 });
       if (showNet) {
         var nx = P + tw + 24, nw = W - P - nx; rr(nx, y, nw, 250, 34, '#FFB23F');
-        txt(Wd.net, nx + 30, y + 58, 30, { c: '#0F4D40', max: nw - 60 }); txt(inr(D.net), nx + 30, y + 150, 70, { w: 700, c: '#0F4D40', max: nw - 60 }); txt(Wd.margin + ' ' + D.pct + '%', nx + 30, y + 214, 28, { c: '#0F4D40', max: nw - 60 });
+        txt(Wd.net, nx + 30, y + 60, 38, { c: '#0F4D40', max: nw - 60 }); txt(inr(D.net), nx + 30, y + 150, 70, { w: 700, c: '#0F4D40', max: nw - 60 }); txt(Wd.margin + ' ' + D.pct + '%', nx + 30, y + 218, 34, { c: '#0F4D40', max: nw - 60 });
       }
       y += 280;
     }
     if (c.trend) {
-      rr(P, y, W - 2 * P, 210, 30, 'rgba(255,255,255,.09)'); txt(Wd.last7, P + 30, y + 48, 26, { c: 'rgba(255,255,255,.8)' });
+      rr(P, y, W - 2 * P, 270, 30, 'rgba(255,255,255,.09)'); txt(Wd.last7, P + 30, y + 50, 32, { c: 'rgba(255,255,255,.8)' });
       var mx = Math.max.apply(null, D.trend.map(function (t) { return t.v; }).concat([1])), bw = (W - 2 * P - 60 - 6 * 14) / 7;
-      D.trend.forEach(function (t, i) { var h = Math.max(6, t.v / mx * 120), bx = P + 30 + i * (bw + 14); rr(bx, y + 186 - h, bw, h, 8, i === 6 ? '#FFB23F' : 'rgba(255,255,255,.45)'); });
-      y += 240;
+      // each bar with its sales above it and the day below it
+      D.trend.forEach(function (t, i) { var h = Math.max(6, t.v / mx * 100), bx = P + 30 + i * (bw + 14), cx = bx + bw / 2, dd = new Date(t.k + 'T00:00:00');
+        rr(bx, y + 210 - h, bw, h, 8, i === 6 ? '#FFB23F' : 'rgba(255,255,255,.45)');
+        txt(t.v ? inrK(t.v).replace('₹', '') : '–', cx, y + 210 - h - 10, 26, { w: 700, a: 'center', c: i === 6 ? '#FFD27A' : '#fff', max: bw + 10 });
+        txt(kn ? String(dd.getDate()) : dd.toLocaleDateString('en', { weekday: 'short' }) + ' ' + dd.getDate(), cx, y + 248, 22, { a: 'center', c: 'rgba(255,255,255,.75)', max: bw + 10 }); });
+      y += 300;
     }
     var rows = [];
     if (c.exp) { rows.push([Wd.exp, inr(D.exp)]); rows.push([Wd.cash, inr(D.cash)]); }
     if (c.stock && D.cases) rows.push([Wd.stock, Wd.cases(D.cases) + (D.first ? ' · ' + D.first : '')]);
-    rows.forEach(function (r) { txt(r[0], P, y + 38, 32, { c: 'rgba(255,255,255,.8)' }); txt(r[1], W - P, y + 38, 32, { w: 700, a: 'right', max: 600 }); x.fillStyle = 'rgba(255,255,255,.16)'; x.fillRect(P, y + 60, W - 2 * P, 2); y += 76; });
-    if (c.top && D.top.length) { y += 10; txt(Wd.top, P, y + 30, 28, { c: 'rgba(255,255,255,.75)' }); txt(D.top.map(function (t) { return t.n + ' · ' + t.q; }).join('    '), P, y + 76, 32, { w: 600, max: W - 2 * P }); y += 110; }
+    rows.forEach(function (r) { txt(r[0], P, y + 40, 38, { c: 'rgba(255,255,255,.8)' }); txt(r[1], W - P, y + 40, 38, { w: 700, a: 'right', max: 600 }); x.fillStyle = 'rgba(255,255,255,.16)'; x.fillRect(P, y + 60, W - 2 * P, 2); y += 76; });
+    if (c.top && D.top.length) { y += 10; txt(Wd.top, P, y + 32, 34, { c: 'rgba(255,255,255,.75)' }); txt(D.top.map(function (t) { return t.n + ' · ' + t.q; }).join('    '), P, y + 82, 38, { w: 600, max: W - 2 * P }); y += 120; }
     var by = H - 90;
     if (showSav) {
-      var S = D.sav, sh = 230, st = by - sh - 20 - (c.aftertax && D.mon.n ? 170 : 0), mN = new Date(k + 'T00:00:00').toLocaleDateString('en', { month: 'long' });
+      var S = D.sav, sh = 270, st = by - sh - 20 - (c.aftertax && D.mon.n ? 190 : 0), mN = new Date(k + 'T00:00:00').toLocaleDateString('en', { month: 'long' });
       rr(P, st, W - 2 * P, sh, 30, 'rgba(255,255,255,.15)');
-      txt(kn ? KN.mo[+k.slice(5, 7) - 1] + ' ಇಲ್ಲಿಯವರೆಗೆ · ಉಳಿತಾಯ' : mN + ' so far · savings', P + 32, st + 56, 30, { c: 'rgba(255,255,255,.85)', max: 560 });
-      txt(inr(S.tot), P + 32, st + 124, 56, { w: 700, max: 470 });
-      txt(S.split.length ? S.split.slice(0, 3).map(function (z) { return z.n + ' ' + inrK(z.v); }).join(' · ') + (S.split.length > 3 ? ' · +' + (S.split.length - 3) : '') : (kn ? 'ಈ ತಿಂಗಳು ಇನ್ನೂ ಇಲ್ಲ' : 'nothing saved yet this month'), P + 32, st + 178, 26, { c: 'rgba(255,255,255,.7)', max: 500 });
-      txt(kn ? 'ಅಂಗಡಿಯಲ್ಲಿ ಉಳಿದ ಲಾಭ' : 'Left in the shop', W - P - 32, st + 56, 28, { c: 'rgba(255,255,255,.85)', a: 'right', max: 380 });
-      txt(inr(S.left), W - P - 32, st + 124, 56, { w: 700, a: 'right', c: S.left < 0 ? '#FFC2B8' : '#FFD27A', max: 380 });
-      txt((kn ? 'ಲಾಭ ' : 'net profit ') + inrK(S.net) + ' − ' + (kn ? 'ಉಳಿತಾಯ ' : 'saved ') + inrK(S.tot), W - P - 32, st + 178, 24, { c: 'rgba(255,255,255,.65)', a: 'right', max: 380 });
+      txt(kn ? KN.mo[+k.slice(5, 7) - 1] + ' ಇಲ್ಲಿಯವರೆಗೆ · ಉಳಿತಾಯ' : mN + ' so far · savings', P + 32, st + 60, 36, { c: 'rgba(255,255,255,.85)', max: 450 });
+      txt(inr(S.tot), P + 32, st + 138, 60, { w: 700, max: 470 });
+      txt(S.split.length ? S.split.slice(0, 3).map(function (z) { return z.n + ' ' + inrK(z.v); }).join(' · ') + (S.split.length > 3 ? ' · +' + (S.split.length - 3) : '') : (kn ? 'ಈ ತಿಂಗಳು ಇನ್ನೂ ಇಲ್ಲ' : 'nothing saved yet this month'), P + 32, st + 205, 32, { c: 'rgba(255,255,255,.8)', max: 420 });
+      var neg = S.left < -0.5;
+      // saved more than the profit: the extra came out of the money that buys the stock
+      txt(neg ? (kn ? 'ಸ್ಟಾಕ್ ಹಣದಿಂದ ತೆಗೆದದ್ದು' : 'Taken from stock money') : (kn ? 'ಅಂಗಡಿಯಲ್ಲಿ ಉಳಿದ ಲಾಭ' : 'Left in the shop'), W - P - 32, st + 60, 34, { c: neg ? '#FFC2B8' : 'rgba(255,255,255,.85)', a: 'right', max: 380 });
+      txt(inr(Math.abs(S.left)), W - P - 32, st + 138, 60, { w: 700, a: 'right', c: neg ? '#FFC2B8' : '#FFD27A', max: 380 });
+      txt(neg ? (kn ? 'ಉಳಿತಾಯ ' + inrK(S.tot) + ' > ಲಾಭ ' + inrK(S.net) : 'saved ' + inrK(S.tot) + ' > net profit ' + inrK(S.net)) : (kn ? 'ಲಾಭ ' : 'net profit ') + inrK(S.net) + ' − ' + (kn ? 'ಉಳಿತಾಯ ' : 'saved ') + inrK(S.tot), W - P - 32, st + 205, 30, { c: 'rgba(255,255,255,.75)', a: 'right', max: 430 });
     }
     if (c.aftertax && D.mon.n) {
-      var bh = 150, bt = by - bh - 20; rr(P, bt, W - 2 * P, bh, 30, 'rgba(255,255,255,.15)');
-      txt(Wd.after, P + 32, bt + 60, 30, { c: 'rgba(255,255,255,.85)', max: 560 });
-      txt(Wd.fx(inrK(D.mon.net), D.mon.fixed ? inrK(D.mon.fixed) : 0, num(c.tax)), P + 32, bt + 106, 26, { c: 'rgba(255,255,255,.65)', max: 560 });
-      txt(inr(D.mon.after), W - P - 32, bt + 100, 64, { w: 700, a: 'right', c: '#FFD27A', max: 380 });
+      var bh = 170, bt = by - bh - 20; rr(P, bt, W - 2 * P, bh, 30, 'rgba(255,255,255,.15)');
+      txt(Wd.after, P + 32, bt + 62, 34, { c: 'rgba(255,255,255,.85)', max: 560 });
+      txt(Wd.fx(inrK(D.mon.net), D.mon.fixed ? inrK(D.mon.fixed) : 0, num(c.tax)), P + 32, bt + 118, 30, { c: 'rgba(255,255,255,.75)', max: 560 });
+      txt(inr(D.mon.after), W - P - 32, bt + 110, 66, { w: 700, a: 'right', c: '#FFD27A', max: 380 });
     }
-    txt(c.month ? Wd.month(inrK(D.mon.sales)) : '', P, H - 50, 28, { c: 'rgba(255,255,255,.85)' });
-    txt('◎ Attention', W - P, H - 50, 28, { c: 'rgba(255,255,255,.85)', a: 'right' });
+    txt(c.month ? Wd.month(inrK(D.mon.sales)) : '', P, H - 46, 32, { c: 'rgba(255,255,255,.9)', max: 640 });
+    txt('◎ Attention', W - P, H - 46, 28, { c: 'rgba(255,255,255,.85)', a: 'right' });
     return cv;
   }
   function cardFonts() { try { return Promise.all([['700 40px "Space Grotesk"'], ['400 40px "Space Grotesk"'], ['400 20px "Space Mono"'], ['400 40px "Noto Sans Kannada"', 'ಕನ್ನಡ'], ['700 40px "Noto Sans Kannada"', 'ಕನ್ನಡ']].map(function (f) { return document.fonts.load(f[0], f[1]); })).catch(function () {}); } catch (e) { return Promise.resolve(); } }
@@ -8665,7 +8671,7 @@
       '<label class="brf"><span>Fixed monthly costs</span><input inputmode="decimal" data-cn="fixed" value="' + (c.fixed || 0) + '"><small>₹ a month</small></label>' +
       '<div class="row" style="gap:6px">' + [['green', 'Green'], ['blue', 'Blue']].map(function (t) { return '<button type="button" class="mschip sm' + (c.theme === t[0] ? ' on' : '') + '" data-cth="' + t[0] + '">' + t[1] + '</button>'; }).join('') + '</div></div></details>';
     var SV = monthSav(k);
-    if (c.sav) h += '<div class="card stack" style="gap:6px"><span class="cap">' + new Date(k + 'T00:00:00').toLocaleDateString('en', { month: 'long' }) + ' 1–' + (+k.slice(8, 10)) + ' · starts again each month</span><div class="row between"><span>Net profit (after expenses)</span><b>' + inr(SV.net) + '</b></div>' + SV.split.map(function (z) { return '<div class="row between"><span class="muted">− saved in ' + esc(z.n) + '</span><b>' + inr(z.v) + '</b></div>'; }).join('') + '<div class="row between" style="border-top:1px solid #eee;padding-top:6px"><span><b>Left in the shop</b></span><b style="font-size:17px">' + inr(SV.left) + '</b></div></div>';
+    if (c.sav) h += '<div class="card stack" style="gap:6px"><span class="cap">' + new Date(k + 'T00:00:00').toLocaleDateString('en', { month: 'long' }) + ' 1–' + (+k.slice(8, 10)) + ' · starts again each month</span><div class="row between"><span>Net profit (after expenses)</span><b>' + inr(SV.net) + '</b></div>' + SV.split.map(function (z) { return '<div class="row between"><span class="muted">− saved in ' + esc(z.n) + '</span><b>' + inr(z.v) + '</b></div>'; }).join('') + (SV.left < -0.5 ? '<div class="row between" style="border-top:1px solid #eee;padding-top:6px"><span><b style="color:#B3372B">Taken from stock money</b><small class="muted" style="display:block;font-size:11px">more was saved than the profit: the extra came out of the money for the next indent</small></span><b style="font-size:17px;color:#B3372B">' + inr(-SV.left) + '</b></div>' : '<div class="row between" style="border-top:1px solid #eee;padding-top:6px"><span><b>Left in the shop</b></span><b style="font-size:17px">' + inr(SV.left) + '</b></div>') + '</div>';
     h += '<p class="muted small">Fixed monthly costs (licence fee, rent…) are spread over the days. Tax is taken off this month’s profit when it’s above zero. The TCS is already inside the bottle costs.</p>';
     return { title: 'Daily card', cap: new Date(k + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }), html: '<div class="stack" style="gap:12px">' + h + '</div>', bind: function (r) {
       var paint = function () { cardFonts().then(function () { var im = r.querySelector('#cardImg'); if (im) im.src = drawCard(k).toDataURL('image/png'); }); };
