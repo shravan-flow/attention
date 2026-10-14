@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '79';
+  var APP_VERSION = '80';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -7436,7 +7436,7 @@
       return '<div class="row shexr" style="gap:8px"><input class="tkin" data-ei="' + i + '" data-ek="t" value="' + esc(e.t) + '" placeholder="what"><label class="shmoney sm">₹<input data-ei="' + i + '" data-ek="v" inputmode="decimal" value="' + (e.v || '') + '"></label><button type="button" class="tkx" data-edel="' + i + '" aria-label="Remove">✕</button></div>';
     }).join('') + '<button type="button" class="link" id="scAddExp" style="align-self:flex-start">+ Add expense</button>' + (d.written && d.written.expenses && Math.abs(d.written.expenses - et) > .5 ? '<span class="muted small">The sheet’s written expense total is ' + inr(d.written.expenses) + '</span>' : '') + '</div>';
     h += '<div class="shnet"><div><span class="cap">Net income</span><small>profit − expenses</small></div><b class="display" id="scNet">' + (net != null ? inr(net) : '—') + '</b></div>';
-    h += '<p class="muted small" id="scCash">Cash in hand (sales − expenses): <b>' + inr(sales - et) + '</b>' + (d.written && d.written.balance ? ' · sheet says ' + inr(d.written.balance) : '') + '</p>';
+    h += '<p class="muted small" id="scCash">Cash in hand (sales − expenses' + (saveSum(d) ? ' − savings' : '') + '): <b>' + inr(sales - et - saveSum(d)) + '</b>' + (d.written && d.written.balance ? ' · sheet says ' + inr(d.written.balance) : '') + '</p>';
     var mn = new Date(sp.k + 'T00:00:00').toLocaleDateString('en', { month: 'long' });
     if (d.status === 'closed') h += '<div class="row" style="gap:8px"><button type="button" class="btn jungle" style="flex:1" id="scCard">🖼 Daily card</button><button type="button" class="btn wa" style="flex:1" id="scWa">Text summary</button></div>';
     h += '<div class="row" style="gap:10px"><button type="button" class="btn line" id="scBack">‹ Sheet</button><button type="button" class="btn coral" style="flex:1" id="scSave">' + (d.status === 'closed' ? 'Update ' + mn + ' file' : 'Save to ' + mn + ' file') + '</button></div>';
@@ -7449,7 +7449,7 @@
       var profit = pct != null ? sales * pct / 100 : null;
       q('#scProfit').textContent = profit != null ? inr(profit) : '—'; q('#scExpT').textContent = inr(et);
       q('#scNet').textContent = profit != null ? inr(profit - et) : '—';
-      q('#scCash').innerHTML = 'Cash in hand (sales − expenses): <b>' + inr(sales - et) + '</b>';
+      q('#scCash').innerHTML = 'Cash in hand (sales − expenses' + (saveSum(d) ? ' − savings' : '') + '): <b>' + inr(sales - et - saveSum(d)) + '</b>';
       return { sales: sales, pct: pct, profit: profit, et: et };
     };
     q('#scSales').addEventListener('input', function () { var v = num(q('#scSales').value); d.salesOverride = Math.abs(v - daySales(d)) > .5 ? v : null; save(); calc(); });
@@ -8412,7 +8412,7 @@
     var w = window.open(url, '_blank'); if (!w) location.href = url;
   }
   function daySold(d) { var g = d.grid, out = {}; if (!g) return out; dataRows(g).forEach(function (r) { var nm = String(g[r][SC.item] || '').trim(), sl = cellVal(g, r, SC.sales); if (!nm || !isNum(sl) || !num(sl)) return; var k = nm + (g[r][SC.size] ? ' ' + g[r][SC.size] : ''); out[k] = (out[k] || 0) + num(sl); }); return out; }
-  function cashGap(d) { if (!d || d.status !== 'closed' || !d.written || !d.written.balance) return null; var exp = (d.sales || 0) - (d.expTotal || 0), gap = d.written.balance - exp; return Math.abs(gap) >= 100 ? gap : null; }
+  function cashGap(d) { if (!d || d.status !== 'closed' || !d.written || !d.written.balance) return null; var exp = (d.sales || 0) - expSum(d) - saveSum(d), gap = d.written.balance - exp; return Math.abs(gap) >= 100 ? gap : null; }
   function daySummaryText(k) {
     var s2 = shop(), d = s2.days[k]; if (!d) return '';
     var sold = daySold(d), top = Object.keys(sold).sort(function (a, b) { return sold[b] - sold[a]; }).slice(0, 3);
@@ -8424,7 +8424,7 @@
     if (d.status === 'closed') t += 'Profit (' + d.pct + '%): ' + inr(d.profit) + '\n';
     t += 'Expenses: ' + inr(et) + '\n';
     if (d.status === 'closed') t += '*Net: ' + inr(d.net) + '*\n';
-    t += 'Cash in hand: ' + inr(sales - et) + (d.written && d.written.balance ? ' (sheet says ' + inr(d.written.balance) + ')' : '') + '\n';
+    t += 'Cash in hand: ' + inr(sales - et - saveSum(d)) + (d.written && d.written.balance ? ' (sheet says ' + inr(d.written.balance) + ')' : '') + '\n';
     if (top.length) t += 'Top: ' + top.map(function (x) { return x + ' (' + sold[x] + ')'; }).join(', ') + '\n';
     if (cases) t += 'Stock in: ' + cases + ' case' + (cases > 1 ? 's' : '') + '\n';
     var gap = cashGap(d); if (gap) t += '⚠ cash ' + (gap < 0 ? 'short ' : 'over ') + inr(Math.abs(gap)) + '\n';
@@ -8544,8 +8544,8 @@
     var s2 = shop(), out = [], cut = dkey(new Date(Date.now() - 31 * 864e5));
     Object.keys(s2.days).filter(function (k) { return k >= cut; }).sort().reverse().forEach(function (k) {
       var d = s2.days[k], gap = cashGap(d); if (!gap) return;
-      var exp = (d.sales || 0) - (d.expTotal || 0);
-      out.push({ id: 'cash:' + k, kind: 'cash', bad: gap < 0, k: k, t: 'Cash ' + (gap < 0 ? 'short ' : 'over ') + inr(Math.abs(gap)) + ' on ' + new Date(k + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }), d: 'Sales ' + inr(d.sales) + ' − expenses ' + inr(d.expTotal) + ' = ' + inr(exp) + ' expected. The sheet’s balance says ' + inr(d.written.balance) + '.' });
+      var et0 = expSum(d), sv0 = saveSum(d), exp = (d.sales || 0) - et0 - sv0;
+      out.push({ id: 'cash:' + k, kind: 'cash', bad: gap < 0, k: k, t: 'Cash ' + (gap < 0 ? 'short ' : 'over ') + inr(Math.abs(gap)) + ' on ' + new Date(k + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }), d: 'Sales ' + inr(d.sales) + ' − expenses ' + inr(et0) + (sv0 ? ' − savings ' + inr(sv0) : '') + ' = ' + inr(exp) + ' expected. The sheet’s balance says ' + inr(d.written.balance) + '.' });
     });
     var miss = {};
     Object.keys(s2.days).filter(function (k) { return k >= cut; }).forEach(function (k) { var g = s2.days[k].grid; if (!g) return; dataRows(g).forEach(function (r) { var nm = String(g[r][SC.item] || '').trim(), v = function (c) { return isNum(cellVal(g, r, c)) && String(g[r][c]).trim() !== '' ? num(cellVal(g, r, c)) : null; }; if (!nm) return; var o = v(SC.open), rc = v(SC.recv) || 0, sl = v(SC.sales), cl = v(SC.close); if (o == null || sl == null || cl == null) return; var gone = o + rc - sl - cl; if (gone > 0.01) { var key = regKey(nm, g[r][SC.size]), e = miss[key] = miss[key] || { n: nm + ' ' + (g[r][SC.size] || ''), b: 0, days: [] }; e.b += gone; e.days.push(k); } }); });
@@ -8610,7 +8610,7 @@
     var bl = Object.keys(bills()).map(function (id) { return s2.bills[id]; }).filter(function (b) { return b.applied === k; });
     var cases = 0, first = ''; bl.forEach(function (b) { b.items.forEach(function (it) { cases += it.cases; if (!first) first = shortBillName(it.name) + ' ' + it.ml; }); });
     var et = expSum(d);
-    return { k: k, name: s2.name, sales: sales, chg: prev ? (sales - prev) / prev * 100 : null, closed: d.status === 'closed', net: d.net, pct: d.pct, exp: et, cash: sales - et, trend: trend, top: top, cases: cases, first: first, mon: monthAfterTax(k), sav: monthSav(k) };
+    return { k: k, name: s2.name, sales: sales, chg: prev ? (sales - prev) / prev * 100 : null, closed: d.status === 'closed', net: d.net, pct: d.pct, exp: et, cash: sales - et - saveSum(d), trend: trend, top: top, cases: cases, first: first, mon: monthAfterTax(k), sav: monthSav(k) };
   }
   function drawCard(k) {
     var c = cardCfg(), D = cardData(k), showSav = c.sav && (D.sav.tot || D.sav.n), W = 1080, H = 1400 + (c.trend ? 60 : 0) + (showSav ? 290 : 0), cv = document.createElement('canvas'); cv.width = W; cv.height = H;
