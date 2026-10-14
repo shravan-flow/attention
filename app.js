@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '80';
+  var APP_VERSION = '81';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -1309,6 +1309,37 @@
     drawFoodPicker();
     var o = document.getElementById('overlay'); o.classList.remove('dark'); o.hidden = false; document.body.style.overflow = 'hidden';
   }
+  // ---------- v81: look the food up on the web (Gemini with Google Search) while typing ----------
+  var webFoodCache = {}, webFoodTimer = null;
+  function webFood(q) {
+    var key = q.toLowerCase().replace(/\s+/g, ' ').trim(); if (webFoodCache[key]) return Promise.resolve(webFoodCache[key]);
+    var prompt = 'Search the web for the nutrition values of this food, as eaten in India if it is an Indian dish: "' + q + '" (the spelling may be wrong, e.g. "parata" = paratha). Give the usual serving sizes (up to 3 options, e.g. 1 piece, 1 bowl, 100 g). Reply ONLY with JSON, no other text: {"items":[{"name":"correct dish name","serving":"1 medium piece","g":grams per serving,"kcal":number,"p":protein g,"c":carbs g,"f":fat g,"source":"website name"}]}';
+    var parse = function (t) { var m = String(t).replace(/```(json)?/g, ''), a = m.indexOf('{'), b = m.lastIndexOf('}'); var j = JSON.parse(m.slice(a, b + 1)); return (j.items || []).filter(function (x) { return x && x.name && +x.kcal > 0; }).slice(0, 3).map(function (x) { return { name: String(x.name), serving: String(x.serving || '1 serving'), g: +x.g || null, kcal: +x.kcal, p: +x.p || 0, c: +x.c || 0, f: +x.f || 0, src: String(x.source || '').slice(0, 40), web: true }; }); };
+    return geminiCall({ contents: [{ parts: [{ text: prompt }] }], tools: [{ google_search: {} }], generationConfig: { temperature: .1 } }).then(parse)
+      .catch(function () { return geminiCall({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: 'application/json', temperature: .1 } }).then(function (t) { return parse(t).map(function (x) { x.src = 'AI estimate'; return x; }); }); })
+      .then(function (L) { webFoodCache[key] = L; return L; });
+  }
+  function webFoodGo() {
+    if (!fp || fp.pick || fp.custom) return; var q = fp.q.trim(); if (q.length < 3 || !hasAI()) return;
+    var key = q.toLowerCase().replace(/\s+/g, ' '); if (fp.web && fp.web.key === key && fp.web.st !== 'err') return;
+    fp.web = { key: key, st: 'load', list: [] }; webFoodPaint();
+    webFood(q).then(function (L) { if (!fp || !fp.web || fp.web.key !== key) return; fp.web.st = 'done'; fp.web.list = L; webFoodPaint(); })
+      .catch(function (e) { if (!fp || !fp.web || fp.web.key !== key) return; fp.web.st = 'err'; fp.web.err = e.message || 'failed'; webFoodPaint(); });
+  }
+  function webFoodHtml() {
+    if (!fp.q.trim() || fp.q.trim().length < 3) return '';
+    if (!hasAI()) return '<p class="muted small">Add your free Gemini key in Settings to look foods up on the web.</p>';
+    var W = fp.web; if (!W || W.key !== fp.q.toLowerCase().replace(/\s+/g, ' ').trim()) return '<div class="webf"><span class="cap">From the web</span><p class="muted small">Searching when you stop typing…</p></div>';
+    if (W.st === 'load') return '<div class="webf"><span class="cap">From the web</span><p class="muted small"><span class="wpulse"></span> Looking up “' + esc(fp.q.trim()) + '”…</p></div>';
+    if (W.st === 'err') return '<div class="webf"><span class="cap">From the web</span><p class="muted small">Couldn’t look it up (' + esc(W.err) + '). <button type="button" class="link" id="webRetry">Try again</button></p></div>';
+    if (!W.list.length) return '<div class="webf"><span class="cap">From the web</span><p class="muted small">Nothing found. Add it as your own dish below.</p></div>';
+    return '<div class="webf"><span class="cap">From the web</span><div class="flist">' + W.list.map(function (f, i) { return '<button type="button" class="fopt" data-wf="' + i + '"><span><b>' + esc(f.name) + ' 🌐</b><small>' + esc(f.serving) + (f.g ? ' ≈ ' + Math.round(f.g) + ' g' : '') + (f.src ? ' · ' + esc(f.src) : '') + '</small></span><span class="fnum"><b>' + Math.round(f.kcal) + '</b><small>' + r1(f.p) + 'P · ' + r1(f.f) + 'F</small></span></button>'; }).join('') + '</div></div>';
+  }
+  function webFoodPaint() { var bx = document.getElementById('webFood'); if (!bx || !fp) return; bx.innerHTML = webFoodHtml(); bindWebFood(bx); }
+  function bindWebFood(bx) {
+    bx.querySelectorAll('[data-wf]').forEach(function (b) { b.onclick = function () { var f = fp.web.list[+b.dataset.wf]; if (!f) return; fp.pick = Object.assign({}, f); fp.qty = 1; drawFoodPicker(); }; });
+    var rt = bx.querySelector('#webRetry'); if (rt) rt.onclick = function () { fp.web = null; webFoodGo(); };
+  }
   function allFoods() { return (state.customFoods || []).map(function (f) { return Object.assign({ mine: true }, f); }).concat(FOODS); }
   function drawFoodPicker() {
     var o = document.getElementById('overlay'), mealName = MEALS.filter(function (m) { return m[0] === fp.meal; })[0][1];
@@ -1324,11 +1355,12 @@
       h += '<input class="text" id="fpQ" placeholder="Search: dosa, rice, chicken, banana…" value="' + esc(fp.q) + '" autocomplete="off">';
       h += '<div class="flist">' + list.map(function (f) {
         return '<button type="button" class="fopt" data-fp="' + esc(f.name) + '"><span><b>' + esc(f.name) + (f.mine ? ' ★' : '') + '</b><small>' + esc(f.serving) + '</small></span><span class="fnum"><b>' + Math.round(f.kcal) + '</b><small>' + r1(f.p) + 'P · ' + r1(f.f) + 'F</small></span></button>';
-      }).join('') + (list.length ? '' : '<p class="muted">No match. Add it as your own dish below.</p>') + '</div>';
+      }).join('') + (list.length ? '' : '<p class="muted">Not in your list yet.</p>') + '</div>';
+      h += '<div id="webFood">' + webFoodHtml() + '</div>';
       h += '<button type="button" class="btn" id="fpCustom">+ My own dish / packet food</button>';
     } else {
       var f = fp.pick, k = fp.qty;
-      h += '<section class="card stack" style="gap:6px"><h1>' + esc(f.name) + '</h1><span class="muted">' + esc(f.serving) + (f.g ? ' ≈ ' + f.g + ' g' : '') + '</span></section>';
+      h += '<section class="card stack" style="gap:6px"><h1>' + esc(f.name) + '</h1><span class="muted">' + esc(f.serving) + (f.g ? ' ≈ ' + Math.round(f.g) + ' g' : '') + (f.web ? ' · from the web' + (f.src ? ' (' + esc(f.src) + ')' : '') + ' · saved to your list when you add it' : '') + '</span></section>';
       h += '<div class="qty"><button type="button" class="btn" data-q="-0.5" aria-label="Less">−</button><b>' + r1(k) + '</b><button type="button" class="btn" data-q="0.5" aria-label="More">+</button><span class="muted">× ' + esc(f.serving) + '</span></div>';
       h += '<div class="tgrid"><div><b>' + Math.round(f.kcal * k) + '</b><small>kcal</small></div><div><b>' + r1(f.p * k) + 'g</b><small>protein</small></div><div><b>' + r1(f.f * k) + 'g</b><small>fat</small></div><div><b>' + r1(f.c * k) + 'g</b><small>carbs</small></div></div>';
       h += '<button type="button" class="btn solid" id="fpEat">Add · eaten</button><button type="button" class="btn" id="fpPlan">Add · planned</button><button type="button" class="btn ghost" id="fpBack">Choose something else</button>';
@@ -1336,13 +1368,15 @@
     o.innerHTML = h + '</div>';
     o.querySelector('#fpClose').onclick = function () { fp = null; closeCheckin(); render(); };
     var qi = o.querySelector('#fpQ');
-    if (qi) { qi.oninput = function () { fp.q = qi.value; var pos = qi.selectionStart; drawFoodPicker(); var n = document.getElementById('fpQ'); n.focus(); try { n.setSelectionRange(pos, pos); } catch (e) {} }; if (!fp.q) setTimeout(function () { try { qi.focus(); } catch (e) {} }, 50); }
+    var wb = o.querySelector('#webFood'); if (wb) bindWebFood(wb);
+    if (qi) { qi.oninput = function () { fp.q = qi.value; var pos = qi.selectionStart; drawFoodPicker(); var n = document.getElementById('fpQ'); n.focus(); try { n.setSelectionRange(pos, pos); } catch (e) {} clearTimeout(webFoodTimer); webFoodTimer = setTimeout(webFoodGo, 900); }; if (!fp.q) setTimeout(function () { try { qi.focus(); } catch (e) {} }, 50); }
     o.querySelectorAll('[data-fp]').forEach(function (b) { b.onclick = function () { fp.pick = allFoods().filter(function (f) { return f.name === b.dataset.fp; })[0]; fp.qty = 1; drawFoodPicker(); }; });
     o.querySelectorAll('[data-q]').forEach(function (b) { b.onclick = function () { fp.qty = Math.max(0.5, fp.qty + +b.dataset.q); drawFoodPicker(); }; });
     var add = function (planned) {
       var f = fp.pick, k = fp.qty;
       state.food = state.food || {}; state.food[fp.key] = state.food[fp.key] || [];
       state.food[fp.key].push({ meal: fp.meal, name: f.name, serving: f.serving, qty: k, kcal: f.kcal * k, p: f.p * k, c: f.c * k, f: f.f * k, planned: planned });
+      if (f.web) { var cf = { name: f.name, serving: f.serving + (f.g ? ' (' + Math.round(f.g) + ' g)' : ''), kcal: f.kcal, p: f.p, c: f.c, f: f.f, tags: fp.q }; state.customFoods = (state.customFoods || []).filter(function (x) { return x.name !== cf.name; }); state.customFoods.push(cf); }
       save(); var n = f.name; fp = null; closeCheckin(); render(); toast((planned ? 'Planned · ' : 'Added · ') + n);
     };
     var e1 = o.querySelector('#fpEat'); if (e1) e1.onclick = function () { add(false); };
