@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '82';
+  var APP_VERSION = '83';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -4489,6 +4489,33 @@
     var L = cashLedger(); if (!L.ev.length) return '';
     return '<button type="button" class="savst" data-sheet="shopcash"><span>💵 Shop money</span><b>' + inrK(L.bal) + '<small> should be with him</small></b><span>›</span></button>';
   }
+  // ---------- v83: the days as a calendar; today (or the latest day) on top ----------
+  function dayStatus(d) { return !d ? null : d.status === 'closed' ? ['closed', 'ok'] : d.status === 'reading' ? ['reading…', 'rd'] : d.status === 'queued' ? ['waiting', 'rd'] : d.grid ? ['to check', 'ck'] : (d.photos || []).length ? ['photos only', 'rd'] : null; }
+  function shopTodayHtml() {
+    var s2 = shop(), tk = dkey(new Date()), h = '';
+    // today first: its sheet, or a big button to add it; and the latest day if today has none
+    var td = s2.days[tk], tst = dayStatus(td), lastK = Object.keys(s2.days).filter(function (k) { return k < tk && dayStatus(s2.days[k]); }).sort().pop();
+    var dayCard = function (k, lab) { var d = s2.days[k], st = dayStatus(d); return '<button type="button" class="calday" data-shday="' + k + '"><span class="t"><span class="cap">' + lab + '</span><b>' + new Date(k + 'T00:00:00').toLocaleDateString('en', { weekday: 'long', day: 'numeric', month: 'short' }) + '</b><small>' + (d.status === 'closed' ? 'sales ' + inr(d.sales) + ' · net ' + inr(d.net) : d.grid ? 'sales ' + inr(daySales(d)) + ' so far' : (d.photos || []).length + ' photo' + ((d.photos || []).length === 1 ? '' : 's')) + '</small></span><span class="calst ' + st[1] + '">' + st[0] + '</span>' + CHEV + '</button>'; };
+    h += '<div class="stack" style="gap:8px">' + (tst ? dayCard(tk, 'Today') : '<button type="button" class="calday add" data-calnew="' + tk + '"><span class="t"><span class="cap">Today</span><b>' + new Date().toLocaleDateString('en', { weekday: 'long', day: 'numeric', month: 'short' }) + '</b><small>no sheet yet · tap to add the photos</small></span><span class="calst ck">＋ add</span></button>');
+    if (lastK) h += dayCard(lastK, lastK === dkey(new Date(Date.now() - 864e5)) ? 'Yesterday' : 'Last sheet');
+    h += '</div>';
+    return h;
+  }
+  function shopCalHtml(m) {
+    var s2 = shop(), tk = dkey(new Date()), h = '';
+    // the month as a calendar: each day shows its net (or status); 📦 = a KSBCL bill that day
+    var md = new Date(m + '-01T00:00:00'), dim = new Date(md.getFullYear(), md.getMonth() + 1, 0).getDate(), lead = (md.getDay() + 6) % 7, bl = {};
+    Object.keys(bills()).forEach(function (id) { var b = s2.bills[id]; if (b && (b.date || '').slice(0, 7) === m) (bl[b.date] = bl[b.date] || []).push(b); });
+    var cells = ''; for (var i = 0; i < lead; i++) cells += '<span class="cc e"></span>';
+    for (var dn = 1; dn <= dim; dn++) {
+      var k = m + '-' + String(dn).padStart(2, '0'), d = s2.days[k], st = dayStatus(d), fut = k > tk, bs = bl[k];
+      var v = !st ? (fut ? '' : k === tk ? '＋' : '·') : d.status === 'closed' ? inrK(d.net || 0).replace('₹', '') : st[0] === 'to check' ? 'check' : '…';
+      cells += '<button type="button" class="cc' + (st ? ' ' + st[1] : fut ? ' fu' : ' no') + (k === tk ? ' td' : '') + (d && d.status === 'closed' && (d.net || 0) < 0 ? ' neg' : '') + '"' + (fut ? ' disabled' : st ? ' data-shday="' + k + '"' : ' data-calnew="' + k + '"') + '><b>' + dn + '</b><small>' + v + '</small>' + (bs ? '<i data-calbill="' + bs[0].id + '">📦</i>' : '') + '</button>';
+    }
+    h += '<div class="card cal"><div class="row between"><span class="cap">' + md.toLocaleDateString('en', { month: 'long', year: 'numeric' }) + ' · net per day</span><span class="cap">📦 bill</span></div><div class="calg">' + ['M', 'T', 'W', 'T', 'F', 'S', 'S'].map(function (w) { return '<span class="cw">' + w + '</span>'; }).join('') + cells + '</div><span class="muted small">Green = closed (net shown) · orange = to check · tap a day to open it, an empty day to add its sheet.</span></div>';
+    var bills2 = Object.keys(bl).sort().reverse(); if (bills2.length) h += '<div class="row" style="gap:6px;flex-wrap:wrap">' + bills2.map(function (k) { return bl[k].map(function (b) { return '<button type="button" class="mschip sm" data-bill="' + b.id + '">📦 ' + new Date(k + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) + ' · ' + (b.items.length ? b.items.reduce(function (a, it) { return a + it.cases; }, 0) + ' cases' : b.status) + '</button>'; }).join(''); }).join('') + '</div>';
+    return h;
+  }
   function renderShop() {
     try { tcsMigrate(); } catch (e) {}
     try { var s0 = shop(); if (!s0.billsMirrored || !s0.billRowsCleaned) { mirrorAllBills(); cleanBillRows(); save(); } if ((s0.indQueue || []).length && !indRun && hasAI() && navigator.onLine) setTimeout(function () { toast('Carrying on reading ' + s0.indQueue.length + ' indent photos'); runIndQueue(); }, 1500); } catch (e) {}
@@ -4499,21 +4526,13 @@
       '<div class="shtiles">' + [[inrK(mt.sales), 'sales'], [inrK(mt.profit), 'profit'], [inrK(mt.exp), 'expenses'], [inrK(mt.net), 'net']].map(function (x) { return '<div><b class="display">' + x[0] + '</b><small>' + x[1] + '</small></div>'; }).join('') + '</div>' + savStrip(m) + '</div>';
     if (queuedCount()) h += '<div class="notice">📶 ' + queuedCount() + ' photo set' + (queuedCount() > 1 ? 's' : '') + ' waiting for internet. They’re read automatically when you’re back online.</div>';
     h += '<div class="shbtns"><button type="button" class="btn coral" id="shAdd">📷 Sales sheet</button><button type="button" class="btn jungle" id="shBill">📦 Stock in (bill)</button></div>';
+    h += shopTodayHtml();
     h += '<input type="file" id="shFile" accept="image/*" multiple hidden><input type="file" id="shBillFile" accept="image/*" multiple hidden>';
     h += stockCardHtml();
     var na = newAlerts();
     var lastK = Object.keys(s2.days).filter(function (k) { return s2.days[k].grid; }).sort().pop();
     h += '<div class="shq">' + (lastK ? '<button type="button" data-sheet="shopcard:' + lastK + '"><span>🖼</span>Daily card</button>' : '') + '<button type="button" data-sheet="shopdash"><span>📊</span>Dashboard</button><button type="button" data-sheet="shoporder"><span>🛒</span>Order next</button><button type="button" data-sheet="shopchecks"' + (na ? ' class="hot"' : '') + '><span>' + (na ? na : '✓') + '</span>Checks</button></div>';
-    var ks = shopMonthDays(m), bl = Object.keys(bills()).map(function (id) { return bills()[id]; }).filter(function (b) { return (b.date || '').slice(0, 7) === m; });
-    if (bl.length) h += '<div class="list">' + bl.sort(function (a, b) { return a.date < b.date ? 1 : -1; }).map(function (b) {
-      var st = { added: ['in stock', '#E3F0FF'], queued: ['no internet', '#F1E6D6'], pending: ['waiting', '#FFE6B8'], reading: ['reading…', '#FFE6B8'], dup: ['duplicate', '#FFD9D3'], draft: ['to check', '#FFE0D9'] }[b.status] || ['', '#fff'];
-      return '<button type="button" class="r" data-bill="' + b.id + '"><span class="t">' + new Date(b.date + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + ' · KSBCL bill<small>' + (b.items.length ? b.items.reduce(function (a, it) { return a + it.cases; }, 0) + ' cases · ' + billBottles(b) + ' bottles' + (b.invoiceValue ? ' · ' + inr(b.invoiceValue) : '') : b.photos.length + ' photos') + '</small></span><span class="tkpill" style="background:' + st[1] + '">' + st[0] + '</span>' + CHEV + '</button>';
-    }).join('') + '</div>';
-    if (!ks.length) h += '<p class="muted" style="margin:0">No days yet. Take photos of today’s Statement of Sales (all pages) and tap <b>Today’s sheet</b>. The app reads the handwriting into a sheet you can check and fix.</p>';
-    else h += '<div class="list">' + ks.map(function (k) {
-      var d = s2.days[k], st = d.status === 'closed' ? ['closed', '#CDEFEA'] : d.status === 'reading' ? ['reading…', '#FFE6B8'] : d.status === 'queued' ? ['waiting', '#F1E6D6'] : d.grid ? ['to check', '#FFE0D9'] : ['photos only', '#F1E6D6'];
-      return '<button type="button" class="r" data-shday="' + k + '"><span class="t">' + new Date(k + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + '<small>' + (d.status === 'closed' ? 'sales ' + inr(d.sales) + ' · net ' + inr(d.net) : d.grid ? 'sales ' + inr(daySales(d)) + ' so far' : d.photos.length + ' photo' + (d.photos.length === 1 ? '' : 's')) + '</small></span><span class="tkpill" style="background:' + st[1] + '">' + st[0] + '</span>' + CHEV + '</button>';
-    }).join('') + '</div>';
+    h += shopCalHtml(m);
     if (s2.fresh) h += '<div class="list">' + row({ t: '🏷 Your short names', sub: myNames().length + ' names · ' + (freshInfo().learn ? 'learning day ' + freshInfo().day + ' of ' + freshInfo().of : 'names filled in from his writing'), sheet: 'shopnames' }) + row({ t: '📦 Stock and margins', sub: regAll().length + ' items with sizes', sheet: 'shopitems' }) + row({ t: '📦 Past KSBCL indents', sub: Object.keys(s2.indents || {}).length ? Object.keys(s2.indents).length + ' indents · costs and stock received' : 'upload them: your real stock and latest costs', sheet: 'shopindent' }) + row({ t: '💸 Expenses by head', sub: 'van, wages, savings… till date', sheet: 'shopexpsum' }) + row({ t: '📊 Month file', sub: 'share ' + md.toLocaleDateString('en', { month: 'long' }) + ' as Excel or PDF', sheet: 'shopmonth:' + m }) + row({ t: 'Shop settings', sub: 'name, usual profit %, start fresh', sheet: 'shopset' }) + '</div>';
     else h += '<div class="list">' + row({ t: '🏷 Your items', sub: regAll().length + ' items' + ((s2.askq || []).length ? ' · <b>' + s2.askq.length + ' to confirm</b>' : ' · his short names, stock, margins'), sheet: 'shopitems' }) + row({ t: '📦 Past KSBCL indents', sub: Object.keys(s2.indents || {}).length ? Object.keys(s2.indents).length + ' indents · used for costs' : 'upload them: your real stock and latest costs', sheet: 'shopindent' }) + row({ t: '📋 KSBCL name list', sub: PL && PL.asOf ? fmtN(PL.items.length) + ' names · as on ' + new Date(PL.asOf + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short', year: 'numeric' }) : 'the supplier-wise list: used only for exact names', sheet: 'shopprices' }) + row({ t: '📊 Month file', sub: 'share ' + md.toLocaleDateString('en', { month: 'long' }) + ' as Excel or PDF', sheet: 'shopmonth:' + m }) + row({ t: '📚 Teach from old sheets', sub: teachSub(), sheet: 'shopteach' }) + row({ t: '🧠 Learning your handwriting', sub: Object.keys(s2.gloss).length + ' words learnt · ' + s2.fixes + ' corrections', sheet: 'shoplearn' }) + row({ t: 'Shop settings', sub: 'name, usual profit %', sheet: 'shopset' }) + '</div>';
     if (!hasAI()) h += '<div class="notice">Reading photos needs your free Gemini key (Settings → Visualization). Without it you can still type the sheet in.</div>';
@@ -4530,6 +4549,8 @@
     view.querySelectorAll('[data-bill]').forEach(function (b) { b.onclick = function () { openBill(b.dataset.bill); }; });
     fi.onchange = function () { var fs = [].slice.call(fi.files); if (!fs.length) return; var pk = shopUi.pickKey || dkey(new Date()); shopUi.pickKey = null; Promise.all(fs.map(blobToDataURL)).then(function (us) { shopAddPhotos(us, pk); }); fi.value = ''; };
     view.querySelectorAll('[data-shday]').forEach(function (b) { b.onclick = function () { openShopDay(b.dataset.shday); }; });
+    view.querySelectorAll('[data-calnew]').forEach(function (b) { b.onclick = function () { shopUi.pickSel = b.dataset.calnew; openSheet('shoppick'); }; });
+    view.querySelectorAll('[data-calbill]').forEach(function (b) { b.onclick = function (e) { e.stopPropagation(); openBill(b.dataset.calbill); }; });
   }
   function shopAddPhotos(urls, key) {
     key = key || (sp && sp.k) || dkey(new Date());
