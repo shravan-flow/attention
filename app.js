@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '81';
+  var APP_VERSION = '82';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -5671,12 +5671,13 @@
     if (!exp.length) h += '<p class="muted small">No expenses read from the sheet.</p>';
     h += '<button type="button" class="btn line" id="exAdd">+ Add expense</button>';
     if (sp.ei != null && exp[sp.ei]) h += '<div class="rekp" id="exKp">' + ['1', '2', '3', '⌫', '4', '5', '6', 'C', '7', '8', '9', '✓', '.', '0', '00', '›'].map(function (k) { return '<button type="button" data-ekp="' + k + '"' + (k === '›' || k === '✓' ? ' class="nx"' : '') + '>' + k + '</button>'; }).join('') + '</div>';
-    h += '<button type="button" class="btn line" id="exSum">📊 Totals by head, till date</button>';
+    h += '<button type="button" class="btn wa" id="exShare">Send the expenses as a picture on WhatsApp</button><button type="button" class="btn line" id="exSum">📊 Totals by head, till date</button>';
     h += '<p class="muted small">Pick the head from the list; tap the amount to change it on the number pad. Savings are kept out of the expenses and the profit.</p>';
     return h;
   }
   function bindExp(o, d) {
     var exp = d.exp, q = function (x) { return o.querySelector(x); };
+    var xsh = q('#exShare'); if (xsh) xsh.onclick = function () { shareExpSheet(sp.k); };
     var xs = q('#exSum'); if (xs) xs.onclick = function () { closeShopDay(); openSheet('shopexpsum'); };
     o.querySelectorAll('[data-exh]').forEach(function (el) { el.onchange = function () {
       var e = exp[+el.dataset.exh], v = el.value, s2 = shop(); if (!e) return;
@@ -8782,6 +8783,53 @@
       }, 'image/png');
     });
   }
+  // ---------- v82: the day's expenses as a picture for WhatsApp ----------
+  function drawExpSheet(k) {
+    var c = cardCfg(), s2 = shop(), d = s2.days[k] || {}, kn = c.lang === 'kn', dd = new Date(k + 'T00:00:00'), m = k.slice(0, 7);
+    var E = (d.exp || []).filter(function (e) { return num(e.v); }).map(function (e) { var h = headOf(e.t); return { n: h ? h.n : (String(e.t || '').trim() || (kn ? 'ಇತರೆ' : 'Other')), raw: e.raw && normName(e.raw) !== normName(h ? h.n : e.t) ? e.raw : '', v: num(e.v), save: isSave(e) }; });
+    var grp = {}, G = []; E.forEach(function (e) { var o = grp[e.n]; if (!o) { o = grp[e.n] = { n: e.n, v: 0, save: e.save, cnt: 0, raws: [] }; G.push(o); } o.v += e.v; o.cnt++; if (e.raw && o.raws.indexOf(e.raw) < 0) o.raws.push(e.raw); });
+    G.forEach(function (o) { o.raw = (o.cnt > 1 ? o.cnt + '× ' : '') + o.raws.join(', '); }); E = G;
+    var ex = E.filter(function (e) { return !e.save; }), sv = E.filter(function (e) { return e.save; }), tE = ex.reduce(function (a, e) { return a + e.v; }, 0), tS = sv.reduce(function (a, e) { return a + e.v; }, 0);
+    var sales = d.grid ? (d.status === 'closed' && d.sales != null ? d.sales : daySales(d)) : 0, cash = sales - tE - tS;
+    var mon = {}; Object.keys(s2.days).forEach(function (x) { if (x.slice(0, 7) !== m || x > k) return; (s2.days[x].exp || []).forEach(function (e) { if (!num(e.v)) return; var h = headOf(e.t), n = h ? h.n : (String(e.t || '').trim() || 'Other'); var o = mon[n] = mon[n] || { n: n, v: 0, save: isSave(e), cnt: 0 }; o.v += num(e.v); o.cnt++; }); });
+    var M = Object.keys(mon).map(function (x) { return mon[x]; }).sort(function (a, b) { return (a.save - b.save) || b.v - a.v; }), mE = M.filter(function (x) { return !x.save; }).reduce(function (a, x) { return a + x.v; }, 0), mS = M.filter(function (x) { return x.save; }).reduce(function (a, x) { return a + x.v; }, 0);
+    var W = 1080, P = 56, RH = 64, H = 470 + 90 + Math.max(1, E.length) * RH + (sv.length && ex.length ? 30 : 0) + 110 + 90 + M.length * 58 + 140 + 80;
+    var cv = document.createElement('canvas'); cv.width = W; cv.height = H; var x = cv.getContext('2d');
+    var F = '"Space Grotesk", "Noto Sans Kannada", system-ui, sans-serif', blue = c.theme === 'blue';
+    var txt = function (t, X, Y, size, o) { o = o || {}; x.font = (o.w || 400) + ' ' + size + 'px ' + F; x.fillStyle = o.c || '#16302A'; x.textAlign = o.a || 'left'; if (o.max) { var s = size; while (x.measureText(t).width > o.max && s > 14) { s -= 2; x.font = (o.w || 400) + ' ' + s + 'px ' + F; } } x.fillText(t, X, Y); };
+    var rr = function (X, Y, w, h, r, f) { x.beginPath(); x.moveTo(X + r, Y); x.arcTo(X + w, Y, X + w, Y + h, r); x.arcTo(X + w, Y + h, X, Y + h, r); x.arcTo(X, Y + h, X, Y, r); x.arcTo(X, Y, X + w, Y, r); x.closePath(); x.fillStyle = f; x.fill(); };
+    x.fillStyle = '#FBF3E6'; x.fillRect(0, 0, W, H);
+    var g = x.createLinearGradient(0, 0, W, 330); g.addColorStop(0, blue ? '#1B2F5A' : '#0F4D40'); g.addColorStop(1, blue ? '#2E5296' : '#12665A'); x.fillStyle = g; x.fillRect(0, 0, W, 330);
+    txt(kn ? 'ಖರ್ಚು ಮತ್ತು ಉಳಿತಾಯ' : 'EXPENSES & SAVINGS', P, 82, 30, { c: 'rgba(255,255,255,.8)' });
+    txt(kn && c.knName ? c.knName : s2.name, P, 150, 58, { w: 700, c: '#fff', max: W - 2 * P });
+    txt(kn ? KN.wd[dd.getDay()] + ', ' + dd.getDate() + ' ' + KN.mo[dd.getMonth()] + ' ' + dd.getFullYear() : dd.toLocaleDateString('en', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }), P, 202, 36, { c: 'rgba(255,255,255,.85)' });
+    var tw = (W - 2 * P - 32) / 3, tiles = [[kn ? 'ಖರ್ಚು' : 'Expenses', inr(tE), '#fff'], [kn ? 'ಉಳಿತಾಯ' : 'Savings', inr(tS), '#CDEFEA'], [kn ? 'ಕೈಯಲ್ಲಿರುವ ನಗದು' : 'Cash in hand', d.grid ? inr(cash) : '—', '#FFB23F']];
+    tiles.forEach(function (t, i) { var X = P + i * (tw + 16); rr(X, 250, tw, 170, 26, t[2]); txt(t[0], X + 24, 300, 28, { c: i === 0 ? '#6F7D74' : '#0F4D40', max: tw - 48 }); txt(t[1], X + 24, 380, 48, { w: 700, c: '#0F4D40', max: tw - 48 }); });
+    var y = 500; txt(kn ? 'ಇಂದು · ದಿನದ ಖರ್ಚು' : 'Today · this day only', P, y, 30, { w: 700, c: '#6F7D74' }); txt(kn ? 'ಮೊತ್ತ' : 'Amount', W - P, y, 26, { w: 700, a: 'right', c: '#6F7D74' }); x.fillStyle = '#d9cfbd'; x.fillRect(P, y + 18, W - 2 * P, 2); y += 30;
+    var row = function (e, i, color) { if (i % 2 === 0) rr(P - 12, y + 4, W - 2 * P + 24, RH - 6, 12, '#fff'); var yy = y + RH / 2 + 12; txt(e.n, P, yy, 32, { w: 600, max: 520 }); if (e.raw) txt(e.raw, P + Math.min(540, x.measureText(e.n).width + 16), yy, 24, { c: '#6F7D74', max: 300 }); txt(inr(e.v), W - P, yy, 32, { w: 700, a: 'right', c: color || '#16302A' }); y += RH; };
+    if (!E.length) { txt(kn ? 'ಇಂದು ಯಾವುದೇ ಖರ್ಚು ಇಲ್ಲ' : 'No expenses today', P, y + 44, 30, { c: '#6F7D74' }); y += RH; }
+    ex.forEach(function (e, i) { row(e, i); });
+    if (sv.length) { if (ex.length) { y += 6; txt(kn ? 'ಉಳಿತಾಯ (ಖರ್ಚು ಅಲ್ಲ)' : 'Savings (not an expense)', P, y + 20, 24, { w: 700, c: '#0F7A5A' }); y += 24; } sv.forEach(function (e, i) { row(e, i, '#0F7A5A'); }); }
+    x.fillStyle = '#0F4D40'; x.fillRect(P, y + 8, W - 2 * P, 3); y += 56;
+    txt(kn ? 'ಒಟ್ಟು ಖರ್ಚು' : 'Total expenses', P, y, 32, { w: 700 }); txt(inr(tE), W - P, y, 34, { w: 700, a: 'right', c: '#0F4D40' });
+    if (d.grid) { y += 44; txt((kn ? 'ಮಾರಾಟ ' : 'Sales ') + inr(sales) + ' − ' + (kn ? 'ಖರ್ಚು ' : 'expenses ') + inr(tE) + (tS ? ' − ' + (kn ? 'ಉಳಿತಾಯ ' : 'savings ') + inr(tS) : '') + ' = ' + inr(cash), P, y, 26, { c: '#6F7D74', max: W - 2 * P }); }
+    y += 70; rr(P - 12, y - 46, W - 2 * P + 24, 70 + M.length * 58 + 96, 24, '#fff');
+    txt((kn ? KN.mo[dd.getMonth()] + ' ಇಲ್ಲಿಯವರೆಗೆ' : dd.toLocaleDateString('en', { month: 'long' }) + ' so far') + ' · ' + (kn ? 'ತಲೆವಾರು' : 'by head'), P + 8, y, 28, { w: 700, c: '#6F7D74', max: W - 2 * P - 16 }); y += 20;
+    M.forEach(function (o) { y += 58; txt(o.n + (o.save ? (kn ? ' · ಉಳಿತಾಯ' : ' · savings') : ''), P + 8, y, 30, { w: 600, c: o.save ? '#0F7A5A' : '#16302A', max: 560 }); if (o.cnt > 1) txt(o.cnt + (kn ? ' ಬಾರಿ' : ' times'), 760, y, 24, { a: 'right', c: '#6F7D74' }); txt(inr(o.v), W - P - 8, y, 30, { w: 700, a: 'right', c: o.save ? '#0F7A5A' : '#16302A' }); });
+    y += 70; txt((kn ? 'ಖರ್ಚು ' : 'Expenses ') + inr(mE) + (mS ? ' · ' + (kn ? 'ಉಳಿತಾಯ ' : 'savings ') + inr(mS) : ''), P + 8, y, 30, { w: 700, c: '#0F4D40', max: W - 2 * P - 16 });
+    txt('◎ Attention', W - P, H - 30, 24, { a: 'right', c: '#6F7D74' });
+    return cv;
+  }
+  function shareExpSheet(k) {
+    cardFonts().then(function () {
+      var cv = drawExpSheet(k), name = shop().name.replace(/[^a-z0-9]+/gi, '-') + '-expenses-' + k + '.png';
+      cv.toBlob(function (blob) {
+        var file = new File([blob], name, { type: 'image/png' });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) navigator.share({ files: [file], title: shop().name + ' expenses ' + k }).catch(function () {});
+        else { var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); toast('Saved the picture: attach it in WhatsApp'); }
+      }, 'image/png');
+    });
+  }
   function shopCardSheet(k) {
     var c = cardCfg(), s2 = shop();
     var tg = function (key, lab, sub) { return '<label class="ttsw"><span><b>' + lab + '</b>' + (sub ? '<small>' + sub + '</small>' : '') + '</span><input type="checkbox" data-cc="' + key + '"' + (c[key] ? ' checked' : '') + '><i></i></label>'; };
@@ -8792,6 +8840,7 @@
     h += '<img id="cardImg" class="cardimg" alt="Daily card preview">';
     h += '<button type="button" class="btn wa" id="cardGo">Share the card on WhatsApp</button>';
     h += '<span class="cap" style="margin-top:6px">Profit by liquor · second picture</span><img id="pcImg" class="cardimg" alt="Profit by liquor preview"><button type="button" class="btn wa" id="pcGo">Share the profit sheet on WhatsApp</button>';
+    h += '<span class="cap" style="margin-top:6px">Expenses & savings · third picture</span><img id="xsImg" class="cardimg" alt="Expenses preview"><button type="button" class="btn wa" id="xsGo">Share the expenses sheet on WhatsApp</button>';
     h += '<details class="card"' + (s2.cardOpen ? ' open' : '') + ' id="cardOpts"><summary><b>What to show</b></summary><div class="stack" style="gap:8px;margin-top:10px">' +
       tg('sales', 'Sales', 'with the change vs the same day last week') + tg('profit', 'Profit and net', 'margin %, net after expenses (closed days)') + tg('exp', 'Expenses and cash in hand', '') + tg('trend', '7-day trend', '') + tg('top', 'Top sellers', 'top 3 items') + tg('stock', 'Stock in', 'KSBCL bills that arrived') + tg('month', 'Month so far', 'sales this month') + tg('aftertax', 'Month profit after tax', 'this month’s net − fixed costs − tax') + tg('sav', 'Savings and money left in the shop', 'this month so far: saved, by head (MCC…), and net profit − savings') +
       '<label class="brf"><span>Tax rate</span><input inputmode="decimal" data-cn="tax" value="' + c.tax + '"><small>% of profit</small></label>' +
@@ -8801,10 +8850,11 @@
     if (c.sav) h += '<div class="card stack" style="gap:6px"><span class="cap">' + new Date(k + 'T00:00:00').toLocaleDateString('en', { month: 'long' }) + ' 1–' + (+k.slice(8, 10)) + ' · starts again each month</span><div class="row between"><span>Net profit (after expenses)</span><b>' + inr(SV.net) + '</b></div>' + SV.split.map(function (z) { return '<div class="row between"><span class="muted">− saved in ' + esc(z.n) + '</span><b>' + inr(z.v) + '</b></div>'; }).join('') + (SV.left < -0.5 ? '<div class="row between" style="border-top:1px solid #eee;padding-top:6px"><span><b style="color:#B3372B">Taken from stock money</b><small class="muted" style="display:block;font-size:11px">more was saved than the profit: the extra came out of the money for the next indent</small></span><b style="font-size:17px;color:#B3372B">' + inr(-SV.left) + '</b></div>' : '<div class="row between" style="border-top:1px solid #eee;padding-top:6px"><span><b>Left in the shop</b></span><b style="font-size:17px">' + inr(SV.left) + '</b></div>') + '</div>';
     h += '<p class="muted small">Fixed monthly costs (licence fee, rent…) are spread over the days. Tax is taken off this month’s profit when it’s above zero. The TCS is already inside the bottle costs.</p>';
     return { title: 'Daily card', cap: new Date(k + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }), html: '<div class="stack" style="gap:12px">' + h + '</div>', bind: function (r) {
-      var paint = function () { cardFonts().then(function () { var im = r.querySelector('#cardImg'); if (im) im.src = drawCard(k).toDataURL('image/png'); var pi = r.querySelector('#pcImg'); if (pi) pi.src = drawProfitSheet(k).toDataURL('image/png'); }); };
+      var paint = function () { cardFonts().then(function () { var im = r.querySelector('#cardImg'); if (im) im.src = drawCard(k).toDataURL('image/png'); var pi = r.querySelector('#pcImg'); if (pi) pi.src = drawProfitSheet(k).toDataURL('image/png'); var xi = r.querySelector('#xsImg'); if (xi) xi.src = drawExpSheet(k).toDataURL('image/png'); }); };
       paint();
       r.querySelector('#cardGo').onclick = function () { shareCard(k); };
       r.querySelector('#pcGo').onclick = function () { shareProfitSheet(k); };
+      r.querySelector('#xsGo').onclick = function () { shareExpSheet(k); };
       var cdy = r.querySelector('#cardDay'); if (cdy) cdy.onchange = function () { openSheet('shopcard:' + cdy.value); };
       r.querySelectorAll('[data-clang]').forEach(function (b) { b.onclick = function () { c.lang = b.dataset.clang; save(); drawSheet(); }; });
       var kn2 = r.querySelector('#knName'); if (kn2) kn2.onchange = function () { c.knName = kn2.value.trim(); save(); paint(); };
