@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '87';
+  var APP_VERSION = '88';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -4519,6 +4519,7 @@
   }
   function renderShop() {
     try { tcsMigrate(); } catch (e) {}
+    try { var s9 = shop(); if (!s9.costSnapV) { Object.keys(s9.days).forEach(function (k) { var d = s9.days[k]; if (d.status === 'closed' && d.grid && !d.costs) costSnap(d, k); }); s9.costSnapV = 1; save(); } } catch (e) {}
     try { var s0 = shop(); if (!s0.billsMirrored || !s0.billRowsCleaned) { mirrorAllBills(); cleanBillRows(); save(); } if ((s0.indQueue || []).length && !indRun && hasAI() && navigator.onLine) setTimeout(function () { toast('Carrying on reading ' + s0.indQueue.length + ' indent photos'); runIndQueue(); }, 1500); } catch (e) {}
     var s2 = shop(), tk = dkey(new Date()), m = shopUi.month || tk.slice(0, 7), mt = monthTotals(m), md = new Date(m + '-01T00:00:00');
     var h = '<div class="stack">' + topbar(esc(s2.name));
@@ -5015,11 +5016,15 @@
     var best = null, bs = 0; PL.items.forEach(function (x) { if (size && x.ml !== String(size).replace(/[^0-9]/g, '')) return; var s3 = nameScore(name, x.name); if (s3 > bs) { bs = s3; best = x; } });
     return bs >= .85 ? best : null;
   }
+  function costSnap(d, k) { if (!d || !d.grid) return; var keep = d.status; d.status = 'closed'; d.costs = {}; profitRows(d, k); d.status = keep; }
   function profitRows(d, k) {
     var g = d.grid, rows = []; k = k || (sp && sp.k) || null;
     dataRows(g).forEach(function (r) {
       var nm = String(g[r][SC.item] || '').trim(); if (!nm) return;
-      var sold = num(cellVal(g, r, SC.sales)), rate = num(cellVal(g, r, SC.rate)), c = costFor(nm, g[r][SC.size], k);
+      var sold = num(cellVal(g, r, SC.sales)), rate = num(cellVal(g, r, SC.rate)), c = null, ik = d.status === 'closed' ? dayKeyOf(d, r) : null;
+      // a closed day keeps the bottle costs it was closed with: later price changes don't move past profit (v88)
+      if (ik && d.costs && d.costs[ik] != null) c = { c: d.costs[ik], src: 'price on that day' };
+      else { c = costFor(nm, g[r][SC.size], k); if (ik && c) { d.costs = d.costs || {}; d.costs[ik] = c.c; } }
       rows.push({ r: r, name: nm, size: g[r][SC.size], sold: sold, rate: rate, cost: c ? c.c : null, src: c ? c.src : '', pct: c && rate ? (rate - c.c) / rate * 100 : null });
     });
     var sales = 0, prof = 0; rows.forEach(function (x) { if (x.pct != null && x.sold) { sales += x.sold * x.rate; prof += x.sold * (x.rate - x.cost); } });
@@ -5032,6 +5037,7 @@
     }).join('') + '</tbody><tfoot><tr><td>Average (by sales)</td><td></td><td></td><td></td><td>' + (pr.avg == null ? '—' : pr.avg.toFixed(1) + '%') + '</td></tr></tfoot></table></div>';
     var miss = pr.rows.filter(function (x) { return x.cost == null && x.sold; }).length;
     h += '<p class="muted small">Profit % = (your rate − cost) ÷ your rate. Cost per bottle = rate per case ÷ bottles per case, plus its share of the TCS, from the KSBCL bill or indent that applied on this day. The old price list isn’t used for prices. Red = selling below cost.' + (miss ? ' ' + miss + ' item' + (miss > 1 ? 's have' : ' has') + ' no cost yet: add a bill or the price list.' : '') + '</p>';
+    if (d.status === 'closed') h += '<p class="muted small" style="margin:0">🔒 This day keeps the bottle costs it was closed with, so later price changes don’t change its profit or your month. <button type="button" class="link" id="pfReprice">Use today’s prices for this day</button></p>';
     h += '<button type="button" class="btn wa" id="pfShare">Send this as a picture on WhatsApp</button>';
     h += '<div class="row" style="gap:10px"><button type="button" class="btn line" id="pfBack">‹ Sheet</button><button type="button" class="btn coral" style="flex:1" id="pfNext">Close the day →</button></div>';
     return h;
@@ -7340,7 +7346,7 @@
     if (sp.step === 'row' || sp.step === 'name') sp.step = 'sheet';
     if (sp.step === 'close') { o.innerHTML = h + shopCloseHtml(d) + '</div>'; head(); bindShopClose(o, d); o.scrollTop = 0; return; }
     if (sp.step === 'names') { o.innerHTML = h + namesHtml(d) + '</div>'; head(); bindNames(o, d); o.scrollTop = 0; return; }
-    if (sp.step === 'profit') { o.innerHTML = h + profitHtml(d) + '</div>'; head(); o.querySelector('#pfBack').onclick = function () { sp.step = 'sheet'; drawShopDay(); }; o.querySelector('#pfShare').onclick = function () { shareProfitSheet(sp.k); }; o.querySelector('#pfNext').onclick = function () { sp.step = 'close'; drawShopDay(); }; o.scrollTop = 0; return; }
+    if (sp.step === 'profit') { o.innerHTML = h + profitHtml(d) + '</div>'; head(); o.querySelector('#pfBack').onclick = function () { sp.step = 'sheet'; drawShopDay(); }; o.querySelector('#pfShare').onclick = function () { shareProfitSheet(sp.k); }; var rp = o.querySelector('#pfReprice'); if (rp) rp.onclick = function () { if (!confirm('Work out this day’s profit again with today’s bottle costs? It changes this day’s profit and the month’s total.')) return; var d2 = shopDay(sp.k); d2.costs = {}; var pr = profitRows(d2, sp.k); if (pr.avg != null) { d2.pct = Math.round(pr.avg * 10) / 10; d2.profit = (d2.sales || 0) * d2.pct / 100; d2.net = d2.profit - (d2.expTotal || 0); } save(); toast('Repriced: ' + (d2.pct != null ? d2.pct + '%' : '')); drawShopDay(); }; o.querySelector('#pfNext').onclick = function () { sp.step = 'close'; drawShopDay(); }; o.scrollTop = 0; return; }
     if (d.status === 'queued') h += '<div class="notice">📶 <b>Waiting for internet.</b> The photos are saved and are read automatically when you’re back online.</div>';
     if (d.status === 'reading') h += '<div class="shreading"><span class="wpulse"></span><b>Reading your sheet…</b><span class="muted small">' + d.photos.length + ' photo' + (d.photos.length === 1 ? '' : 's') + ' · usually 20–60 seconds</span></div>';
     h += '<div class="seg2 shseg" role="tablist">' + [['photo', 'Photo'], ['list', 'List'], ['exp', 'Expenses'], ['sheet', 'Grid']].map(function (v) { return '<button type="button" role="tab" data-spv="' + v[0] + '" aria-selected="' + (sp.view === v[0]) + '">' + v[1] + '</button>'; }).join('') + '</div>';
@@ -7575,7 +7581,7 @@
     var wa = q('#scWa'); if (wa) wa.onclick = function () { waShare(daySummaryText(sp.k)); };
     q('#scSave').onclick = function () {
       var c = calc(); if (c.pct == null) { toast('Type the profit percentage first'); q('#scPct').focus(); return; }
-      d.sales = c.sales; d.pct = c.pct; d.profit = c.profit; d.expTotal = c.et; d.net = c.profit - c.et; d.cash = c.sales - c.et - saveSum(d); d.status = 'closed'; d.closedAt = new Date().toISOString(); regSync(); inkLearnDay(sp.k);
+      d.sales = c.sales; d.pct = c.pct; d.profit = c.profit; d.expTotal = c.et; d.net = c.profit - c.et; d.cash = c.sales - c.et - saveSum(d); d.status = 'closed'; costSnap(d, sp.k); d.closedAt = new Date().toISOString(); regSync(); inkLearnDay(sp.k);
       s2.pct = c.pct; save();
       var ck2 = sp.k; closeShopDay(); toast('Saved · net ' + inr(d.net));
       if (s2.waAsk !== false) openSheet('shopshare:' + ck2);
