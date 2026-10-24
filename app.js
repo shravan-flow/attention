@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '86';
+  var APP_VERSION = '87';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -7034,8 +7034,19 @@
       var b = Object.keys(REF.by).filter(function (x) { if (usedR[x] || RS.by[x]) return false; var xb = regItem(x); if (!xb || xb.size !== xa.size || Math.abs(REF.by[x] - RS.by[a]) > .01) return false; var nb = normName(xb.item + ' ' + (xb.full || '')); return wa && nb.indexOf(wa) >= 0 || nameScore(xa.item, xb.item) > .5; })[0];
       if (b) { usedR[b] = 1; pairs.push({ sheet: a, ref: b, n: RS.by[a] }); }
     });
+    // v87: spelt differently (Morphis / Morpheus), or the only one left with the same size and the same count
+    var usedS = {}; pairs.forEach(function (p) { usedS[p.sheet] = 1; });
+    var leftS = Object.keys(RS.by).filter(function (a) { return !REF.by[a] && !usedS[a] && regItem(a); }), leftR = Object.keys(REF.by).filter(function (x) { return !RS.by[x] && !usedR[x] && regItem(x); });
+    leftS.forEach(function (a) {
+      var xa = regItem(a), wa = normName(xa.item).split(' ')[0];
+      var C = leftR.filter(function (x) { var xb = regItem(x); return !usedR[x] && xb.size === xa.size && Math.abs(REF.by[x] - RS.by[a]) < .01; });
+      var near = C.filter(function (x) { var xb = regItem(x), wb = normName(xb.item + ' ' + (xb.full || '')).split(' ')[0]; return wa.length >= 4 && wb.length >= 4 && (wa.slice(0, 4) === wb.slice(0, 4) || editDist(wa, wb) <= 2); });
+      var b = near.length === 1 ? near[0] : C.length === 1 ? C[0] : null;
+      if (b) { usedR[b] = 1; pairs.push({ sheet: a, ref: b, n: RS.by[a], guess: !near.length }); }
+    });
     return pairs;
   }
+  function editDist(a, b) { var m = a.length, n = b.length, D = [], i, j; for (i = 0; i <= m; i++) { D.push([i]); } for (j = 1; j <= n; j++) D[0][j] = j; for (i = 1; i <= m; i++) for (j = 1; j <= n; j++) D[i][j] = Math.min(D[i - 1][j] + 1, D[i][j - 1] + 1, D[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); return D[m][n]; }
   // expense heads (Van, Wages, Tea… and Savings)
   var HEADS0 = [['Wages', 'exp'], ['Van', 'exp'], ['Tea & snacks', 'exp'], ['Ice', 'exp'], ['Electricity', 'exp'], ['Rent', 'exp'], ['Transport', 'exp'], ['Savings', 'save']];
   function heads() {
