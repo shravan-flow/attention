@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '83';
+  var APP_VERSION = '86';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -3148,6 +3148,7 @@
       case 'shopdupes': return shopDupesSheet();
       case 'shopfresh': return shopFreshSheet();
       case 'shopexpsum': return shopExpSumSheet();
+      case 'shopinkrev': return shopInkRevSheet();
       case 'shopcash': return shopCashSheet();
       case 'shopindpay': return shopIndPaySheet(arg);
       case 'shopexphead': return shopExpHeadSheet(arg);
@@ -4533,6 +4534,7 @@
     var lastK = Object.keys(s2.days).filter(function (k) { return s2.days[k].grid; }).sort().pop();
     h += '<div class="shq">' + (lastK ? '<button type="button" data-sheet="shopcard:' + lastK + '"><span>🖼</span>Daily card</button>' : '') + '<button type="button" data-sheet="shopdash"><span>📊</span>Dashboard</button><button type="button" data-sheet="shoporder"><span>🛒</span>Order next</button><button type="button" data-sheet="shopchecks"' + (na ? ' class="hot"' : '') + '><span>' + (na ? na : '✓') + '</span>Checks</button></div>';
     h += shopCalHtml(m);
+    if (s2.fresh || Object.keys(INK || {}).length) h += '<div class="list">' + row({ t: '🧠 Handwriting samples', sub: (freshInfo() ? (freshInfo().learn ? 'learning day ' + freshInfo().day + ' of ' + freshInfo().of + ' · ' : 'learning finished · ') : '') + 'check and delete weak samples', sheet: 'shopinkrev' }) + '</div>';
     if (s2.fresh) h += '<div class="list">' + row({ t: '🏷 Your short names', sub: myNames().length + ' names · ' + (freshInfo().learn ? 'learning day ' + freshInfo().day + ' of ' + freshInfo().of : 'names filled in from his writing'), sheet: 'shopnames' }) + row({ t: '📦 Stock and margins', sub: regAll().length + ' items with sizes', sheet: 'shopitems' }) + row({ t: '📦 Past KSBCL indents', sub: Object.keys(s2.indents || {}).length ? Object.keys(s2.indents).length + ' indents · costs and stock received' : 'upload them: your real stock and latest costs', sheet: 'shopindent' }) + row({ t: '💸 Expenses by head', sub: 'van, wages, savings… till date', sheet: 'shopexpsum' }) + row({ t: '📊 Month file', sub: 'share ' + md.toLocaleDateString('en', { month: 'long' }) + ' as Excel or PDF', sheet: 'shopmonth:' + m }) + row({ t: 'Shop settings', sub: 'name, usual profit %, start fresh', sheet: 'shopset' }) + '</div>';
     else h += '<div class="list">' + row({ t: '🏷 Your items', sub: regAll().length + ' items' + ((s2.askq || []).length ? ' · <b>' + s2.askq.length + ' to confirm</b>' : ' · his short names, stock, margins'), sheet: 'shopitems' }) + row({ t: '📦 Past KSBCL indents', sub: Object.keys(s2.indents || {}).length ? Object.keys(s2.indents).length + ' indents · used for costs' : 'upload them: your real stock and latest costs', sheet: 'shopindent' }) + row({ t: '📋 KSBCL name list', sub: PL && PL.asOf ? fmtN(PL.items.length) + ' names · as on ' + new Date(PL.asOf + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short', year: 'numeric' }) : 'the supplier-wise list: used only for exact names', sheet: 'shopprices' }) + row({ t: '📊 Month file', sub: 'share ' + md.toLocaleDateString('en', { month: 'long' }) + ' as Excel or PDF', sheet: 'shopmonth:' + m }) + row({ t: '📚 Teach from old sheets', sub: teachSub(), sheet: 'shopteach' }) + row({ t: '🧠 Learning your handwriting', sub: Object.keys(s2.gloss).length + ' words learnt · ' + s2.fixes + ' corrections', sheet: 'shoplearn' }) + row({ t: 'Shop settings', sub: 'name, usual profit %', sheet: 'shopset' }) + '</div>';
     if (!hasAI()) h += '<div class="notice">Reading photos needs your free Gemini key (Settings → Visualization). Without it you can still type the sheet in.</div>';
@@ -5752,6 +5754,7 @@
     h += '<div class="card stack" style="gap:8px"><b style="font-size:14px">He writes</b><div class="row" style="gap:6px;flex-wrap:wrap">' + (Object.keys(x.alias).length ? Object.keys(x.alias).map(function (a) { return '<span class="alc"><span class="hw">' + esc(a) + '</span><button type="button" data-ald="' + esc(a) + '" aria-label="Forget">×</button></span>'; }).join('') : '<span class="muted small">nothing learnt yet</span>') + '</div></div>';
     h += '<div class="list">' + row({ t: 'KSBCL name', sub: x.full ? esc(x.full) : 'not linked yet: it links when a bill or indent with this item comes in' }) + row({ t: 'Size', v: x.size ? x.size + ' ml' : '—' }) + row({ t: 'Stock now', v: st ? fmtN(st.qty) : '—' }) + row({ t: 'Cost per bottle', sub: c && c.you ? (x.costOv && x.costOv.rate ? 'from your rate ₹' + fmtN(x.costOv.rate) + ' a case of ' + x.costOv.per + ' + ' + (x.costOv.tcsPct != null ? x.costOv.tcsPct : tcsPct()) + '% TCS' : 'your own price') + (c.d ? ' · from ' + new Date(c.d + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) : '') : c ? 'from your ' + c.src + (c.d ? ' of ' + new Date(c.d + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) : '') + (c.tcs ? ' · incl. ' + inr(c.c - c.base, 2) + ' TCS' : '') : 'no bill or indent yet', v: c ? inr(c.c, 2) : '—' }) + row({ t: 'His selling rate', v: rt ? inr(rt) : '—' }) + row({ t: 'Profit margin', v: c && rt ? ((rt - c.c) / rt * 100).toFixed(1) + '%' : '—' }) + '</div>';
     var same = regAll().filter(function (y) { return y.key !== key && (!x.size || y.size === x.size); }).sort(function (a, b) { return a.item.localeCompare(b.item); });
+    h += '<button type="button" class="btn line" id="itWrong">🔁 Wrong item delivered: these bottles are really something else</button>';
     h += '<label class="lab rng">Same as another item? Merge into<select class="text" id="itMerge"><option value="">— pick an item —</option>' + same.map(function (y) { return '<option value="' + esc(y.key) + '">' + esc(y.item) + ' ' + esc(y.size || '') + '</option>'; }).join('') + '</select></label>';
     var CI = caseInfo(key);
     h += '<div class="card stack ccase" style="gap:8px"><b style="font-size:14px">Cost from the rate per case</b><div class="row" style="gap:8px"><label class="lab rng" style="flex:2">Rate per case (CB) ₹<input class="text" id="ccRate" inputmode="decimal" value="' + (x.costOv && x.costOv.rate ? x.costOv.rate : '') + '" placeholder="' + (CI.last ? Math.round(CI.last.base * CI.per) : 'e.g. 4800') + '"></label><label class="lab rng" style="flex:1">Bottles<input class="text" id="ccPer" inputmode="numeric" value="' + (x.costOv && x.costOv.per ? x.costOv.per : CI.per) + '"></label></div><span class="ccres" id="ccRes"></span><div class="row" style="gap:8px"><button type="button" class="btn jungle" style="flex:1" id="ccSave">Save cost</button>' + (x.costOv ? '<button type="button" class="btn line" id="ccClear">Use the indent cost</button>' : '') + '</div><span class="muted small">Cost per bottle = rate per case ÷ bottles per case + ' + tcsPct() + '% TCS. Used for the profit from ' + (CI.last && CI.last.d ? 'the indent of ' + new Date(CI.last.d + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) : 'now') + ' on.</span></div>';
@@ -5766,6 +5769,7 @@
       r.querySelectorAll('[data-ald]').forEach(function (b) { b.onclick = function () { delete x.alias[b.dataset.ald]; save(); drawSheet(); }; });
       fillInk(r);
       r.querySelectorAll('[data-ikdel]').forEach(function (b) { b.onclick = function () { var bk = brandKey(x.item); INK[bk] = (INK[bk] || []).filter(function (s3) { return s3.id !== b.dataset.ikdel; }); inkSave(); drawSheet(); }; });
+      var iw = r.querySelector('#itWrong'); if (iw) iw.onclick = function () { var nk = wrongDelivered(key); if (nk) openSheet('shopitem:' + nk); };
       r.querySelector('#itSave').onclick = function () {
         var nk = key, nm = r.querySelector('#itName').value.trim(), mg = r.querySelector('#itMerge').value;
         if (nm && nm !== x.item) nk = regRename(key, nm);
@@ -5773,6 +5777,31 @@
         save(); toast('Saved · used from the next sheet'); openSheet('shopitems');
       };
     } };
+  }
+  // ---------- v84: KSBCL sent a different item than the bill says ----------
+  // every bottle counted under this item becomes the real one (sheets, stock, the bill line); the KSBCL name stays free, so a real delivery of it later is a new item again
+  function wrongDelivered(key) {
+    var s2 = shop(), from = resolveKey(key), a = s2.items[from]; if (!a) return null;
+    var nm = prompt('What was actually delivered instead of ' + a.item + ' ' + a.size + '?\nType its short name (2–3 words), or one of your names:', ''); if (!nm || !nm.trim()) return null; nm = titleCase(nm.trim());
+    var sz = prompt('Size of ' + nm + ' in ml:', a.size); if (sz == null) return null; sz = String(sz).replace(/[^0-9]/g, '') || a.size;
+    var rate = prompt('Rate per case of ' + nm + ' ' + sz + ' ml (CB rate, ₹). Leave empty if you don’t know it yet:', ''); if (rate == null) return null;
+    var oldName = a.item, oldFulls = (a.fulls || []).concat(a.full ? [a.full] : []), tk = regKey(nm, sz);
+    if (!confirm('All ' + oldName + ' ' + a.size + ' on your sheets, stock and bill become ' + nm + ' ' + sz + '.\n' + oldName + ' itself stays free for a real delivery later. Go ahead?')) return null;
+    if (!s2.items[tk]) regAdd(nm, sz, 'sheet');
+    var to = regMerge(from, tk), t = s2.items[to];
+    // the rows on the sheets now carry the real item
+    relabelDays(to);
+    // the KSBCL name and the written name are not this item: take them off it
+    t.fulls = (t.fulls || []).filter(function (f) { return oldFulls.indexOf(f) < 0; }); if (t.full && oldFulls.indexOf(t.full) >= 0) delete t.full;
+    if (t.alias) delete t.alias[oldName.toLowerCase()];
+    Object.keys(s2.map || {}).forEach(function (mk) { if (resolveKey(s2.map[mk]) === to && oldFulls.some(function (f) { return mk.indexOf(normName(f) + '|') === 0; })) delete s2.map[mk]; });
+    if (s2.rekey) delete s2.rekey[from];
+    if (s2.nameCfg && !regAll().some(function (y) { return normName(y.item) === normName(oldName); })) { /* keep the name so a real one can come in */ }
+    var per = num(a.costOv && a.costOv.per) || BPC[+sz] || 0;
+    if (num(rate) > 0 && per) { var c = costFromCase(num(rate), per); costOvSet(to, c, ''); var y = regItem(to); if (y && y.costOv) { y.costOv.rate = num(rate); y.costOv.per = per; } }
+    else if (a.costOv && !(t.costOv)) { /* no rate: no cost yet for the real item, so profit isn't guessed from the wrong price */ }
+    s2.wrongDel = (s2.wrongDel || []).concat([{ from: oldName + ' ' + a.size, to: nm + ' ' + sz, at: dkey(new Date()) }]);
+    save(); toast(oldName + ' ' + a.size + ' → ' + nm + ' ' + sz + ' on your sheets, stock and bill'); return to;
   }
   // the queue of "same item?" questions from indents
   // ---------- clean up double entries: two items that are really one ----------
@@ -6156,6 +6185,7 @@
   }
   function freshInfo() {
     var s2 = shop(), f = s2.fresh; if (!f) return null;
+    if (!s2.learn60) { s2.learn60 = 1; var n0 = Object.keys(s2.days).filter(function (k) { return k >= f.from && s2.days[k].status === 'closed'; }).length; f.learn = Math.max(f.learn || 15, n0) + 60; }
     var n = Object.keys(s2.days).filter(function (k) { return k >= f.from && s2.days[k].status === 'closed'; }).length, of = f.learn || 15;
     return { n: n, day: n + 1, learn: n < of, of: of, from: f.from };
   }
@@ -6331,21 +6361,36 @@
     if (q) {
       var qq = q.replace(/[^a-z0-9]/g, '');
       names.map(function (e) { var l = e.name.toLowerCase(); return { e: e, s: l.indexOf(q) === 0 ? 3 : l.split(' ').some(function (w) { return w.indexOf(q) === 0; }) ? 2 : qq && initials(e.name).indexOf(qq) === 0 ? 1.5 : l.indexOf(q) >= 0 ? 1 : 0 }; })
-        .filter(function (x) { return x.s; }).sort(function (a, b) { return b.s - a.s; }).slice(0, 6).forEach(function (x) { push(x.e.name, x.e.sizes.join(' · ')); });
+        .map(function (x) { var rw = d.ai && d.ai[r] ? coreWords(String(d.ai[r][SC.item] || '')) : ''; if (rw) { var m = Math.max(nameScore(coreWords(x.e.name), rw), nameScore(rw, coreWords(x.e.name))); if (m >= .8) x.s += 5; x.ai = m >= .8; } if (x.e.name === x.e.name.toUpperCase() && /[A-Z]{3}/.test(x.e.name)) x.s -= .5; return x; })
+        .filter(function (x) { return x.s > 0; }).sort(function (a, b) { return b.s - a.s; }).slice(0, 6).forEach(function (x) { push(x.e.name, (x.ai ? 'AI read it · ' : '') + x.e.sizes.join(' · ')); });
       return out;
     }
     var raw = d.ai && d.ai[r] ? String(d.ai[r][SC.item] || '').trim().toLowerCase() : '';
     if (raw) regAll().forEach(function (x) { if (x.alias[raw]) push(x.item, 'you named “' + raw + '” before'); });
+    // what the AI read, matched against your names and their KSBCL names (v85)
+    var aiNew = null;
+    if (raw && raw.length >= 3) {
+      var rc = coreWords(raw), sz0 = String(g[r][SC.size] || '').replace(/[^0-9]/g, '');
+      var M = names.map(function (e) { var sc = Math.max(nameScore(coreWords(e.name), rc), nameScore(rc, coreWords(e.name)) * .9); e.fulls.forEach(function (f) { sc = Math.max(sc, (nameScore(rc, coreWords(f)) + nameScore(coreWords(f), rc)) / 2); }); var c0 = coreWords(e.name).split(' ')[0], r0 = rc.split(' ')[0]; if (c0.length >= 3 && c0 === r0) sc = Math.max(sc, .75); var ty = liqType(raw), nt = liqType(e.name), ft = e.fulls.map(liqType).filter(Boolean); if (ty && ((nt && nt !== ty) || (!nt && ft.length && ft.indexOf(ty) < 0))) sc *= .5; if (sz0 && e.real.indexOf(sz0) >= 0) sc += .05; return { e: e, s: sc }; })
+        .filter(function (x) { return x.s >= .6; }).sort(function (a, b) { return b.s - a.s; });
+      M.slice(0, 2).forEach(function (x) { push(x.e.name, 'AI read “' + String(d.ai[r][SC.item]).trim() + '” · ' + Math.round(Math.min(.99, x.s) * 100) + '%'); });
+      if (!M.length || M[0].s < .8) aiNew = shortFor(raw);
+    }
     var o = String(g[r][SC.open] == null ? '' : g[r][SC.open]).trim(), sz = String(g[r][SC.size] || '').replace(/[^0-9]/g, '');
     if (o !== '' && isNum(o)) { var Y = yChain(sp.k); Object.keys(Y.close).forEach(function (k) { var x = regItem(k); if (x && Y.close[k] === num(o) && (!sz || x.size === sz)) push(x.item, x.size + ' closed ' + fmtN(num(o)) + ' yesterday'); }); }
     if (INK && d.ink && d.ink[r] && d.ink[r].d) names.map(function (e) { return { e: e, p: inkBest(d.ink[r].d, brandKey(e.name)) }; }).filter(function (x) { return x.p != null && x.p >= 60; }).sort(function (a, b) { return b.p - a.p; }).slice(0, 2).forEach(function (x) { push(x.e.name, 'his writing ' + x.p + '%'); });
     var L = String((d.letters || {})[r] || '').toLowerCase().replace(/[^a-z0-9]/g, '');
     if (L) names.filter(function (e) { var ini = initials(e.name), nn = normName(e.name).replace(/ /g, ''); return ini.indexOf(L) === 0 || (L.length >= 2 && ini.indexOf(L.slice(0, 2)) === 0) || nn.indexOf(L) === 0; }).slice(0, 3).forEach(function (e) { push(e.name, 'letters ' + L.toUpperCase()); });
-    return out.slice(0, 6);
+    // new stock from your indents that isn't on a sheet yet: same size and close to what the AI read or the letters
+    var newSt = (shop().indNew || []).map(function (y) { return regItem(y.key); }).filter(Boolean).concat(regAll().filter(function (x) { return x.src === 'indent' && x.at && x.at >= dkey(new Date(Date.now() - 20 * 864e5)); }));
+    var szN = String(g[r][SC.size] || '').replace(/[^0-9]/g, ''), rawN = d.ai && d.ai[r] ? String(d.ai[r][SC.item] || '') : '', LN = String((d.letters || {})[r] || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    newSt.forEach(function (x) { if (szN && x.size !== szN) return; var sc = rawN ? Math.max(nameScore(coreWords(x.item), coreWords(rawN)), nameScore(coreWords(rawN), coreWords(x.item))) : 0; if (LN && initials(x.item).indexOf(LN.slice(0, 2)) === 0) sc = Math.max(sc, .6); if (sc >= .55) push(x.item, 'new stock from the indent'); });
+    out = out.slice(0, 6); if (aiNew && !seen[normName(aiNew)]) out.push({ name: aiNew, why: 'new name, as the AI read it', isNew: true });
+    return out;
   }
   function nmSugHtml(d, r) {
     var S = nmSuggest(d, r), q = (sp.nmQ || '').trim();
-    var h = S.map(function (s) { return '<button type="button" data-nmn="' + esc(s.name) + '"><b>' + esc(s.name) + '</b>' + (s.why ? '<small>' + esc(s.why) + '</small>' : '') + '</button>'; }).join('');
+    var h = S.map(function (s) { return '<button type="button" data-nmn="' + esc(s.name) + '"' + (s.isNew ? ' class="new"' : '') + '><b>' + (s.isNew ? '+ ' : '') + esc(s.name) + '</b>' + (s.why ? '<small>' + esc(s.why) + '</small>' : '') + '</button>'; }).join('');
     if (q && !S.some(function (s) { return normName(s.name) === normName(q); })) h += '<button type="button" data-nmn="' + esc(q) + '" class="new"><b>+ ' + esc(titleCase(q)) + '</b><small>new name</small></button>';
     return h || '<span class="muted small">Type the name: your names appear here as you type</span>';
   }
@@ -9029,6 +9074,35 @@
     var pend = {}; (d.ask || []).forEach(function (a) { pend[a.r] = 1; });
     var hasL = d.letters && Object.keys(d.letters).length;
     return inkLoad().then(function () { Object.keys(d.ink).forEach(function (r) { var m = (d.inkm || {})[r]; if (pend[r] || (m && m.st === 'conflict')) return; if (hasL ? !d.letters[r] : !(d.ai && d.ai[r] && String(d.ai[r][SC.item] || '').trim())) return; var nm = d.grid[r] && String(d.grid[r][SC.item] || '').trim(); if (nm) inkLearn(nm, d.ink[r]); }); return inkSave(); });
+  }
+  // ---------- v86: look over his handwriting samples; weak ones (unlike the rest of that name) can go ----------
+  function inkReview() {
+    var out = [], names = {}; regAll().forEach(function (x) { names[brandKey(x.item)] = x.item; });
+    Object.keys(INK || {}).forEach(function (bk) {
+      var ss = INK[bk] || []; if (!ss.length) return;
+      var rows = ss.map(function (s, i) { var t = 0, n = 0; ss.forEach(function (o, j) { if (i !== j) { t += inkSim(s, o); n++; } }); return { s: s, fit: n ? Math.round(t / n) : null }; });
+      var fits = rows.map(function (r) { return r.fit; }).filter(function (v) { return v != null; }).sort(function (a, b) { return a - b; }), med = fits.length ? fits[Math.floor(fits.length / 2)] : null;
+      rows.forEach(function (r) { r.weak = !names[bk] || (r.fit != null && ss.length >= 3 && (r.fit < 50 || (med != null && r.fit < med - 15))); });
+      out.push({ bk: bk, name: names[bk] || null, rows: rows });
+    });
+    return out.sort(function (a, b) { return (a.name || '~' + a.bk).localeCompare(b.name || '~' + b.bk); });
+  }
+  function inkDropSample(bk, id) { var ss = (INK || {})[bk]; if (!ss) return; INK[bk] = ss.filter(function (s) { return s.id !== id; }); if (!INK[bk].length) delete INK[bk]; idbDel('ink-' + id).catch(function () {}); }
+  function shopInkRevSheet() {
+    if (!INK) { inkLoad().then(function () { if (ui.sheet && ui.sheet.kind === 'shopinkrev') drawSheet(); }); return { title: 'Handwriting samples', cap: '', html: '<p class="muted">Loading…</p>', bind: function () {} }; }
+    var R = inkReview(), tot = 0, weak = 0, fi = freshInfo(); R.forEach(function (g) { tot += g.rows.length; g.rows.forEach(function (r) { if (r.weak) weak++; }); });
+    var h = '';
+    if (fi) h += '<div class="card stack" style="gap:8px"><div class="row between"><b>Learning</b><span class="cap">' + (fi.learn ? 'day ' + fi.day + ' of ' + fi.of : 'finished after ' + fi.of + ' days') + '</span></div><span class="muted small">While learning, you type the name of each row and his writing is saved as a sample. Afterwards the app fills the names in from his writing.</span><button type="button" class="btn line" id="irMore">＋ Learn for 60 more days</button></div>';
+    h += '<div class="shtiles ttq"><div><b class="display">' + R.length + '</b><small>names learnt</small></div><div><b class="display">' + tot + '</b><small>samples</small></div><div class="' + (weak ? 'bad' : 'ok') + '"><b class="display">' + weak + '</b><small>look weak</small></div></div>';
+    if (weak) h += '<button type="button" class="btn coral" id="irAll">🧹 Delete the ' + weak + ' weak sample' + (weak > 1 ? 's' : '') + '</button>';
+    h += '<p class="muted small" style="margin:0">A sample looks weak when it is unlike the other samples of the same name (a bad cut, a smudge, or the wrong name), or when its name is no longer one of yours. Tap × to delete any sample yourself.</p>';
+    h += R.map(function (g) { return '<div class="card stack irg" style="gap:8px"><div class="row between"><b>' + esc(g.name || g.bk) + '</b><span class="cap">' + (g.name ? g.rows.length + ' sample' + (g.rows.length > 1 ? 's' : '') : 'not one of your names') + '</span></div><div class="irs">' + g.rows.map(function (r) { return '<span class="ir' + (r.weak ? ' weak' : '') + '"><img data-ink="' + esc(r.s.id) + '" alt="">' + '<small>' + (r.fit != null ? r.fit + '%' : '—') + '</small><button type="button" data-irx="' + esc(g.bk) + '|' + esc(r.s.id) + '" aria-label="Delete sample">×</button></span>'; }).join('') + '</div></div>'; }).join('');
+    return { title: 'Handwriting samples', cap: tot + ' samples', html: '<div class="stack" style="gap:10px">' + h + '</div>', bind: function (r) {
+      fillInk(r);
+      r.querySelectorAll('[data-irx]').forEach(function (b) { b.onclick = function () { var p = b.dataset.irx.split('|'); inkDropSample(p[0], p.slice(1).join('|')); inkSave(); drawSheet(); }; });
+      var al = r.querySelector('#irAll'); if (al) al.onclick = function () { var n = 0; R.forEach(function (g) { g.rows.forEach(function (x) { if (x.weak) { inkDropSample(g.bk, x.s.id); n++; } }); }); inkSave(); toast(n + ' weak sample' + (n > 1 ? 's' : '') + ' deleted'); drawSheet(); };
+      var mo = r.querySelector('#irMore'); if (mo) mo.onclick = function () { var s2 = shop(), f2 = freshInfo(); s2.fresh.learn = Math.max(s2.fresh.learn || 15, f2.n) + 60; save(); toast('Learning for 60 more days: until day ' + s2.fresh.learn); drawSheet(); };
+    } };
   }
   function inkImg(id, cls) { return '<img class="' + (cls || 'inkimg') + '" data-ink="' + id + '" alt="his writing">'; }
   function fillInk(root) { root.querySelectorAll('img[data-ink]').forEach(function (im) { idbGet('ink-' + im.dataset.ink).then(function (u) { if (u) im.src = u; }).catch(function () {}); }); }

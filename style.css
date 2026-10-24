@@ -1208,3 +1208,9 @@ button.misr.mfb b{color:#0F4D40;font-size:13px;white-space:nowrap}.ydn span.hi.o
 .cc i{position:absolute;top:1px;right:2px;font-style:normal;font-size:11px}
 .calday{flex-direction:row!important;justify-content:flex-start!important;align-items:center!important;text-align:left!important}
 .calday .t{align-items:flex-start!important;text-align:left!important}
+/* v86 handwriting samples */
+.irs{display:flex;flex-wrap:wrap;gap:8px}
+.ir{position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;background:#F7F1E6;border-radius:10px;padding:4px}
+.ir img{width:118px;height:38px;object-fit:contain;background:#fff;border-radius:6px;filter:grayscale(1) contrast(1.3)}
+.ir small{font-size:10.5px;color:#6F7D74}.ir.weak{background:#FFE0D9;box-shadow:inset 0 0 0 1.5px #FF8A78}.ir.weak small{color:#B3372B;font-weight:700}
+.ir button{position:absolute;top:-6px;right:-6px;width:22px;height:22px;border-radius:50%;border:0;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);font-size:13px;line-height:22px;padding:0;cursor:pointer}
