@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '88';
+  var APP_VERSION = '89';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -6998,7 +6998,7 @@
     h += '<div class="card stack ydc" style="gap:8px"><span class="cap">Yesterday · ' + fmtD(Y.pk) + ' · row ' + (dataRows(Y.pd.grid).indexOf(Y.yr) + 1) + '</span><div class="sqimg bw" id="ydImgY"><span class="muted small">Cutting the row…</span></div>' + nums(Y.pd.grid, Y.yr, SC.close) + '</div>';
     h += '<div class="card stack ydc" style="gap:8px"><span class="cap">Today · ' + fmtD(sp.k) + ' · row ' + (dataRows(g).indexOf(r) + 1) + '</span><div class="sqimg bw" id="ydImgT"><span class="muted small">Cutting the row…</span></div>' + nums(g, r, SC.open) + '</div>';
     h += '<div class="notice' + (diff ? '' : ' ok') + '">' + (diff ? 'Yesterday closed <b>' + fmtN(num(yc)) + '</b>, today opens <b>' + fmtN(num(to)) + '</b>: ' + fmtN(Math.abs(diff)) + ' bottle' + (Math.abs(diff) === 1 ? '' : 's') + (diff > 0 ? ' not accounted for' : ' more than yesterday') + '.' : '✓ They match now.') + '</div>';
-    h += '<div class="row" style="gap:8px"><button type="button" class="btn jungle" style="flex:1" id="ydFixT">Fix today’s opening</button><button type="button" class="btn line" style="flex:1" id="ydFixY">Fix yesterday’s closing</button></div><button type="button" class="btn ghost small" id="ydBack">‹ Back</button>';
+    h += '<div class="row" style="gap:8px"><button type="button" class="btn jungle" style="flex:1" id="ydFixT">Fix today’s opening</button><button type="button" class="btn line" style="flex:1" id="ydFixY">Fix yesterday’s closing</button></div><span class="cap" style="margin-top:4px">Or the name is wrong</span><div class="row" style="gap:8px"><button type="button" class="btn line" style="flex:1" id="ydNameT">✎ Rename today’s row</button><button type="button" class="btn line" style="flex:1" id="ydNameY">✎ Rename yesterday’s row</button></div><button type="button" class="btn ghost small" id="ydBack">‹ Back</button>';
     return h;
   }
   function bindYday(o, d) {
@@ -7011,6 +7011,10 @@
     o.querySelectorAll('.sqimg').forEach(function (bx) { bx.onclick = function () { bx.classList.toggle('z'); }; });
     q('#ydFixT').onclick = function () { openRowEd(r, 'open', 'yday'); };
     q('#ydFixY').onclick = function () { var pk = Y.pk, yr = Y.yr; openShopDay(pk); openRowEd(yr, 'close'); };
+    // v89: the row was given the wrong name (e.g. Original Traveller written down as Old Tavern): rename just that row
+    var ren = function (row) { if (shop().fresh) openNm(row); else openNamePick(row, 'sheet', 'one'); };
+    q('#ydNameT').onclick = function () { ren(r); };
+    q('#ydNameY').onclick = function () { var pk = Y.pk, yr = Y.yr; openShopDay(pk); ren(yr); };
   }
   function openYday(r, back) { sp.step = 'yday'; sp.ydr = r; sp.ydBack = back || 'sheet'; drawShopDay(); var ov = document.getElementById('overlay'); if (ov) ov.scrollTop = 0; }
   // ---------- v60: bills go into Past indents; expense heads, savings and totals ----------
