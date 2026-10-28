@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '89';
+  var APP_VERSION = '90';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -6383,6 +6383,18 @@
       if (!M.length || M[0].s < .8) aiNew = shortFor(raw);
     }
     var o = String(g[r][SC.open] == null ? '' : g[r][SC.open]).trim(), sz = String(g[r][SC.size] || '').replace(/[^0-9]/g, '');
+    // v90: he writes the items in the same order every day: the rows around the same place on the last closed sheet
+    var lk = Object.keys(shop().days).filter(function (k) { return k < sp.k && shop().days[k].status === 'closed' && shop().days[k].grid; }).sort().pop();
+    if (lk) {
+      var ld = shop().days[lk], lg = ld.grid, LR = dataRows(lg).filter(function (x) { return String(lg[x][SC.item] || '').trim(); }), pos = dataRows(g).indexOf(r), oN = o !== '' && isNum(o) ? num(o) : null;
+      var C = [];
+      for (var j = Math.max(0, pos - 3); j <= Math.min(LR.length - 1, pos + 3); j++) {
+        var lr = LR[j], key = dayKeyOf(ld, lr), xi = regItem(key); if (!xi) continue; var cl = isNum(cellVal(lg, lr, SC.close)) ? num(cellVal(lg, lr, SC.close)) : null;
+        var sc = 1 / (1 + Math.abs(j - pos)) + (oN != null && cl === oN ? 1 : 0) + (sz && xi.size === sz ? .4 : sz && xi.size ? -.8 : 0);
+        C.push({ x: xi, j: j, cl: cl, sc: sc });
+      }
+      C.sort(function (a, b) { return b.sc - a.sc; }).filter(function (c) { return c.sc >= 1; }).slice(0, 3).forEach(function (c) { push(c.x.item, 'row ' + (c.j + 1) + ' on ' + new Date(lk + 'T00:00:00').toLocaleDateString('en', { weekday: 'short' }) + ' ' + (+lk.slice(8)) + (c.cl != null ? ' · closed ' + fmtN(c.cl) : '')); });
+    }
     if (o !== '' && isNum(o)) { var Y = yChain(sp.k); Object.keys(Y.close).forEach(function (k) { var x = regItem(k); if (x && Y.close[k] === num(o) && (!sz || x.size === sz)) push(x.item, x.size + ' closed ' + fmtN(num(o)) + ' yesterday'); }); }
     if (INK && d.ink && d.ink[r] && d.ink[r].d) names.map(function (e) { return { e: e, p: inkBest(d.ink[r].d, brandKey(e.name)) }; }).filter(function (x) { return x.p != null && x.p >= 60; }).sort(function (a, b) { return b.p - a.p; }).slice(0, 2).forEach(function (x) { push(x.e.name, 'his writing ' + x.p + '%'); });
     var L = String((d.letters || {})[r] || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -6414,6 +6426,7 @@
     h += '<div class="nmph' + (sp.nmZ ? ' z' : '') + '" id="nmPh"><div class="nmphin"><img id="nmImg" alt="Sheet photo"><i class="nmband" id="nmBand"></i><svg class="nmsvg" id="nmSvg" viewBox="0 0 1000 1000" preserveAspectRatio="none"></svg></div><span class="nmphcap">black &amp; white · tap to zoom · scroll it</span></div>';
     h += '<div class="card stack" style="gap:10px"><span class="cap">This row, cut from the photo</span><div class="sqimg bw' + (sp.sqz ? ' z' : '') + '" id="nmCrop"><span class="muted small">Cutting the row out…</span></div>';
     var L = String((d.letters || {})[r] || '').trim(), raw = d.ai && d.ai[r] ? String(d.ai[r][SC.item] || '').trim() : '';
+    if (!raw && hasAI()) h += '<button type="button" class="btn line small" id="nmAsk">🔍 Ask the AI to read this name</button>';
     if (L || raw) h += '<div class="nmlet">' + (L ? '<span>Letters that stand out:</span><b class="hw">' + esc(L.replace(/\s+/g, '').split('').join(' ')) + '</b>' : '') + (raw ? '<small>AI read “' + esc(raw) + '”</small>' : '') + '</div>';
     if (named && !sp.nmName) h += '<div class="notice ok">Named: <b>' + esc(g[r][SC.item]) + ' ' + esc(g[r][SC.size] || '') + '</b> · type to change it</div>';
     h += '<input class="text nmq" id="nmQ" placeholder="Type the short name (2–3 words)" autocomplete="off" autocapitalize="words" enterkeyhint="done" value="' + esc(sp.nmName || sp.nmQ || '') + '">';
@@ -6480,6 +6493,12 @@
     q('#nmNums').onclick = function () { openRowEd(r, 'open', 'nm'); };
     q('#nmPrev').onclick = function () { if (i > 0) { sp.rowFix = false; sp.nr = rows[i - 1]; sp.nmName = null; sp.nmMl = null; sp.nmQ = ''; drawShopDay(); } };
     q('#nmGo').onclick = function () { nmSave(d); };
+    var ask = q('#nmAsk'); if (ask) ask.onclick = function () {
+      var r = sp.nr; ask.disabled = true; ask.textContent = 'Reading…';
+      rowCrop(d, r).then(function (u) { if (!u) throw new Error('no photo of this row'); return geminiImages('This is ONE row cut from a handwritten liquor shop "Stock & Sales" sheet in India. The first column after the serial number is the liquor name, often short or abbreviated (e.g. "100 Pipers", "RC W", "Blue & Code", "R Stg"), then the size in ml. Read the name and the size. Reply JSON only: {"name":"…","size":"750"}', [u], .1); })
+        .then(function (v) { var nm = String((v && v.name) || '').trim(); if (!nm) throw new Error('couldn’t read it'); d.ai = d.ai || []; if (!d.ai[r]) d.ai[r] = SHCOLS.map(function () { return ''; }); d.ai[r][SC.item] = nm; if (v.size && !String(d.grid[r][SC.size] || '').trim()) d.grid[r][SC.size] = String(v.size).replace(/[^0-9]/g, ''); save(); drawShopDay(); })
+        .catch(function (e) { ask.disabled = false; ask.textContent = '🔍 Ask the AI to read this name'; toast('AI: ' + (e.message || 'failed')); });
+    };
     q('#nmList').onclick = function () { sp.step = 'sheet'; sp.view = 'list'; drawShopDay(); };
     var sk = q('#nmSkip'); if (sk) sk.onclick = function () { var nx = rows[i + 1]; if (nx == null) { sp.step = 'check'; drawShopDay(); return; } sp.nr = nx; sp.nmName = null; sp.nmMl = null; sp.nmQ = ''; drawShopDay(); };
     q('#nmDel').onclick = function () { sp.rowFix = true; drawShopDay(); var rf = document.getElementById('rowFix'); if (rf) rf.scrollIntoView({ block: 'center' }); };
