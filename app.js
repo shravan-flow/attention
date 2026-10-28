@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '90';
+  var APP_VERSION = '91';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -4496,8 +4496,8 @@
     var s2 = shop(), tk = dkey(new Date()), h = '';
     // today first: its sheet, or a big button to add it; and the latest day if today has none
     var td = s2.days[tk], tst = dayStatus(td), lastK = Object.keys(s2.days).filter(function (k) { return k < tk && dayStatus(s2.days[k]); }).sort().pop();
-    var dayCard = function (k, lab) { var d = s2.days[k], st = dayStatus(d); return '<button type="button" class="calday" data-shday="' + k + '"><span class="t"><span class="cap">' + lab + '</span><b>' + new Date(k + 'T00:00:00').toLocaleDateString('en', { weekday: 'long', day: 'numeric', month: 'short' }) + '</b><small>' + (d.status === 'closed' ? 'sales ' + inr(d.sales) + ' · net ' + inr(d.net) : d.grid ? 'sales ' + inr(daySales(d)) + ' so far' : (d.photos || []).length + ' photo' + ((d.photos || []).length === 1 ? '' : 's')) + '</small></span><span class="calst ' + st[1] + '">' + st[0] + '</span>' + CHEV + '</button>'; };
-    h += '<div class="stack" style="gap:8px">' + (tst ? dayCard(tk, 'Today') : '<button type="button" class="calday add" data-calnew="' + tk + '"><span class="t"><span class="cap">Today</span><b>' + new Date().toLocaleDateString('en', { weekday: 'long', day: 'numeric', month: 'short' }) + '</b><small>no sheet yet · tap to add the photos</small></span><span class="calst ck">＋ add</span></button>');
+    var dayCard = function (k, lab) { var d = s2.days[k], st = dayStatus(d); return '<button type="button" class="shcd" data-shday="' + k + '"><span class="t"><span class="cap">' + lab + '</span><b>' + new Date(k + 'T00:00:00').toLocaleDateString('en', { weekday: 'long', day: 'numeric', month: 'short' }) + '</b><small>' + (d.status === 'closed' ? 'sales ' + inr(d.sales) + ' · net ' + inr(d.net) : d.grid ? 'sales ' + inr(daySales(d)) + ' so far' : (d.photos || []).length + ' photo' + ((d.photos || []).length === 1 ? '' : 's')) + '</small></span><span class="calst ' + st[1] + '">' + st[0] + '</span>' + CHEV + '</button>'; };
+    h += '<div class="stack" style="gap:8px">' + (tst ? dayCard(tk, 'Today') : '<button type="button" class="shcd add" data-calnew="' + tk + '"><span class="t"><span class="cap">Today</span><b>' + new Date().toLocaleDateString('en', { weekday: 'long', day: 'numeric', month: 'short' }) + '</b><small>no sheet yet · tap to add the photos</small></span><span class="calst ck">＋ add</span></button>');
     if (lastK) h += dayCard(lastK, lastK === dkey(new Date(Date.now() - 864e5)) ? 'Yesterday' : 'Last sheet');
     h += '</div>';
     return h;

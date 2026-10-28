@@ -1191,9 +1191,9 @@ button.misr.mfb b{color:#0F4D40;font-size:13px;white-space:nowrap}.ydn span.hi.o
 /* v81 web food */
 .webf{display:flex;flex-direction:column;gap:6px;margin-top:4px}
 /* v83 calendar */
-.calday{display:flex;align-items:center;gap:10px;width:100%;background:#fff;border:0;border-radius:20px;padding:14px 16px;font:inherit;color:var(--ink,#16302A);text-align:left;cursor:pointer}
-.calday .t{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}.calday .t b{font-size:17px}.calday .t small{font-size:12.5px;color:var(--sub,#6F7D74)}
-.calday.add{box-shadow:inset 0 0 0 2px #FF6B57}
+.shcd{display:flex;align-items:center;gap:10px;width:100%;background:#fff;border:0;border-radius:20px;padding:14px 16px;font:inherit;color:var(--ink,#16302A);text-align:left;cursor:pointer}
+.shcd .t{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}.shcd .t b{font-size:17px}.shcd .t small{font-size:12.5px;color:var(--sub,#6F7D74)}
+.shcd.add{box-shadow:inset 0 0 0 2px #FF6B57}
 .calst{font-size:12px;font-weight:700;padding:5px 10px;border-radius:999px;white-space:nowrap;background:#F1E6D6;color:#6F7D74}
 .calst.ok{background:#CDEFEA;color:#0F4D40}.calst.ck{background:#FFE0D9;color:#B3372B}.calst.rd{background:#FFE6B8;color:#7A5300}
 .cal{padding:14px 12px;gap:10px;display:flex;flex-direction:column}
@@ -1206,8 +1206,8 @@ button.misr.mfb b{color:#0F4D40;font-size:13px;white-space:nowrap}.ydn span.hi.o
 .cc.ck{background:#FFE0D9}.cc.ck small{color:#B3372B;font-weight:700}.cc.rd{background:#FFE6B8}
 .cc.td{box-shadow:inset 0 0 0 2px #0F4D40}
 .cc i{position:absolute;top:1px;right:2px;font-style:normal;font-size:11px}
-.calday{flex-direction:row!important;justify-content:flex-start!important;align-items:center!important;text-align:left!important}
-.calday .t{align-items:flex-start!important;text-align:left!important}
+.shcd{flex-direction:row!important;justify-content:flex-start!important;align-items:center!important;text-align:left!important}
+.shcd .t{align-items:flex-start!important;text-align:left!important}
 /* v86 handwriting samples */
 .irs{display:flex;flex-wrap:wrap;gap:8px}
 .ir{position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;background:#F7F1E6;border-radius:10px;padding:4px}
