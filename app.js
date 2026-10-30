@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '91';
+  var APP_VERSION = '92';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -6417,7 +6417,9 @@
     var s0 = String(g[r][SC.size] || '').replace(/[^0-9]/g, ''); if (!s0) return e && e.real.length === 1 ? e.real.slice() : [];
     out.push(s0);
     // the rows below with no name of their own are the same brand in other sizes
-    for (var j = i + 1; j < rows.length; j++) { var rr = rows[j], own = d.ai && d.ai[rr] ? String(d.ai[rr][SC.item] || '').trim() : ''; if (own || (d.named || {})[rr]) break; var s = String(g[rr][SC.size] || '').replace(/[^0-9]/g, ''); if (!s) break; out.push(s); }
+    // v92: when the AI read no names on this sheet, an empty name below means nothing: a brand's sizes don't repeat and are only a few
+    var aiNamed = rows.filter(function (x) { return d.ai && d.ai[x] && String(d.ai[x][SC.item] || '').trim(); }).length, trustBlank = aiNamed >= rows.length * .3;
+    for (var j = i + 1; j < rows.length; j++) { var rr = rows[j], own = d.ai && d.ai[rr] ? String(d.ai[rr][SC.item] || '').trim() : ''; if (own || (d.named || {})[rr]) break; var s = String(g[rr][SC.size] || '').replace(/[^0-9]/g, ''); if (!s || out.indexOf(s) >= 0) break; if (!trustBlank && +s > +out[out.length - 1]) break; out.push(s); if (out.length >= (trustBlank ? 8 : 4)) break; }
     return out;
   }
   function nmHtml(d) {
