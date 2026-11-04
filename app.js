@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '94';
+  var APP_VERSION = '95';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -3144,6 +3144,7 @@
       case 'shopteach': return shopTeachSheet();
       case 'shopitems': return shopItemsSheet();
       case 'shopitem': return shopItemSheet(arg);
+      case 'shopsplit': return shopSplitSheet(arg);
       case 'shopsame': return shopSameSheet();
       case 'shopdupes': return shopDupesSheet();
       case 'shopfresh': return shopFreshSheet();
@@ -5755,6 +5756,47 @@
     h += '<p class="muted small">Every item keeps its place here, even at 0. His short names are learnt from each sheet you check; KSBCL names come from your bills and indents. % = profit margin from his selling rate and the latest cost.</p>';
     return { title: 'Your items', cap: all.length + ' items', html: '<div class="stack" style="gap:10px">' + h + '</div>', bind: function (r) { var i = r.querySelector('#iiq'); i.addEventListener('input', function () { shopUi.iq = i.value; var pos = i.selectionStart; drawSheet(); var j = document.getElementById('iiq'); if (j) { j.focus(); j.setSelectionRange(pos, pos); } }); } };
   }
+  // ---------- v95: undo a wrong join (e.g. Magic Moments Orange linked into Magic Moments Jamun) ----------
+  // KSBCL names linked to this item that don't fit its own name: each one was most likely joined in by mistake
+  function itemJoins(key) {
+    var s2 = shop(), x = regItem(key); if (!x) return []; key = resolveKey(key);
+    var core = coreWords(x.item), seen = {}, out = [];
+    var add = function (f) { f = String(f || '').trim(); if (!f || seen[normName(f)]) return; seen[normName(f)] = 1; var cf = coreWords(f); if (nameScore(core, cf) >= .9) return; out.push(f); };
+    (x.fulls || []).forEach(add); if (x.full) add(x.full);
+    Object.keys(s2.map || {}).forEach(function (mk) { if (resolveKey(s2.map[mk]) !== key) return; var nm = mk.split('|')[0]; var inds = s2.indents || {}; Object.keys(inds).some(function (id) { return (inds[id].items || []).some(function (it) { if (normName(it.name) === nm) { add(it.name); return true; } }); }); });
+    return out;
+  }
+  function splitWords(fromName, toFull) { var a = coreWords(fromName).split(' '); return coreWords(toFull).split(' ').filter(function (w) { return w.length >= 3 && a.indexOf(w) < 0; }); }
+  function splitRows(key, full) {
+    var s2 = shop(), x = regItem(key), dw = splitWords(x.item, full), out = []; key = resolveKey(key);
+    Object.keys(s2.days).sort().forEach(function (k) { var d = s2.days[k], g = d.grid; if (!g) return; dataRows(g).forEach(function (r) { if (!String(g[r][SC.item] || '').trim() || dayKeyOf(d, r) !== key) return; var ai = d.ai && d.ai[r] ? String(d.ai[r][SC.item] || '') : '', L = String((d.letters || {})[r] || ''); var aw = words(ai); var hit = dw.some(function (w) { return aw.some(function (a) { return a.length >= 3 && (w.indexOf(a) === 0 || a.indexOf(w) === 0); }); }); out.push({ k: k, r: r, ai: ai, L: L, hit: hit, o: g[r][SC.open], c: g[r][SC.close], n: dataRows(g).indexOf(r) + 1 }); }); });
+    return out;
+  }
+  function shopSplitSheet(arg) {
+    var p = arg.split('>>'), key = p[0], full = p.slice(1).join('>>'), x = regItem(key); if (!x) return { title: 'Separate', cap: '', html: '<p class="muted">Not found.</p>', bind: function () {} };
+    var R = splitRows(key, full), dw = splitWords(x.item, full).filter(function (w) { return !/^(verve|flavou?red|flavou?r|select|premium|deluxe|special|classic|original|blended|grain|reserve)$/.test(w); }), aiW = R.filter(function (y) { return y.hit; }).map(function (y) { return words(y.ai); }).reduce(function (a, b) { return a.concat(b); }, []);
+    var pick = dw.filter(function (w) { return aiW.some(function (a) { return a.length >= 3 && (w.indexOf(a) === 0 || a.indexOf(w) === 0); }); })[0] || dw[dw.length - 1];
+    var share = coreWords(x.item).split(' ').filter(function (w) { return coreWords(full).split(' ').indexOf(w) >= 0; });
+    var def = pick && share.length ? titleCase(share.join(' ') + ' ' + pick) : shortLiq(full);
+    var h = '<div class="notice">“' + esc(full) + '” was joined into <b>' + esc(x.item) + ' ' + esc(x.size) + '</b>. Separate it into its own item, and tick the rows on your sheets that were really this one.</div>';
+    h += '<label class="lab rng">Its short name<input class="text" id="spName" value="' + esc(def) + '"></label>';
+    h += '<span class="cap">Rows now called ' + esc(x.item) + ' ' + esc(x.size) + ' · ticked = the AI read it as this one</span>';
+    h += R.length ? '<div class="stack" style="gap:6px">' + R.map(function (y, i) { return '<label class="sprow"><input type="checkbox" data-spr="' + i + '"' + (y.hit ? ' checked' : '') + '><span><b>' + fdk(y.k) + ' · row ' + y.n + '</b><small>' + (y.ai ? 'AI read “' + esc(y.ai) + '”' : (y.L ? 'letters ' + esc(y.L) : 'no reading')) + ' · open ' + esc(String(y.o == null ? '' : y.o)) + ' · close ' + esc(String(y.c == null ? '' : y.c)) + '</small></span><button type="button" class="link" data-spo="' + y.k + '">open</button></label>'; }).join('') + '</div>' : '<p class="muted small">No rows on your sheets use this item yet.</p>';
+    h += '<button type="button" class="btn jungle" id="spGo">Separate it</button><p class="muted small">Check with the photo if unsure: tap “open” to see that day. The “yesterday closed / today opens” checks will show any row you missed.</p>';
+    return { title: 'Separate a joined item', cap: x.item, html: '<div class="stack" style="gap:10px">' + h + '</div>', bind: function (r) {
+      r.querySelectorAll('[data-spo]').forEach(function (b) { b.onclick = function (e) { e.preventDefault(); openShopDay(b.dataset.spo); }; });
+      r.querySelector('#spGo').onclick = function () {
+        var s2 = shop(), nm = titleCase(r.querySelector('#spName').value.trim()); if (!nm) { toast('Type its short name'); return; }
+        var nk0 = itemKey(nm, x.size); if (s2.rekey) { Object.keys(s2.rekey).forEach(function (f) { if (f === nk0 || f.indexOf(normName(full).replace(/ /g, '') + '|') === 0) delete s2.rekey[f]; }); }
+        if (resolveKey(nk0) === resolveKey(key)) { toast('Use a name different from ' + x.item); return; }
+        var nk = s2.items[nk0] ? nk0 : regAdd(nm, x.size, 'indent', { full: full }), y = regItem(nk); y.fulls = (y.fulls || []).filter(function (f) { return f !== full; }).concat([full]); y.full = y.full || full;
+        x.fulls = (x.fulls || []).filter(function (f) { return normName(f) !== normName(full); }); if (x.full && normName(x.full) === normName(full)) delete x.full;
+        Object.keys(s2.map || {}).forEach(function (mk) { if (mk.split('|')[0] === normName(full)) s2.map[mk] = nk; });
+        var n = 0; r.querySelectorAll('[data-spr]').forEach(function (cb) { if (!cb.checked) return; var it = R[+cb.dataset.spr], d = s2.days[it.k]; d.grid[it.r][SC.item] = nm; d.rid = d.rid || {}; d.rid[it.r] = nk; n++; });
+        save(); toast('Separated ' + nm + ' ' + x.size + (n ? ' · ' + n + ' row' + (n > 1 ? 's' : '') + ' moved back' : '')); openSheet('shopitem:' + nk);
+      };
+    } };
+  }
   function shopItemSheet(key) {
     var x = regItem(key); if (!x) return { title: 'Item', cap: '', html: '<p class="muted">This item was merged or removed.</p>', bind: function () {} };
     key = resolveKey(key); var c = costFor(x.item, x.size), rt = lastRate(key), st = regStock()[key];
@@ -5765,6 +5807,7 @@
     h += '<div class="card stack" style="gap:8px"><b style="font-size:14px">He writes</b><div class="row" style="gap:6px;flex-wrap:wrap">' + (Object.keys(x.alias).length ? Object.keys(x.alias).map(function (a) { return '<span class="alc"><span class="hw">' + esc(a) + '</span><button type="button" data-ald="' + esc(a) + '" aria-label="Forget">×</button></span>'; }).join('') : '<span class="muted small">nothing learnt yet</span>') + '</div></div>';
     h += '<div class="list">' + row({ t: 'KSBCL name', sub: x.full ? esc(x.full) : 'not linked yet: it links when a bill or indent with this item comes in' }) + row({ t: 'Size', v: x.size ? x.size + ' ml' : '—' }) + row({ t: 'Stock now', v: st ? fmtN(st.qty) : '—' }) + row({ t: 'Cost per bottle', sub: c && c.you ? (x.costOv && x.costOv.rate ? 'from your rate ₹' + fmtN(x.costOv.rate) + ' a case of ' + x.costOv.per + ' + ' + (x.costOv.tcsPct != null ? x.costOv.tcsPct : tcsPct()) + '% TCS' : 'your own price') + (c.d ? ' · from ' + new Date(c.d + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) : '') : c ? 'from your ' + c.src + (c.d ? ' of ' + new Date(c.d + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }) : '') + (c.tcs ? ' · incl. ' + inr(c.c - c.base, 2) + ' TCS' : '') : 'no bill or indent yet', v: c ? inr(c.c, 2) : '—' }) + row({ t: 'His selling rate', v: rt ? inr(rt) : '—' }) + row({ t: 'Profit margin', v: c && rt ? ((rt - c.c) / rt * 100).toFixed(1) + '%' : '—' }) + '</div>';
     var same = regAll().filter(function (y) { return y.key !== key && (!x.size || y.size === x.size); }).sort(function (a, b) { return a.item.localeCompare(b.item); });
+    var J = itemJoins(key); if (J.length) h += '<div class="card stack" style="gap:8px;box-shadow:inset 0 0 0 2px #FFC56B"><b>Joined into this item</b><span class="muted small">These KSBCL names don’t fit “' + esc(regItem(key).item) + '”: if one is really another liquor, separate it.</span>' + J.map(function (f) { return '<button type="button" class="r" data-sheet="shopsplit:' + esc(resolveKey(key)) + '>>' + esc(f) + '"><span class="t">' + esc(f) + '<small>tap to separate</small></span>' + CHEV + '</button>'; }).join('') + '</div>';
     h += '<button type="button" class="btn line" id="itWrong">🔁 Wrong item delivered: these bottles are really something else</button>';
     h += '<label class="lab rng">Same as another item? Merge into<select class="text" id="itMerge"><option value="">— pick an item —</option>' + same.map(function (y) { return '<option value="' + esc(y.key) + '">' + esc(y.item) + ' ' + esc(y.size || '') + '</option>'; }).join('') + '</select></label>';
     var CI = caseInfo(key);
@@ -6028,6 +6071,8 @@
       var n = normName(e.name); if (n === ownN && !e.keys.some(function (k) { var y = regItem(k); return y && y.src !== 'indent'; })) return;
       var cw = coreWords(e.name), sc = nameScore(cw, full), cws = cw.split(' ');
       if (cws[0].length >= 3 && cws[0] === fw[0]) sc = Math.max(sc, .72);
+      // v95: same brand, different flavour/variant (Magic Moments Jamun vs Orange): every word of your name must be in the indent name
+      if (cws.some(function (w) { return w.length >= 3 && !fw.some(function (f) { return f.indexOf(w) === 0 || w.indexOf(f) === 0 && f.length >= 3; }); })) sc = Math.min(sc, .45);
       if (cws.some(function (w) { return w.length === 1 && fw.indexOf(w) < 0; })) sc *= .5;
       e.fulls.forEach(function (f) { if (normName(f) === normName(en.full)) sc = Math.max(sc, 1); else sc = Math.max(sc, (nameScore(coreWords(f), full) + nameScore(full, coreWords(f))) / 2 * .95); });
       e.keys.forEach(function (k) { var x = regItem(k); if (x) Object.keys(x.alias || {}).forEach(function (a) { sc = Math.max(sc, nameScore(coreWords(a), full) * .9); }); });
@@ -7079,7 +7124,7 @@
       var xa = regItem(a), wa = normName(xa.item).split(' ')[0];
       var C = leftR.filter(function (x) { var xb = regItem(x); return !usedR[x] && xb.size === xa.size && Math.abs(REF.by[x] - RS.by[a]) < .01; });
       var near = C.filter(function (x) { var xb = regItem(x), wb = normName(xb.item + ' ' + (xb.full || '')).split(' ')[0]; return wa.length >= 4 && wb.length >= 4 && (wa.slice(0, 4) === wb.slice(0, 4) || editDist(wa, wb) <= 2); });
-      var b = near.length === 1 ? near[0] : C.length === 1 ? C[0] : null;
+      var b = near.length === 1 ? near[0] : null;
       if (b) { usedR[b] = 1; pairs.push({ sheet: a, ref: b, n: RS.by[a], guess: !near.length }); }
     });
     return pairs;
