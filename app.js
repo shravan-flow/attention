@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '92';
+  var APP_VERSION = '94';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -4499,6 +4499,11 @@
     var dayCard = function (k, lab) { var d = s2.days[k], st = dayStatus(d); return '<button type="button" class="shcd" data-shday="' + k + '"><span class="t"><span class="cap">' + lab + '</span><b>' + new Date(k + 'T00:00:00').toLocaleDateString('en', { weekday: 'long', day: 'numeric', month: 'short' }) + '</b><small>' + (d.status === 'closed' ? 'sales ' + inr(d.sales) + ' · net ' + inr(d.net) : d.grid ? 'sales ' + inr(daySales(d)) + ' so far' : (d.photos || []).length + ' photo' + ((d.photos || []).length === 1 ? '' : 's')) + '</small></span><span class="calst ' + st[1] + '">' + st[0] + '</span>' + CHEV + '</button>'; };
     h += '<div class="stack" style="gap:8px">' + (tst ? dayCard(tk, 'Today') : '<button type="button" class="shcd add" data-calnew="' + tk + '"><span class="t"><span class="cap">Today</span><b>' + new Date().toLocaleDateString('en', { weekday: 'long', day: 'numeric', month: 'short' }) + '</b><small>no sheet yet · tap to add the photos</small></span><span class="calst ck">＋ add</span></button>');
     if (lastK) h += dayCard(lastK, lastK === dkey(new Date(Date.now() - 864e5)) ? 'Yesterday' : 'Last sheet');
+    // v94: last month's gaps and its statement, easy to reach once a new month starts
+    var pm = new Date(); pm.setDate(1); pm.setMonth(pm.getMonth() - 1); var pmk = dkey(pm).slice(0, 7), pmName = pm.toLocaleDateString('en', { month: 'long' });
+    var miss = missingDays().filter(function (k) { return k.slice(0, 7) === pmk; }), open = Object.keys(s2.days).filter(function (k) { return k.slice(0, 7) === pmk && s2.days[k].grid && s2.days[k].status !== 'closed'; }).sort();
+    if (miss.length || open.length) h += '<div class="card stack" style="gap:8px;box-shadow:inset 0 0 0 2px #FFC56B"><b>' + pmName + ' isn’t finished</b><span class="muted small">' + (miss.length ? miss.length + ' day' + (miss.length > 1 ? 's' : '') + ' with no sheet' : '') + (miss.length && open.length ? ' · ' : '') + (open.length ? open.length + ' not closed' : '') + ' · tap a day to fill it</span><div class="row" style="gap:6px;flex-wrap:wrap">' + miss.map(function (k) { return '<button type="button" class="mschip sm" data-calnew="' + k + '">＋ ' + (+k.slice(8)) + ' ' + pmName.slice(0, 3) + '</button>'; }).join('') + open.map(function (k) { return '<button type="button" class="mschip sm" data-shday="' + k + '">✎ ' + (+k.slice(8)) + ' ' + pmName.slice(0, 3) + '</button>'; }).join('') + '</div></div>';
+    if (new Date().getDate() <= 10 || miss.length || open.length) h += '<button type="button" class="btn line" data-sheet="shopmonth:' + pmk + '">📄 ' + pmName + ' statement</button>';
     h += '</div>';
     return h;
   }
@@ -6367,7 +6372,8 @@
     if (q) {
       var qq = q.replace(/[^a-z0-9]/g, '');
       names.map(function (e) { var l = e.name.toLowerCase(); return { e: e, s: l.indexOf(q) === 0 ? 3 : l.split(' ').some(function (w) { return w.indexOf(q) === 0; }) ? 2 : qq && initials(e.name).indexOf(qq) === 0 ? 1.5 : l.indexOf(q) >= 0 ? 1 : 0 }; })
-        .map(function (x) { var rw = d.ai && d.ai[r] ? coreWords(String(d.ai[r][SC.item] || '')) : ''; if (rw) { var m = Math.max(nameScore(coreWords(x.e.name), rw), nameScore(rw, coreWords(x.e.name))); if (m >= .8) x.s += 5; x.ai = m >= .8; } if (x.e.name === x.e.name.toUpperCase() && /[A-Z]{3}/.test(x.e.name)) x.s -= .5; return x; })
+        .filter(function (x) { return x.s > 0; })
+        .map(function (x) { var rw = d.ai && d.ai[r] ? coreWords(String(d.ai[r][SC.item] || '')) : ''; if (rw.replace(/[^a-z0-9]/g, '').length >= 4) { var m = Math.max(nameScore(coreWords(x.e.name), rw), nameScore(rw, coreWords(x.e.name))); if (m >= .8) x.s += 5; x.ai = m >= .8; } if (x.e.name === x.e.name.toUpperCase() && /[A-Z]{3}/.test(x.e.name)) x.s -= .5; return x; })
         .filter(function (x) { return x.s > 0; }).sort(function (a, b) { return b.s - a.s; }).slice(0, 6).forEach(function (x) { push(x.e.name, (x.ai ? 'AI read it · ' : '') + x.e.sizes.join(' · ')); });
       return out;
     }
@@ -6375,7 +6381,7 @@
     if (raw) regAll().forEach(function (x) { if (x.alias[raw]) push(x.item, 'you named “' + raw + '” before'); });
     // what the AI read, matched against your names and their KSBCL names (v85)
     var aiNew = null;
-    if (raw && raw.length >= 3) {
+    if (raw && raw.replace(/[^a-z0-9]/gi, '').length >= 4) {
       var rc = coreWords(raw), sz0 = String(g[r][SC.size] || '').replace(/[^0-9]/g, '');
       var M = names.map(function (e) { var sc = Math.max(nameScore(coreWords(e.name), rc), nameScore(rc, coreWords(e.name)) * .9); e.fulls.forEach(function (f) { sc = Math.max(sc, (nameScore(rc, coreWords(f)) + nameScore(coreWords(f), rc)) / 2); }); var c0 = coreWords(e.name).split(' ')[0], r0 = rc.split(' ')[0]; if (c0.length >= 3 && c0 === r0) sc = Math.max(sc, .75); var ty = liqType(raw), nt = liqType(e.name), ft = e.fulls.map(liqType).filter(Boolean); if (ty && ((nt && nt !== ty) || (!nt && ft.length && ft.indexOf(ty) < 0))) sc *= .5; if (sz0 && e.real.indexOf(sz0) >= 0) sc += .05; return { e: e, s: sc }; })
         .filter(function (x) { return x.s >= .6; }).sort(function (a, b) { return b.s - a.s; });
@@ -6396,9 +6402,10 @@
       C.sort(function (a, b) { return b.sc - a.sc; }).filter(function (c) { return c.sc >= 1; }).slice(0, 3).forEach(function (c) { push(c.x.item, 'row ' + (c.j + 1) + ' on ' + new Date(lk + 'T00:00:00').toLocaleDateString('en', { weekday: 'short' }) + ' ' + (+lk.slice(8)) + (c.cl != null ? ' · closed ' + fmtN(c.cl) : '')); });
     }
     if (o !== '' && isNum(o)) { var Y = yChain(sp.k); Object.keys(Y.close).forEach(function (k) { var x = regItem(k); if (x && Y.close[k] === num(o) && (!sz || x.size === sz)) push(x.item, x.size + ' closed ' + fmtN(num(o)) + ' yesterday'); }); }
-    if (INK && d.ink && d.ink[r] && d.ink[r].d) names.map(function (e) { return { e: e, p: inkBest(d.ink[r].d, brandKey(e.name)) }; }).filter(function (x) { return x.p != null && x.p >= 60; }).sort(function (a, b) { return b.p - a.p; }).slice(0, 2).forEach(function (x) { push(x.e.name, 'his writing ' + x.p + '%'); });
+    if (INK && d.ink && d.ink[r] && d.ink[r].d) names.filter(function (e) { return !sz || !e.real.length || e.real.indexOf(sz) >= 0; }).map(function (e) { return { e: e, p: inkBest(d.ink[r].d, brandKey(e.name)) }; }).filter(function (x) { return x.p != null && x.p >= 60; }).sort(function (a, b) { return b.p - a.p; }).slice(0, 2).forEach(function (x) { push(x.e.name, 'his writing ' + x.p + '%'); });
     var L = String((d.letters || {})[r] || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-    if (L) names.filter(function (e) { var ini = initials(e.name), nn = normName(e.name).replace(/ /g, ''); return ini.indexOf(L) === 0 || (L.length >= 2 && ini.indexOf(L.slice(0, 2)) === 0) || nn.indexOf(L) === 0; }).slice(0, 3).forEach(function (e) { push(e.name, 'letters ' + L.toUpperCase()); });
+    var fitsSz = function (e) { return !sz || !e.real.length || e.real.indexOf(sz) >= 0; };
+    if (L) names.filter(fitsSz).filter(function (e) { var ini = initials(e.name), nn = normName(e.name).replace(/ /g, ''); return ini.indexOf(L) === 0 || (L.length >= 2 && ini.indexOf(L.slice(0, 2)) === 0) || nn.indexOf(L) === 0; }).slice(0, 3).forEach(function (e) { push(e.name, 'letters ' + L.toUpperCase()); });
     // new stock from your indents that isn't on a sheet yet: same size and close to what the AI read or the letters
     var newSt = (shop().indNew || []).map(function (y) { return regItem(y.key); }).filter(Boolean).concat(regAll().filter(function (x) { return x.src === 'indent' && x.at && x.at >= dkey(new Date(Date.now() - 20 * 864e5)); }));
     var szN = String(g[r][SC.size] || '').replace(/[^0-9]/g, ''), rawN = d.ai && d.ai[r] ? String(d.ai[r][SC.item] || '') : '', LN = String((d.letters || {})[r] || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -8983,7 +8990,7 @@
   }
   function missingDays() {
     var s2 = shop(), ks = Object.keys(s2.days).filter(function (k) { var d = s2.days[k]; return d.grid || (d.photos || []).length; }).sort(), out = [];
-    var start = new Date(); start.setDate(1); if (ks[0] && ks[0] < dkey(start)) start = new Date(Math.max(new Date(ks[0] + 'T00:00:00').getTime(), Date.now() - 45 * 864e5));
+    var start = new Date(); start.setDate(1); var pm0 = new Date(start); pm0.setMonth(pm0.getMonth() - 1); if (ks[0] && ks[0] < dkey(start)) start = new Date(Math.max(new Date(ks[0] + 'T00:00:00').getTime(), Math.min(pm0.getTime(), Date.now() - 45 * 864e5)));
     var have = {}; ks.forEach(function (k) { have[k] = 1; });
     for (var d = new Date(start); dkey(d) < dkey(new Date()); d.setDate(d.getDate() + 1)) if (!have[dkey(d)]) out.push(dkey(d));
     return out;
