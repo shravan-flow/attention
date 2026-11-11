@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '95';
+  var APP_VERSION = '98';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -6609,7 +6609,12 @@
     var tm = ck.msgs.filter(function (m) { return m.r == null; });
     if (d.written && d.written.sales) { if (!tm.length) it(true, 'Amounts add up to his written total', inr(daySales(d))); else tm.forEach(function (m) { it(false, m.t, ''); }); }
     else it(true, 'Total sales ' + inr(daySales(d)), 'no written total on the sheet to compare with');
-    if (pk && !left) { sp.mfList = MF; MF.forEach(function (x, i) { if (x.swap) it(false, 'Today’s “' + d.grid[x.r][SC.item] + ' ' + (d.grid[x.r][SC.size] || '') + '” looks like ' + x.name + ' ' + x.size, 'it opens with ' + fmtN(x.close) + ' = what ' + x.name + ' ' + x.size + ' closed yesterday (' + (d.grid[x.r][SC.item] + ' ' + (d.grid[x.r][SC.size] || '')) + ' closed ' + fmtN(x.was) + ') · size mixed up? tap to compare and fix', 'mf:' + i); else if (x.r != null) it(false, x.name + ' ' + x.size + ' looks like today’s “' + d.grid[x.r][SC.item] + ' ' + (d.grid[x.r][SC.size] || '') + '”', 'yesterday closed ' + fmtN(x.close) + ', that row opens with ' + fmtN(x.close) + ': named differently? · tap to compare and fix', 'mf:' + i); else it(false, x.name + ' ' + x.size + ' is missing', 'had ' + fmtN(x.close) + ' yesterday, no row today opens with ' + fmtN(x.close) + ' · tap to see it', 'mf:' + i); }); if (!MF.length) it(true, 'Every item from yesterday is on the sheet', ''); }
+    // v97: yesterday saved with his short forms (OCW, BPW…) instead of your names: one place to rename them all
+    var onDays = {}; if (pk && !left && MF.length >= 3) Object.keys(shop().days).forEach(function (k2) { if (k2 === pk) return; var d2 = shop().days[k2]; if (!d2.grid) return; dataRows(d2.grid).forEach(function (q) { if (String(d2.grid[q][SC.item] || '').trim()) onDays[dayKeyOf(d2, q)] = 1; }); });
+    var bulk = pk && !left && MF.length >= 3 ? MF.filter(function (x) { return x.r != null && !x.swap && (!regItem(x.key) || !onDays[resolveKey(x.key)]); }) : []; if (bulk.length < 3) bulk = [];
+    var inBulk = {}; bulk.forEach(function (x) { inBulk[x.key] = 1; }); sp.mfBulk = bulk;
+    if (bulk.length) it(false, bulk.length + ' rows on ' + new Date(pk + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + ' have his short forms, not your names', bulk.slice(0, 4).map(function (x) { return x.name; }).join(', ') + '… · the numbers carry on to today’s named rows · tap to rename them in one go', 'mfbulk');
+    if (pk && !left) { sp.mfList = MF; MF.forEach(function (x, i) { if (inBulk[x.key]) return; if (x.swap) it(false, 'Today’s “' + d.grid[x.r][SC.item] + ' ' + (d.grid[x.r][SC.size] || '') + '” looks like ' + x.name + ' ' + x.size, 'it opens with ' + fmtN(x.close) + ' = what ' + x.name + ' ' + x.size + ' closed yesterday (' + (d.grid[x.r][SC.item] + ' ' + (d.grid[x.r][SC.size] || '')) + ' closed ' + fmtN(x.was) + ') · size mixed up? tap to compare and fix', 'mf:' + i); else if (x.r != null) it(false, x.name + ' ' + x.size + ' looks like today’s “' + d.grid[x.r][SC.item] + ' ' + (d.grid[x.r][SC.size] || '') + '”', 'yesterday closed ' + fmtN(x.close) + ', that row opens with ' + fmtN(x.close) + ': named differently? · tap to compare and fix', 'mf:' + i); else it(false, x.name + ' ' + x.size + ' is missing', 'had ' + fmtN(x.close) + ' yesterday, not on today’s sheet · sold out, left off, or named differently? tap to see it', 'mf:' + i); }); if (!MF.length) it(true, 'Every item from yesterday is on the sheet', ''); }
     if (d.written && d.written.balance) { var et = expSum(d), ex = daySales(d) - et - saveSum(d), gap = d.written.balance - ex; it(Math.abs(gap) < 1, 'Cash in hand ' + inr(d.written.balance), Math.abs(gap) < 1 ? '= sales − expenses ✓' : 'sales − expenses = ' + inr(ex) + ' · ' + (gap < 0 ? 'short ' : 'over ') + inr(Math.abs(gap))); }
     return { items: out, rows: rows, ck: ck };
   }
@@ -6629,11 +6634,17 @@
       else if (a.indexOf('row:') === 0) openRowEd(+a.slice(4), 'open', 'check');
       else if (a.indexOf('yday:') === 0) openYday(+a.slice(5), 'check');
       else if (a.indexOf('gap:') === 0) { var gx = (sp.gapList || [])[+a.slice(4)]; if (gx) { sp.gap = gx; sp.step = 'gap'; drawShopDay(); var ov = document.getElementById('overlay'); if (ov) ov.scrollTop = 0; } }
+      else if (a === 'mfbulk') { sp.step = 'mfbulk'; drawShopDay(); var ovb = document.getElementById('overlay'); if (ovb) ovb.scrollTop = 0; }
       else if (a.indexOf('mf:') === 0) { var mx = (sp.mfList || [])[+a.slice(3)]; if (mx) openMfix(mx, 'check'); }
       else if (a.indexOf('link:') === 0) { var pr = a.slice(5).split('>>'); regMerge(pr[0], pr[1]); save(); toast('Linked: next time they count as one item'); drawShopDay(); }
     }; });
     o.querySelector('#ckBack').onclick = function () { if (d.learn) openNm(); else { sp.step = 'sheet'; sp.view = 'list'; drawShopDay(); } };
-    o.querySelector('#ckGo').onclick = function () { sp.step = 'profit'; drawShopDay(); };
+    o.querySelector('#ckGo').onclick = function () {
+      // v98: closing with rows still unnamed leaves his short forms (OCW, BPW…) on the sheet, and the next day can't be matched to it
+      var lf = d.learn ? nmLeft(d) : []; if (lf.length) { var ex = lf.slice(0, 4).map(function (r) { return String(d.grid[r][SC.item] || '').trim() || '(no name)'; }).join(', ');
+        if (!confirm(lf.length + ' row' + (lf.length > 1 ? 's are' : ' is') + ' not named yet (' + ex + (lf.length > 4 ? '…' : '') + ').\n\nIf you close now they keep his short forms, and tomorrow’s check will flag them as “looks like…”.\n\nOK = name them now · Cancel = close anyway')) { sp.step = 'profit'; drawShopDay(); return; }
+        openNm(lf[0]); return; }
+      sp.step = 'profit'; drawShopDay(); };
   }
   // ---------- v52: flatten the sheet photo, then trace every printed row line ----------
   function loadImg(src) { return new Promise(function (res, rej) { var im = new Image(); im.onload = function () { res(im); }; im.onerror = rej; im.src = src; }); }
@@ -7277,7 +7288,12 @@
       var best = null, bs = 0;
       fresh.forEach(function (r) { if (used[r]) return; var o = cellVal(g, r, SC.open); if (!isNum(o) || String(g[r][SC.open]).trim() === '' || num(o) !== x.close) return;
         var tn = String(g[r][SC.item]), ts = String(g[r][SC.size] || '').replace(/[^0-9]/g, ''), sameSz = ts === String(x.size || '').replace(/[^0-9]/g, ''), ns = Math.max(nameScore(x.name, tn), nameScore(tn, x.name)), fw = normName(x.name).split(' ')[0] === normName(tn).split(' ')[0];
-        var sc = (sameSz ? 2 : 0) + ns * 2 + (fw ? 1 : 0) - (wrong[r] != null ? .5 : 0); if (!sameSz && ns < .4 && !fw) return; if (wrong[r] != null && ns < .6 && !fw) return; if (sc > bs) { bs = sc; best = r; } });
+        var sc = (sameSz ? 2 : 0) + ns * 2 + (fw ? 1 : 0) - (wrong[r] != null ? .5 : 0); if (!sameSz && ns < .4 && !fw) return;
+        // v96: a small count like 1 or 2 matches by chance: then the names must look alike; and never when you said they're different
+        if ((d.mfNo || {})[x.key + '>' + normName(tn)]) return;
+        var sameOpen = fresh.filter(function (q) { return isNum(cellVal(g, q, SC.open)) && num(cellVal(g, q, SC.open)) === x.close; }).length;
+        if (!(fw || ns >= .6 || (sameSz && x.close >= 5 && sameOpen === 1))) return;
+        if (!fw && ns < .6 && Object.keys(shop().days).some(function (k2) { var d2 = shop().days[k2]; return k2 < pk && d2.grid && dataRows(d2.grid).some(function (q) { return dayKeyOf(d2, q) === dayKeyOf(d, r); }); })) return; if (wrong[r] != null && ns < .6 && !fw) return; if (sc > bs) { bs = sc; best = r; } });
       if (best != null) used[best] = 1;
       return { key: x.key, name: x.name, size: x.size, close: x.close, pk: pk, yr: yr, r: best, swap: best != null && wrong[best] != null, was: best != null ? wrong[best] : null };
     });
@@ -7358,7 +7374,7 @@
       if (M.swap) h += '<div class="notice ok">This row opens with <b>' + fmtN(num(cellVal(g, M.r, SC.open))) + '</b>, which is what <b>' + esc(M.name) + ' ' + esc(M.size) + '</b> closed yesterday. ' + esc(g[M.r][SC.item]) + ' ' + esc(g[M.r][SC.size] || '') + ' closed <b>' + fmtN(M.was) + '</b>. The size (or name) was most likely mixed up on this row.</div><button type="button" class="btn jungle" id="mfSwap">Yes: this row is ' + esc(M.name) + ' ' + esc(M.size) + '</button><button type="button" class="btn line" id="mfToday">No: fix this row myself</button>';
       else {
       h += '<div class="notice ok">Yesterday closed <b>' + fmtN(num(cellVal(pd.grid, M.yr, SC.close))) + '</b> and this row opens with <b>' + fmtN(num(cellVal(g, M.r, SC.open))) + '</b>: it is most likely the same bottle, named differently on the two days.</div>';
-      h += '<button type="button" class="btn jungle" id="mfSame">Same item: call yesterday’s row “' + esc(g[M.r][SC.item]) + ' ' + esc(g[M.r][SC.size] || '') + '”</button><button type="button" class="btn line" id="mfToday">No: today’s row is wrong, fix it</button>';
+      h += '<button type="button" class="btn jungle" id="mfSame">Same item: call yesterday’s row “' + esc(g[M.r][SC.item]) + ' ' + esc(g[M.r][SC.size] || '') + '”</button><button type="button" class="btn line" id="mfToday">No: today’s row is wrong, fix it</button><button type="button" class="btn line" id="mfDiff">They’re different items (both named right)</button>';
       }
     } else h += '<div class="notice">No row on today’s sheet opens with ' + fmtN(num(cellVal(pd.grid, M.yr, SC.close))) + '. If he left it off, add it; if it was named differently, fix the name on today’s row.</div><button type="button" class="btn jungle" id="mfAdd">Add it to today’s sheet</button>';
     h += '<button type="button" class="btn ghost small" id="mfBack">‹ Back</button>';
@@ -7380,6 +7396,7 @@
       var g = d.grid; spSnap(d); g[M.r][SC.item] = M.name; g[M.r][SC.size] = M.size; d.rid = d.rid || {}; d.rid[M.r] = M.key; if (d.learn) { d.named = d.named || {}; d.named[M.r] = 1; }
       save(); toast('Row changed to ' + M.name + ' ' + M.size); back();
     };
+    var df = q('#mfDiff'); if (df) df.onclick = function () { d.mfNo = d.mfNo || {}; d.mfNo[M.key + '>' + normName(d.grid[M.r][SC.item])] = 1; save(); toast('Noted: they’re different. ' + M.name + ' ' + M.size + ' is now shown as not on today’s sheet'); back(); };
     var td = q('#mfToday'); if (td) td.onclick = function () { openNm ? (d.learn ? openNm(M.r) : openNamePick(M.r, 'sheet')) : null; };
     var ad = q('#mfAdd'); if (ad) ad.onclick = function () {
       var g = d.grid, nr = SHCOLS.map(function () { return ''; }); nr[SC.item] = pd.grid[M.yr][SC.item]; nr[SC.size] = pd.grid[M.yr][SC.size]; nr[SC.open] = String(num(cellVal(pd.grid, M.yr, SC.close)));
@@ -7411,6 +7428,17 @@
     if (sp.step === 'flat' || sp.step === 'rows') sp.step = 'sheet';
     if (sp.step === 'yday' && d.grid && d.grid[sp.ydr]) { o.innerHTML = h + ydayHtml(d) + '</div>'; head(); bindYday(o, d); return; }
     if (sp.step === 'yday') sp.step = 'sheet';
+    if (sp.step === 'mfbulk' && (sp.mfBulk || []).length && d.grid) {
+      var B = sp.mfBulk, pdb = shop().days[B[0].pk], fdb = new Date(B[0].pk + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' });
+      var hb = '<h1 class="display" style="font-size:26px;margin:0">Rename ' + fdb + '’s rows</h1><p class="muted small" style="margin:0">On ' + fdb + ' these rows were saved with his short forms. Each one closed with the same number that a row opens with today, so it’s the same bottle. Untick any that are wrong.</p>';
+      hb += '<div class="stack" style="gap:6px">' + B.map(function (x, i) { return '<label class="sprow"><input type="checkbox" data-mb="' + i + '" checked><span><b>' + esc(x.name) + ' ' + esc(x.size) + ' → ' + esc(d.grid[x.r][SC.item]) + ' ' + esc(d.grid[x.r][SC.size] || '') + '</b><small>closed ' + fmtN(x.close) + ' on ' + fdb + ' · opens ' + fmtN(x.close) + ' today</small></span></label>'; }).join('') + '</div>';
+      hb += '<button type="button" class="btn jungle" id="mbGo">Rename the ticked rows on ' + fdb + '</button><button type="button" class="btn ghost small" id="mbBack">‹ Back</button>';
+      o.innerHTML = h + hb + '</div>'; head();
+      o.querySelector('#mbBack').onclick = function () { sp.step = 'check'; drawShopDay(); };
+      o.querySelector('#mbGo').onclick = function () { var n = 0; o.querySelectorAll('[data-mb]').forEach(function (cb) { if (!cb.checked) return; var x = B[+cb.dataset.mb]; if (x.yr == null) return; pdb.grid[x.yr][SC.item] = d.grid[x.r][SC.item]; pdb.grid[x.yr][SC.size] = d.grid[x.r][SC.size]; pdb.rid = pdb.rid || {}; pdb.rid[x.yr] = dayKeyOf(d, x.r); pdb.named = pdb.named || {}; pdb.named[x.yr] = 1; n++; }); save(); toast(n + ' row' + (n === 1 ? '' : 's') + ' renamed on ' + fdb); sp.step = 'check'; drawShopDay(); };
+      return;
+    }
+    if (sp.step === 'mfbulk') sp.step = 'check';
     if (sp.step === 'mfix' && sp.mf && d.grid) { o.innerHTML = h + mfixHtml(d) + '</div>'; head(); bindMfix(o, d); return; }
     if (sp.step === 'mfix') sp.step = 'sheet';
     if (sp.step === 'gap' && sp.gap && d.grid) { o.innerHTML = h + gapHtml(d) + '</div>'; head(); bindGap(o, d); return; }
