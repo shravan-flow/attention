@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '99';
+  var APP_VERSION = '101';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -51,13 +51,31 @@
   function idbDel(k) { return idbDo('readwrite', function (st) { st.delete(k); }); }
   function idbKeys() { return idbDo('readonly', function (st) { return st.getAllKeys(); }); }
   var mirrorT;
+  // v100: if the app is open twice (installed app + a browser tab, or an old copy left in the background), the older one must
+  // never write its old data over the newer one. Every write leaves a stamp; a window that sees a newer stamp from another window reloads instead.
+  var INST = Math.random().toString(36).slice(2), myStamp = (state && state.savedAt) || 0, staleBusy = false;
+  function readStamp() { try { return JSON.parse(localStorage.getItem('attention.stamp') || 'null'); } catch (e) { return null; } }
+  function isStale() { var st = readStamp(); return !!(st && st.inst !== INST && (st.at || 0) > myStamp); }
+  function staleReload(why) {
+    if (staleBusy) return; staleBusy = true;
+    var loc = null; try { loc = JSON.parse(localStorage.getItem(STORE_KEY)); } catch (e) {}
+    setTimeout(function () { idbGet('state').then(function (c) { return c; }).catch(function () { return null; }).then(function (c) {
+      var best = [loc, c].filter(Boolean).sort(function (a, b) { return (b.savedAt || 0) - (a.savedAt || 0); })[0];
+      if (best && (best.savedAt || 0) >= myStamp) { var code = state.code, keys = state.keys; state = best; if (!state.code && code) state.code = code; if (!state.keys && keys) state.keys = keys; myStamp = state.savedAt || 0; try { render(); } catch (e) {} toast(why || 'Updated with the newer data from your other window'); }
+      staleBusy = false;
+    }); }, 500);
+  }
   function save() {
-    state.savedAt = Date.now();
+    if (isStale()) { staleReload('This window was out of date: it now shows your latest data. Please redo the last change.'); return; }
+    state.savedAt = Math.max(Date.now(), myStamp + 1); myStamp = state.savedAt;
     try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {}
+    try { localStorage.setItem('attention.stamp', JSON.stringify({ at: myStamp, inst: INST })); } catch (e) {}
     clearTimeout(mirrorT);
     mirrorT = setTimeout(mirror, 300);
   }
+  window.addEventListener('storage', function (e) { if (e.key === 'attention.stamp' && isStale()) staleReload(); });
   function mirror() {
+    if (isStale()) return;
     var copy = JSON.parse(JSON.stringify(state));
     idbPut('state', copy).then(function () {
       var today = 'snap-' + dkey(new Date());
@@ -71,15 +89,16 @@
   // If this phone's quick storage was wiped but the second copy survived, bring it back.
   idbGet('state').then(function (copy) {
     if (copy && (!fromLocal || (copy.savedAt || 0) > (state.savedAt || 0))) {
-      state = copy;
+      state = copy; myStamp = Math.max(myStamp, copy.savedAt || 0);
       try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {}
       render(); if (!fromLocal && hasData(copy)) toast('Your data was restored');
     } else if (fromLocal) mirror();
   }).catch(function () {});
   var persisted = null;
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().then(function (p) { persisted = p; }).catch(function () {});
-  window.addEventListener('pagehide', function () { try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {} mirror(); });
-  document.addEventListener('visibilitychange', function () { if (document.hidden) { try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {} mirror(); } });
+  var flushSafe = function () { if (isStale()) return; try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {} mirror(); };
+  window.addEventListener('pagehide', flushSafe);
+  document.addEventListener('visibilitychange', function () { if (document.hidden) flushSafe(); else if (isStale()) staleReload(); });
 
   var ui = { tab: 'trail', sel: null, timer: null };
 
@@ -3144,6 +3163,7 @@
       case 'shopteach': return shopTeachSheet();
       case 'shopitems': return shopItemsSheet();
       case 'shopitem': return shopItemSheet(arg);
+      case 'shoprecover': return shopRecoverSheet();
       case 'shopsplit': return shopSplitSheet(arg);
       case 'shopsame': return shopSameSheet();
       case 'shopdupes': return shopDupesSheet();
@@ -4504,6 +4524,7 @@
     var pm = new Date(); pm.setDate(1); pm.setMonth(pm.getMonth() - 1); var pmk = dkey(pm).slice(0, 7), pmName = pm.toLocaleDateString('en', { month: 'long' });
     var miss = missingDays().filter(function (k) { return k.slice(0, 7) === pmk; }), open = Object.keys(s2.days).filter(function (k) { return k.slice(0, 7) === pmk && s2.days[k].grid && s2.days[k].status !== 'closed'; }).sort();
     if (miss.length || open.length) h += '<div class="card stack" style="gap:8px;box-shadow:inset 0 0 0 2px #FFC56B"><b>' + pmName + ' isn’t finished</b><span class="muted small">' + (miss.length ? miss.length + ' day' + (miss.length > 1 ? 's' : '') + ' with no sheet' : '') + (miss.length && open.length ? ' · ' : '') + (open.length ? open.length + ' not closed' : '') + ' · tap a day to fill it</span><div class="row" style="gap:6px;flex-wrap:wrap">' + miss.map(function (k) { return '<button type="button" class="mschip sm" data-calnew="' + k + '">＋ ' + (+k.slice(8)) + ' ' + pmName.slice(0, 3) + '</button>'; }).join('') + open.map(function (k) { return '<button type="button" class="mschip sm" data-shday="' + k + '">✎ ' + (+k.slice(8)) + ' ' + pmName.slice(0, 3) + '</button>'; }).join('') + '</div></div>';
+    h += '<button type="button" class="link" data-sheet="shoprecover" id="rcLink" style="align-self:flex-start">🛟 Days missing that you had entered? Get them back</button>';
     if (new Date().getDate() <= 10 || miss.length || open.length) h += '<button type="button" class="btn line" data-sheet="shopmonth:' + pmk + '">📄 ' + pmName + ' statement</button>';
     h += '</div>';
     return h;
@@ -5795,6 +5816,44 @@
         var n = 0; r.querySelectorAll('[data-spr]').forEach(function (cb) { if (!cb.checked) return; var it = R[+cb.dataset.spr], d = s2.days[it.k]; d.grid[it.r][SC.item] = nm; d.rid = d.rid || {}; d.rid[it.r] = nk; n++; });
         save(); toast('Separated ' + nm + ' ' + x.size + (n ? ' · ' + n + ' row' + (n > 1 ? 's' : '') + ' moved back' : '')); openSheet('shopitem:' + nk);
       };
+    } };
+  }
+  // ---------- v100: get lost days back: from the daily copies kept on the phone, and from photos still on the phone ----------
+  function recoverScan() {
+    var s2 = shop(), cur = s2.days || {};
+    return idbKeys().then(function (keys) {
+      var snaps = keys.filter(function (k) { return String(k).indexOf('close-') === 0; }).sort().reverse().concat(keys.filter(function (k) { return String(k).indexOf('snap-') === 0; }).sort().reverse()), photos = keys.filter(function (k) { return /^shopimg-sp/.test(String(k)); });
+      return Promise.all(snaps.concat(['state']).map(function (k) { return idbGet(k).then(function (v) { return { k: k, v: v }; }).catch(function () { return { k: k, v: null }; }); })).then(function (S) {
+        var copies = S.filter(function (x) { return x.v && x.v.shop && x.v.shop.days; }).map(function (x) {
+          var dd = x.v.shop.days, back = Object.keys(dd).filter(function (k) { var a = dd[k], b = cur[k]; if (!a || !a.grid) return false; if (!b || !b.grid) return true; return a.status === 'closed' && b.status !== 'closed'; }).sort();
+          return { k: x.k, at: x.v.savedAt, back: back, v: x.v };
+        }).filter(function (c) { return c.back.length; });
+        var used = {}; Object.keys(cur).forEach(function (k) { (cur[k].photos || []).forEach(function (id) { used[id] = 1; }); });
+        var orphan = photos.map(function (k) { return String(k).slice(8); }).filter(function (id) { return !used[id]; }).map(function (id) { var t = parseInt(id.slice(2, -1), 36); return { id: id, t: isNaN(t) ? 0 : t }; }).sort(function (a, b) { return a.t - b.t; });
+        var groups = []; orphan.forEach(function (o) { var g = groups[groups.length - 1]; if (g && o.t - g.last < 15 * 60 * 1000) { g.ids.push(o.id); g.last = o.t; } else groups.push({ ids: [o.id], first: o.t, last: o.t }); });
+        return { copies: copies, groups: groups.reverse() };
+      });
+    });
+  }
+  function recoverMerge(v, ks) {
+    var s2 = shop(), src = v.shop, n = 0;
+    ks.forEach(function (k) { s2.days[k] = JSON.parse(JSON.stringify(src.days[k])); n++; });
+    ['items', 'map', 'indents', 'bills', 'nameCfg', 'rekey'].forEach(function (f) { if (!src[f]) return; s2[f] = s2[f] || {}; Object.keys(src[f]).forEach(function (x) { if (s2[f][x] == null) s2[f][x] = src[f][x]; }); });
+    save(); return n;
+  }
+  var recoverRes = null;
+  function shopRecoverSheet() {
+    if (!recoverRes || Date.now() - recoverRes.at > 20000) { recoverRes = null; recoverScan().then(function (R) { R.at = Date.now(); recoverRes = R; if (ui.sheet && ui.sheet.kind === 'shoprecover') drawSheet(); }).catch(function () { recoverRes = { copies: [], groups: [], at: Date.now() }; drawSheet(); }); return { title: 'Get lost days back', cap: '', html: '<p class="muted"><span class="wpulse"></span> Looking through the copies and photos kept on this phone…</p>', bind: function () {} }; }
+    var R = recoverRes, h = '', fd = function (k) { return new Date(k + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }); };
+    h += '<span class="cap">Saved copies on this phone</span>';
+    h += R.copies.length ? R.copies.map(function (c, i) { return '<div class="card stack" style="gap:8px"><b>' + (c.k === 'state' ? 'Second copy' : c.k.indexOf('close-') === 0 ? 'Copy made when you closed ' + new Date(c.k.slice(6, 16) + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + (c.at ? ' (' + new Date(c.at).toLocaleString('en', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) + ')' : '') : 'Copy from the end of ' + new Date(c.k.slice(5) + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' })) + '</b><span class="muted small">Has ' + c.back.length + ' day' + (c.back.length > 1 ? 's' : '') + ' that ' + (c.back.length > 1 ? 'are' : 'is') + ' missing or less finished here: ' + c.back.map(fd).join(', ') + '</span><button type="button" class="btn jungle" data-rcc="' + i + '">Bring these days back</button></div>'; }).join('') : '<p class="muted small">No saved copy has days that are missing here.</p>';
+    h += '<span class="cap" style="margin-top:6px">Sheet photos on this phone that belong to no day</span>';
+    h += R.groups.length ? R.groups.map(function (g, i) { return '<div class="card stack" style="gap:8px"><b>' + g.ids.length + ' photo' + (g.ids.length > 1 ? 's' : '') + ' taken ' + new Date(g.first).toLocaleString('en', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) + '</b><div class="row" style="gap:6px;overflow-x:auto">' + g.ids.slice(0, 4).map(function (id) { return '<img data-rcimg="' + id + '" alt="" style="height:70px;border-radius:8px;background:#eee">'; }).join('') + '</div><button type="button" class="btn line" data-rcg="' + i + '">Make a day from these photos…</button></div>'; }).join('') : '<p class="muted small">No loose sheet photos.</p>';
+    h += '<p class="muted small">A copy is kept on the phone at the end of each day (the last 14 days). Bringing days back only adds what is missing here; nothing you have now is removed. Photos made into a day can be read again with the AI.</p>';
+    return { title: 'Get lost days back', cap: '', html: '<div class="stack" style="gap:10px">' + h + '</div>', bind: function (r) {
+      r.querySelectorAll('[data-rcimg]').forEach(function (im) { idbGet('shopimg-' + im.dataset.rcimg).then(function (u) { if (u) im.src = u; }); });
+      r.querySelectorAll('[data-rcc]').forEach(function (b) { b.onclick = function () { var c = R.copies[+b.dataset.rcc]; if (!confirm('Bring back ' + c.back.map(fd).join(', ') + ' from this copy?')) return; var n = recoverMerge(c.v, c.back); recoverRes = null; toast(n + ' day' + (n > 1 ? 's' : '') + ' brought back'); render(); drawSheet(); }; });
+      r.querySelectorAll('[data-rcg]').forEach(function (b) { b.onclick = function () { var g = R.groups[+b.dataset.rcg], def = dkey(new Date(g.first - 864e5)); var v = prompt('Which day’s sheet are these photos? (DD-MM-YYYY)', def.split('-').reverse().join('-')); if (v == null) return; var dt = indDate(v); if (!dt) { toast('Couldn’t read that date'); return; } var s2 = shop(), d = s2.days[dt]; if (d && d.grid) { if (!confirm(fd(dt) + ' already has a sheet. Add these photos to it?')) return; } d = shopDay(dt, true); g.ids.forEach(function (id) { if (d.photos.indexOf(id) < 0) d.photos.push(id); }); save(); recoverRes = null; closeSheet(); openShopDay(dt); toast('Photos added to ' + fd(dt) + ': read them with the AI'); }; });
     } };
   }
   function shopItemSheet(key) {
@@ -7694,7 +7753,7 @@
       var c = calc(); if (c.pct == null) { toast('Type the profit percentage first'); q('#scPct').focus(); return; }
       d.sales = c.sales; d.pct = c.pct; d.profit = c.profit; d.expTotal = c.et; d.net = c.profit - c.et; d.cash = c.sales - c.et - saveSum(d); d.status = 'closed'; costSnap(d, sp.k); d.closedAt = new Date().toISOString(); regSync(); inkLearnDay(sp.k);
       s2.pct = c.pct; save();
-      var ck2 = sp.k; closeShopDay(); toast('Saved · net ' + inr(d.net));
+      var ck2 = sp.k; closeShopDay(); toast('Saved · net ' + inr(d.net)); closeBackup(ck2);
       if (s2.waAsk !== false) openSheet('shopshare:' + ck2);
     };
   }
@@ -8572,6 +8631,19 @@
       SB.file = file;
       return shareBackupFile(file).catch(function (e) { if (e && e.name === 'AbortError') { SB.file = null; drawSheet(); return; } drawSheet(); });
     }).catch(function (e) { SB.busy = false; toast('Couldn’t pack the backup: ' + (e.message || e)); drawSheet(); });
+  }
+  // v101: every time a day is closed, a copy is kept on the phone, and (if Google Drive is connected) a full backup goes to Drive
+  function closeBackup(k) {
+    var copy = JSON.parse(JSON.stringify(state)), key = 'close-' + k + '-' + Date.now().toString(36);
+    idbPut(key, copy).then(idbKeys).then(function (keys) {
+      var cl = keys.filter(function (x) { return String(x).indexOf('close-') === 0; }).sort(function (a, b) { return a < b ? -1 : 1; });
+      // keep the newest copy for each of the last 30 closed days
+      var byDay = {}; cl.forEach(function (x) { var dk = String(x).slice(6, 16); (byDay[dk] = byDay[dk] || []).push(x); });
+      var drop = []; Object.keys(byDay).forEach(function (dk) { byDay[dk].sort(); drop = drop.concat(byDay[dk].slice(0, -1)); });
+      var days = Object.keys(byDay).sort(); days.slice(0, Math.max(0, days.length - 30)).forEach(function (dk) { drop = drop.concat(byDay[dk].slice(-1)); });
+      return Promise.all(drop.map(function (x) { return idbDel(x).catch(function () {}); }));
+    }).then(function () { state.lastCloseCopy = new Date().toISOString(); save(); }).catch(function () {});
+    var g = state.gdrive; if (g && g.cid && g.ok && navigator.onLine) setTimeout(function () { try { gdBackup(); } catch (e) {} }, 800);
   }
   function backupDue() {
     var g = state.gdrive; if (g && g.cid && g.ok) return !g.last || Date.now() - new Date(g.last) > 20 * 3600 * 1000;
