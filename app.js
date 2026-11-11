@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '98';
+  var APP_VERSION = '99';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -6601,7 +6601,7 @@
     if (!Object.keys(ks).length) it(true, 'No stock received', REF.src.length ? '' : 'and no indent since the last sheet');
     else if (!REF.src.length) it(false, 'Stock received, but no indent for these dates', Object.keys(rv).map(function (x) { return nm(x) + ': ' + fmtN(rv[x]); }).join(' · ') + ' · add the indent in Past indents to check it', 'indent');
     else {
-      PR.forEach(function (pp) { var xb = regItem(pp.ref); it(true, nm(pp.sheet) + ': received ' + fmtN(pp.n) + ' = “' + (xb ? (xb.full || xb.item) + ' ' + xb.size : nm(pp.ref)) + '” on the ' + (REF.src[0] ? REF.src[0].kind : 'indent'), 'same item under another name · tap to link them for next time', 'link:' + pp.ref + '>>' + pp.sheet); });
+      PR.forEach(function (pp) { var xb = regItem(pp.ref), xa0 = regItem(pp.sheet); if (pp.sizeDiff) { it(false, (xa0 ? xa0.item : '') + ': ' + fmtN(pp.n) + ' received as ' + xa0.size + ' ml on the sheet, but ' + (xb ? xb.size : '') + ' ml on the ' + (REF.src[0] ? REF.src[0].kind : 'indent'), 'same bottles, the size is written wrong on one of them · tap to fix the row’s size if the ' + (REF.src[0] ? REF.src[0].kind : 'indent') + ' is right', rowOf[pp.sheet] != null ? 'row:' + rowOf[pp.sheet] : ''); return; } it(true, nm(pp.sheet) + ': received ' + fmtN(pp.n) + ' = “' + (xb ? (xb.full || xb.item) + ' ' + xb.size : nm(pp.ref)) + '” on the ' + (REF.src[0] ? REF.src[0].kind : 'indent'), 'same item under another name · tap to link them for next time', 'link:' + pp.ref + '>>' + pp.sheet); });
       if (!diffs.length) it(true, 'Received = ' + dts, Object.keys(rv).map(function (x) { return nm(x) + ': ' + fmtN(rv[x]); }).join(' · '));
       else diffs.forEach(function (x) { var miss = rowOf[x] == null; it(false, nm(x) + ': sheet says ' + fmtN(rv[x] || 0) + ' received, ' + dts + ' says ' + fmtN(REF.by[x] || 0), miss ? 'not entered in Received on this sheet' : 'tap to fix the row', miss ? '' : 'row:' + rowOf[x]); });
       it(Math.abs(tS - tR) < .01, 'Total received: sheet ' + fmtN(tS) + ' bottles (' + casesOf(rv) + ' cases) · ' + (REF.src.length > 1 ? 'indents' : REF.src[0].kind) + ' ' + fmtN(tR) + ' bottles (' + casesOf(REF.by) + ' cases)', Math.abs(tS - tR) < .01 ? 'the totals match' : (tS > tR ? fmtN(tS - tR) + ' more on the sheet' : fmtN(tR - tS) + ' bottles missing from the sheet'));
@@ -7136,7 +7136,13 @@
       var C = leftR.filter(function (x) { var xb = regItem(x); return !usedR[x] && xb.size === xa.size && Math.abs(REF.by[x] - RS.by[a]) < .01; });
       var near = C.filter(function (x) { var xb = regItem(x), wb = normName(xb.item + ' ' + (xb.full || '')).split(' ')[0]; return wa.length >= 4 && wb.length >= 4 && (wa.slice(0, 4) === wb.slice(0, 4) || editDist(wa, wb) <= 2); });
       var b = near.length === 1 ? near[0] : null;
-      if (b) { usedR[b] = 1; pairs.push({ sheet: a, ref: b, n: RS.by[a], guess: !near.length }); }
+      if (b) { usedR[b] = 1; pairs.push({ sheet: a, ref: b, n: RS.by[a], guess: !near.length }); usedS[a] = 1; }
+    });
+    // v99: the same liquor in a different size with the same count: the size was written (or read) wrong on one of them
+    Object.keys(RS.by).forEach(function (a) {
+      if (REF.by[a] || usedS[a]) return; var xa = regItem(a); if (!xa) return;
+      var b = Object.keys(REF.by).filter(function (x) { if (RS.by[x] || usedR[x]) return false; var xb = regItem(x); return xb && xb.size !== xa.size && normName(xb.item) === normName(xa.item) && Math.abs(REF.by[x] - RS.by[a]) < .01; })[0];
+      if (b) { usedR[b] = 1; usedS[a] = 1; pairs.push({ sheet: a, ref: b, n: RS.by[a], sizeDiff: true }); }
     });
     return pairs;
   }
