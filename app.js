@@ -3,7 +3,7 @@
   'use strict';
 
   var STORE_KEY = 'attention.v1';
-  var APP_VERSION = '101';
+  var APP_VERSION = '103';
   var PINGS = 10; // random check-in pings per day (keep in step with config.json)
   var PING_INFO = 'A good-morning ping at 9am for your visualization and today’s targets, then 10 mindful pings at random times until 9pm and a before-bed ping at 10pm. In between, a movement snack every 30 minutes: yoga, cardio, strength or stretching, no equipment needed.';
 
@@ -23,15 +23,16 @@
   // plus one automatic snapshot per day (the last 14 are kept) ----------
   var fromLocal = null;
   try { fromLocal = JSON.parse(localStorage.getItem(STORE_KEY)); } catch (e) {}
-  state = fromLocal || fresh();
+  state = fromLocal && !fromLocal.stub ? fromLocal : fresh();
   var IDB = null;
+  var IDBH = null;
   function idb() {
     if (IDB) return IDB;
     IDB = new Promise(function (res, rej) {
       if (!window.indexedDB) return rej(new Error('no indexedDB'));
       var r = indexedDB.open('attention', 1);
       r.onupgradeneeded = function () { r.result.createObjectStore('kv'); };
-      r.onsuccess = function () { res(r.result); };
+      r.onsuccess = function () { IDBH = r.result; res(r.result); };
       r.onerror = function () { rej(r.error); };
     });
     IDB.catch(function () {});
@@ -51,54 +52,123 @@
   function idbDel(k) { return idbDo('readwrite', function (st) { st.delete(k); }); }
   function idbKeys() { return idbDo('readonly', function (st) { return st.getAllKeys(); }); }
   var mirrorT;
-  // v100: if the app is open twice (installed app + a browser tab, or an old copy left in the background), the older one must
-  // never write its old data over the newer one. Every write leaves a stamp; a window that sees a newer stamp from another window reloads instead.
-  var INST = Math.random().toString(36).slice(2), myStamp = (state && state.savedAt) || 0, staleBusy = false;
+  // ---------- v102: storage that cannot lose work ----------
+  // What went wrong before: the quick storage (localStorage) holds about 5 MB. Once the shop data grew past that, every write to it
+  // failed silently and it kept an OLD copy. The second store (IndexedDB) had the real data, but at start-up the app showed and saved
+  // the old copy before the real one had loaded, and so wrote the old copy over the real one. Now:
+  //  1. nothing is shown or saved until both stores have been read and the newest one chosen (hydration);
+  //  2. the second store is the main one; the quick storage gets a full copy if it fits, else a slim one (numbers and names, no photo geometry);
+  //  3. a store is never overwritten by data that doesn't descend from what is in it (stamps);
+  //  4. old closed days drop their bulky handwriting fingerprints, so the data stays small.
+  var HEAVY = ['ai', 'ink', 'inkm', 'scan', 'boxes', 'rowy', 'rband', 'strips', 'letters', 'tie', 'from', 'corners', 'gapRows'];
+  function slimOf(st) {
+    var c = Object.assign({}, st);
+    if (st.shop && st.shop.days) { c.shop = Object.assign({}, st.shop); c.shop.days = {}; Object.keys(st.shop.days).forEach(function (k) { var d = st.shop.days[k], e = {}; Object.keys(d).forEach(function (f) { if (HEAVY.indexOf(f) < 0) e[f] = d[f]; }); c.shop.days[k] = e; }); }
+    c.slim = true; return c;
+  }
+  function graftHeavy(into, from) {
+    if (!into || !into.shop || !into.shop.days || !from || !from.shop || !from.shop.days) return;
+    Object.keys(into.shop.days).forEach(function (k) { var a = into.shop.days[k], b = from.shop.days[k]; if (!a || !b) return; HEAVY.forEach(function (f) { if (a[f] == null && b[f] != null) a[f] = b[f]; }); });
+  }
+  // closed days older than the last three sheets keep the photo of his writing but not its fingerprint (about 200 KB a day)
+  function pruneHeavy(st) {
+    var days = st && st.shop && st.shop.days; if (!days) return 0;
+    var ks = Object.keys(days).filter(function (k) { return days[k] && days[k].grid; }).sort(), keep = {}, n = 0; ks.slice(-3).forEach(function (k) { keep[k] = 1; });
+    ks.forEach(function (k) { var d = days[k]; if (keep[k] || d.status !== 'closed') return; if (d.ink) Object.keys(d.ink).forEach(function (r) { var e = d.ink[r]; if (e && e.d) { d.ink[r] = { id: e.id }; n++; } }); if (d.inkm) { delete d.inkm; n++; } });
+    return n;
+  }
+  var INST = Math.random().toString(36).slice(2), myStamp = 0, stampAtBoot = 0, idbBase = 0, hydrated = false, pendingSave = false, localMode = 'full', localState = '', idbFail = 0, idbOkAt = 0, bootFns = [];
   function readStamp() { try { return JSON.parse(localStorage.getItem('attention.stamp') || 'null'); } catch (e) { return null; } }
-  function isStale() { var st = readStamp(); return !!(st && st.inst !== INST && (st.at || 0) > myStamp); }
+  // another open copy of the app has saved since this one loaded
+  function isStale() { var st = readStamp(); return !!(st && st.inst !== INST && (st.at || 0) > Math.max(myStamp, stampAtBoot)); }
+  var staleBusy = false;
   function staleReload(why) {
     if (staleBusy) return; staleBusy = true;
-    var loc = null; try { loc = JSON.parse(localStorage.getItem(STORE_KEY)); } catch (e) {}
-    setTimeout(function () { idbGet('state').then(function (c) { return c; }).catch(function () { return null; }).then(function (c) {
-      var best = [loc, c].filter(Boolean).sort(function (a, b) { return (b.savedAt || 0) - (a.savedAt || 0); })[0];
-      if (best && (best.savedAt || 0) >= myStamp) { var code = state.code, keys = state.keys; state = best; if (!state.code && code) state.code = code; if (!state.keys && keys) state.keys = keys; myStamp = state.savedAt || 0; try { render(); } catch (e) {} toast(why || 'Updated with the newer data from your other window'); }
-      staleBusy = false;
-    }); }, 500);
+    var n = 0; try { var rl = JSON.parse(sessionStorage.getItem('attention.stale') || '[]').filter(function (t) { return Date.now() - t < 30000; }); n = rl.length; rl.push(Date.now()); sessionStorage.setItem('attention.stale', JSON.stringify(rl)); } catch (e) {}
+    if (n >= 3) { try { toast('The app is open in two places. Close the other one, then reopen this.'); } catch (e) {} return; }
+    try { toast(why || 'Getting your latest data…'); } catch (e) {}
+    var go = function () { location.reload(); };
+    if (document.hidden) document.addEventListener('visibilitychange', function () { if (!document.hidden) go(); }); else setTimeout(go, 700);
+  }
+  function writeLocal() {
+    if (localMode === 'full') { try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); localState = 'full'; return; } catch (e) { localMode = 'slim'; } }
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(slimOf(state))); localState = 'slim'; return; } catch (e) {}
+    try { localStorage.setItem(STORE_KEY, JSON.stringify({ stub: true, v: state.v, startDate: state.startDate, savedAt: state.savedAt })); localState = 'stub'; } catch (e) { localState = 'none'; }
   }
   function save() {
-    if (isStale()) { staleReload('This window was out of date: it now shows your latest data. Please redo the last change.'); return; }
-    state.savedAt = Math.max(Date.now(), myStamp + 1); myStamp = state.savedAt;
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {}
+    if (!hydrated) { pendingSave = true; return; }
+    if (isStale()) { staleReload('This window was out of date: loading your latest data. Please redo the last change.'); return; }
+    state.savedAt = Math.max(Date.now(), myStamp + 1, stampAtBoot + 1); myStamp = state.savedAt;
+    writeLocal();
     try { localStorage.setItem('attention.stamp', JSON.stringify({ at: myStamp, inst: INST })); } catch (e) {}
     clearTimeout(mirrorT);
-    mirrorT = setTimeout(mirror, 300);
+    mirrorT = setTimeout(mirror, localState === 'full' ? 300 : 0);
   }
-  window.addEventListener('storage', function (e) { if (e.key === 'attention.stamp' && isStale()) staleReload(); });
+  window.addEventListener('storage', function (e) { if (e.key === 'attention.stamp' && hydrated && isStale()) staleReload(); });
+  // one transaction: check that what is stored is what this window started from, then write. Started at once (no waiting), so it also
+  // goes through when the page is being closed or reloaded.
   function mirror() {
-    if (isStale()) return;
-    var copy = JSON.parse(JSON.stringify(state));
-    idbPut('state', copy).then(function () {
-      var today = 'snap-' + dkey(new Date());
-      return idbPut(today, copy).then(idbKeys).then(function (keys) {
-        var snaps = keys.filter(function (k) { return String(k).indexOf('snap-') === 0; }).sort();
-        return Promise.all(snaps.slice(0, Math.max(0, snaps.length - 14)).map(idbDel));
+    clearTimeout(mirrorT);
+    if (!hydrated || isStale()) return Promise.resolve(false);
+    var at = state.savedAt || 0, wrote = false, foreign = false;
+    var run = function (db) {
+      return new Promise(function (res, rej) {
+        var tx = db.transaction('kv', 'readwrite'), os = tx.objectStore('kv'), q = os.get('stamp');
+        q.onsuccess = function () {
+          var st = q.result;
+          // something this window didn't start from is already stored there: never write over it
+          if (st && st.inst !== INST && (st.at || 0) > idbBase) { foreign = true; return; }
+          try { os.put(state, 'state'); os.put({ at: at, inst: INST }, 'stamp'); os.put(slimOf(state), 'snap-' + dkey(new Date())); wrote = true; } catch (e) { try { tx.abort(); } catch (x) {} }
+        };
+        tx.oncomplete = function () { res(); }; tx.onerror = function () { rej(tx.error); }; tx.onabort = function () { rej(tx.error || new Error('aborted')); };
       });
-    }).catch(function () {});
+    };
+    var pr; try { pr = IDBH ? run(IDBH) : idb().then(run); } catch (e) { pr = Promise.reject(e); }
+    return pr.then(function () {
+      if (foreign) { staleReload(); return false; }
+      if (!wrote) throw new Error('not written');
+      idbBase = Math.max(idbBase, at); idbOkAt = at; idbFail = 0;
+      return idbKeys().then(function (keys) { var snaps = keys.filter(function (k) { return String(k).indexOf('snap-') === 0; }).sort(); return Promise.all(snaps.slice(0, Math.max(0, snaps.length - 14)).map(idbDel)); }).then(function () { return true; });
+    }).catch(function () { idbFail++; if (idbFail === 2 && localState !== 'full') { try { toast('⚠ Couldn’t save to this phone’s storage. Free some space, and make a backup in Settings.'); } catch (e) {} } return false; });
   }
   function hasData(st) { return st && ((st.checkins && st.checkins.length) || Object.keys(st.goals || {}).length || Object.keys(st.days || {}).some(function (k) { var d = st.days[k]; return d.sit || d.singleTask || d.sprint || d.note; })); }
-  // If this phone's quick storage was wiped but the second copy survived, bring it back.
-  idbGet('state').then(function (copy) {
-    if (copy && (!fromLocal || (copy.savedAt || 0) > (state.savedAt || 0))) {
-      state = copy; myStamp = Math.max(myStamp, copy.savedAt || 0);
-      try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {}
-      render(); if (!fromLocal && hasData(copy)) toast('Your data was restored');
-    } else if (fromLocal) mirror();
-  }).catch(function () {});
+  // read both stores, take the newest, and only then start the app
+  function hydrate() {
+    var done = false, loc = fromLocal && !fromLocal.stub ? fromLocal : null;
+    var finish = function (copy, st, timedOut) {
+      if (done) return; done = true;
+      var useIdb = copy && (!loc || (copy.savedAt || 0) >= (loc.savedAt || 0)), restored = false;
+      if (useIdb) { state = copy; restored = !loc; }
+      else if (loc && loc.slim && copy) graftHeavy(state, copy);
+      delete state.slim;
+      myStamp = state.savedAt || 0; var ls = readStamp(); stampAtBoot = ls ? ls.at || 0 : 0;
+      idbBase = timedOut ? -1 : Math.max(st && st.at ? st.at : 0, copy && copy.savedAt ? copy.savedAt : 0);
+      if (state.appVer !== APP_VERSION && hasData(state) || state.appVer !== APP_VERSION && state.shop && Object.keys(state.shop.days || {}).length) { try { var vc = JSON.parse(JSON.stringify(state)); idbPut('ver-' + (state.appVer || '102') + '-' + Date.now().toString(36), vc).then(idbKeys).then(function (keys) { var vk = keys.filter(function (x) { return String(x).indexOf('ver-') === 0; }).sort(function (a, b) { return parseInt(a.split('-')[2], 36) - parseInt(b.split('-')[2], 36); }); return Promise.all(vk.slice(0, Math.max(0, vk.length - 3)).map(idbDel)); }).catch(function () {}); } catch (e) {} }
+      var verChanged = state.appVer !== APP_VERSION; state.appVer = APP_VERSION;
+      try { migrate(state); } catch (e) {}
+      var pruned = 0; try { pruned = pruneHeavy(state); } catch (e) {}
+      hydrated = true;
+      bootFns.forEach(function (f) { try { f(); } catch (e) { try { console.error(e); } catch (x) {} } }); bootFns = [];
+      if (restored && hasData(copy)) { try { toast('Your data was restored'); } catch (e) {} }
+      // make both stores agree with what was chosen
+      if (pruned || pendingSave || verChanged) { pendingSave = false; save(); }
+      else if (!timedOut) { if (!copy || !useIdb) mirror(); if (useIdb && (!loc || (loc.savedAt || 0) < (copy.savedAt || 0) || loc.slim)) writeLocal(); }
+    };
+    Promise.all([idbGet('state').catch(function () { return undefined; }), idbGet('stamp').catch(function () { return null; })]).then(function (r) {
+      if (done) { // the second store answered late (after the time-out): if it holds something newer than what was started with, take it
+        var c = r[0]; if (c && (c.savedAt || 0) > (loc ? loc.savedAt || 0 : 0) && idbBase === -1) { staleReload('Loading your latest data…'); } else if (idbBase === -1) { idbBase = Math.max(r[1] && r[1].at ? r[1].at : 0, c && c.savedAt ? c.savedAt : 0); mirror(); }
+        return;
+      }
+      finish(r[0], r[1], false);
+    }, function () { finish(undefined, null, false); });
+    setTimeout(function () { if (!done) finish(undefined, null, true); }, 7000);
+  }
+  function whenHydrated(f) { if (hydrated) f(); else bootFns.push(f); }
   var persisted = null;
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().then(function (p) { persisted = p; }).catch(function () {});
-  var flushSafe = function () { if (isStale()) return; try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {} mirror(); };
+  var flushSafe = function () { if (!hydrated || isStale()) return; writeLocal(); mirror(); };
   window.addEventListener('pagehide', flushSafe);
-  document.addEventListener('visibilitychange', function () { if (document.hidden) flushSafe(); else if (isStale()) staleReload(); });
+  document.addEventListener('visibilitychange', function () { if (!hydrated) return; if (document.hidden) flushSafe(); else if (isStale()) staleReload(); });
 
   var ui = { tab: 'trail', sel: null, timer: null };
 
@@ -1745,7 +1815,7 @@
           idbGet(b.dataset.snap).then(function (d) {
             if (!d || !confirm('Go back to how things were at the end of ' + b.textContent + '? Anything logged after that will be replaced.')) return;
             var code = state.code, keys = state.keys;
-            state = d; state.code = code; state.keys = keys; save(); syncGoal(); render(); toast('Restored ' + b.textContent);
+            var old = state; state = d; delete state.slim; graftHeavy(state, old); state.code = code; state.keys = keys; save(); syncGoal(); render(); toast('Restored ' + b.textContent);
           });
         };
       });
@@ -4473,12 +4543,29 @@
   function rowKey(g, r) { return regKey(g[r][SC.item], g[r][SC.size]); }
   function daySales(d) { if (!d || !d.grid) return 0; var g = d.grid, t = 0; dataRows(g).forEach(function (r) { t += num(cellVal(g, r, SC.amt)); }); return t; }
   function prevDayKey(k) { var ks = Object.keys(shop().days).filter(function (x) { return x < k && shop().days[x].grid; }).sort(); return ks.pop(); }
+  // v103: pair today's rows with yesterday's rows of the same item. When yesterday has the same name twice (one row named wrong),
+  // the row whose closing equals today's opening is the pair; the other one is reported as a second row, not as a wrong opening.
+  function prevPairs(d, k) {
+    var out = { pk: null, by: {}, dup: [] }, pk = prevDayKey(k); if (!pk || !d || !d.grid) return out; out.pk = pk;
+    var pd = shop().days[pk], pg = pd.grid, g = d.grid, Y = {}, T = {};
+    dataRows(pg).forEach(function (x) { if (!String(pg[x][SC.item] || '').trim()) return; var kk = dayKeyOf(pd, x), hasC = isNum(cellVal(pg, x, SC.close)) && String(pg[x][SC.close]).trim() !== ''; (Y[kk] = Y[kk] || []).push({ r: x, c: hasC ? num(cellVal(pg, x, SC.close)) : null }); });
+    dataRows(g).forEach(function (r) { if (!String(g[r][SC.item] || '').trim()) return; var kk = dayKeyOf(d, r), hasO = String(g[r][SC.open] == null ? '' : g[r][SC.open]).trim() !== ''; (T[kk] = T[kk] || []).push({ r: r, o: hasO ? num(cellVal(g, r, SC.open)) : null }); });
+    Object.keys(T).forEach(function (kk) {
+      var ys = (Y[kk] || []).slice(), used = {}; if (!ys.length) return;
+      // equal numbers first
+      T[kk].forEach(function (t) { if (t.o == null) return; for (var i = 0; i < ys.length; i++) if (!used[i] && ys[i].c != null && Math.abs(ys[i].c - t.o) < .01) { used[i] = 1; out.by[t.r] = { yr: ys[i].r, pc: ys[i].c, all: Y[kk] }; return; } });
+      // the rest in page order
+      T[kk].forEach(function (t) { if (out.by[t.r]) return; for (var i = 0; i < ys.length; i++) if (!used[i]) { used[i] = 1; out.by[t.r] = { yr: ys[i].r, pc: ys[i].c, all: Y[kk] }; return; } out.by[t.r] = { yr: ys[0].r, pc: null, all: Y[kk], extraT: true }; });
+      var left = ys.filter(function (y, i) { return !used[i]; });
+      if (left.length) out.dup.push({ key: kk, rows: Y[kk], left: left, today: T[kk].map(function (t) { return t.r; }) });
+    });
+    return out;
+  }
   // checks: anything that doesn't add up turns red
   function shopChecks(k) {
     var d = shopDay(k), g = d && d.grid, bad = {}, msgs = [];
     if (!g) return { bad: bad, msgs: msgs };
-    var pk = prevDayKey(k), prevClose = {};
-    if (pk) { var pd0 = shop().days[pk], pg = pd0.grid; dataRows(pg).forEach(function (r) { if (isNum(cellVal(pg, r, SC.close)) && String(pg[r][SC.close]).trim() !== '') prevClose[dayKeyOf(pd0, r)] = num(cellVal(pg, r, SC.close)); }); }
+    var PP = prevPairs(d, k);
     dataRows(g).forEach(function (r) {
       var v = function (c) { return cellVal(g, r, c); }, has = function (c) { var x = g[r][c]; return x !== '' && x != null; };
       var nm = (g[r][SC.item] || 'Row ' + (r + 1)) + (g[r][SC.size] ? ' ' + g[r][SC.size] : '');
@@ -4488,9 +4575,10 @@
       if (has(SC.open) && Math.abs(num(v(SC.total)) - (o + rc)) > .01 && String(g[r][SC.total] == null ? '' : g[r][SC.total]).charAt(0) !== '=') g[r][SC.total] = String(o + rc);
       if (has(SC.sales) && has(SC.rate) && has(SC.amt) && Math.abs(sl * rt - am) > .5) { bad[r + ',' + SC.amt] = 1; msgs.push({ r: r, c: SC.amt, t: '<b>' + esc(nm) + '</b>: ' + sl + ' × ' + rt + ' = ' + fmtCell(sl * rt) + ', but amount says ' + fmtCell(am) }); }
       if (has(SC.close) && has(SC.open) && Math.abs(o + rc - sl - cl) > .01) { bad[r + ',' + SC.close] = 1; msgs.push({ r: r, c: SC.close, t: '<b>' + esc(nm) + '</b>: ' + o + (rc ? ' + ' + rc : '') + ' − ' + sl + ' = ' + (o + rc - sl) + ', but closing says ' + cl }); }
-      var pc = prevClose[dayKeyOf(d, r)];
+      var pc = PP.by[r] ? PP.by[r].pc : null;
       if (pc != null && has(SC.open) && Math.abs(pc - o) > .01) { bad[r + ',' + SC.open] = 1; msgs.push({ r: r, c: SC.open, t: '<b>' + esc(nm) + '</b>: yesterday closed ' + pc + ', today opens ' + o + '. Tap the row to fix the number.' }); }
     });
+    PP.dup.forEach(function (D) { var x = regItem(D.key), nm = x ? x.item + ' ' + x.size : D.key; msgs.push({ r: D.today[0], c: 'dup', key: D.key, t: '<b>' + esc(nm) + '</b> is on yesterday’s sheet ' + D.rows.length + ' times (closed ' + D.rows.map(function (y) { return y.c == null ? '–' : fmtN(y.c); }).join(' and ') + '), today ' + (D.today.length === 1 ? 'once' : D.today.length + ' times') + '. One of yesterday’s rows is probably another liquor.' }); });
     if (d.written && d.written.sales && Math.abs(daySales(d) - d.written.sales) > .5) msgs.push({ r: null, t: 'Amounts add up to <b>' + inr(daySales(d)) + '</b>, but the sheet’s written total is <b>' + inr(d.written.sales) + '</b>' });
     return { bad: bad, msgs: msgs };
   }
@@ -5822,22 +5910,22 @@
   function recoverScan() {
     var s2 = shop(), cur = s2.days || {};
     return idbKeys().then(function (keys) {
-      var snaps = keys.filter(function (k) { return String(k).indexOf('close-') === 0; }).sort().reverse().concat(keys.filter(function (k) { return String(k).indexOf('snap-') === 0; }).sort().reverse()), photos = keys.filter(function (k) { return /^shopimg-sp/.test(String(k)); });
+      var snaps = keys.filter(function (k) { return String(k).indexOf('ver-') === 0; }).sort().reverse().concat(keys.filter(function (k) { return String(k).indexOf('close-') === 0; }).sort().reverse()).concat(keys.filter(function (k) { return String(k).indexOf('snap-') === 0; }).sort().reverse()), photos = keys.filter(function (k) { return /^shopimg-sp/.test(String(k)); });
       return Promise.all(snaps.concat(['state']).map(function (k) { return idbGet(k).then(function (v) { return { k: k, v: v }; }).catch(function () { return { k: k, v: null }; }); })).then(function (S) {
         var copies = S.filter(function (x) { return x.v && x.v.shop && x.v.shop.days; }).map(function (x) {
           var dd = x.v.shop.days, back = Object.keys(dd).filter(function (k) { var a = dd[k], b = cur[k]; if (!a || !a.grid) return false; if (!b || !b.grid) return true; return a.status === 'closed' && b.status !== 'closed'; }).sort();
           return { k: x.k, at: x.v.savedAt, back: back, v: x.v };
         }).filter(function (c) { return c.back.length; });
         var used = {}; Object.keys(cur).forEach(function (k) { (cur[k].photos || []).forEach(function (id) { used[id] = 1; }); });
-        var orphan = photos.map(function (k) { return String(k).slice(8); }).filter(function (id) { return !used[id]; }).map(function (id) { var t = parseInt(id.slice(2, -1), 36); return { id: id, t: isNaN(t) ? 0 : t }; }).sort(function (a, b) { return a.t - b.t; });
-        var groups = []; orphan.forEach(function (o) { var g = groups[groups.length - 1]; if (g && o.t - g.last < 15 * 60 * 1000) { g.ids.push(o.id); g.last = o.t; } else groups.push({ ids: [o.id], first: o.t, last: o.t }); });
+        var orphan = photos.map(function (k) { return String(k).slice(8); }).filter(function (id) { return !used[id]; }).map(function (id) { var t = parseInt(id.slice(2, 10), 36), i = parseInt(id.slice(10), 10) || 0; return { id: id, t: isNaN(t) ? 0 : t, i: i }; }).sort(function (a, b) { return a.t - b.t || a.i - b.i; });
+        var groups = []; orphan.forEach(function (o) { var g = groups[groups.length - 1]; if (g && o.t - g.last < 3000) { g.ids.push(o.id); g.last = o.t; } else groups.push({ ids: [o.id], first: o.t, last: o.t }); });
         return { copies: copies, groups: groups.reverse() };
       });
     });
   }
   function recoverMerge(v, ks) {
     var s2 = shop(), src = v.shop, n = 0;
-    ks.forEach(function (k) { s2.days[k] = JSON.parse(JSON.stringify(src.days[k])); n++; });
+    ks.forEach(function (k) { var old = s2.days[k], nd = JSON.parse(JSON.stringify(src.days[k])); if (old) HEAVY.forEach(function (f) { if (nd[f] == null && old[f] != null) nd[f] = old[f]; }); s2.days[k] = nd; n++; });
     ['items', 'map', 'indents', 'bills', 'nameCfg', 'rekey'].forEach(function (f) { if (!src[f]) return; s2[f] = s2[f] || {}; Object.keys(src[f]).forEach(function (x) { if (s2[f][x] == null) s2[f][x] = src[f][x]; }); });
     save(); return n;
   }
@@ -5846,14 +5934,19 @@
     if (!recoverRes || Date.now() - recoverRes.at > 20000) { recoverRes = null; recoverScan().then(function (R) { R.at = Date.now(); recoverRes = R; if (ui.sheet && ui.sheet.kind === 'shoprecover') drawSheet(); }).catch(function () { recoverRes = { copies: [], groups: [], at: Date.now() }; drawSheet(); }); return { title: 'Get lost days back', cap: '', html: '<p class="muted"><span class="wpulse"></span> Looking through the copies and photos kept on this phone…</p>', bind: function () {} }; }
     var R = recoverRes, h = '', fd = function (k) { return new Date(k + 'T00:00:00').toLocaleDateString('en', { day: 'numeric', month: 'short' }); };
     h += '<span class="cap">Saved copies on this phone</span>';
-    h += R.copies.length ? R.copies.map(function (c, i) { return '<div class="card stack" style="gap:8px"><b>' + (c.k === 'state' ? 'Second copy' : c.k.indexOf('close-') === 0 ? 'Copy made when you closed ' + new Date(c.k.slice(6, 16) + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + (c.at ? ' (' + new Date(c.at).toLocaleString('en', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) + ')' : '') : 'Copy from the end of ' + new Date(c.k.slice(5) + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' })) + '</b><span class="muted small">Has ' + c.back.length + ' day' + (c.back.length > 1 ? 's' : '') + ' that ' + (c.back.length > 1 ? 'are' : 'is') + ' missing or less finished here: ' + c.back.map(fd).join(', ') + '</span><button type="button" class="btn jungle" data-rcc="' + i + '">Bring these days back</button></div>'; }).join('') : '<p class="muted small">No saved copy has days that are missing here.</p>';
+    h += R.copies.length ? R.copies.map(function (c, i) { return '<div class="card stack" style="gap:8px"><b>' + (c.k === 'state' ? 'Second copy' : c.k.indexOf('ver-') === 0 ? 'Copy made just before the app updated from version ' + c.k.split('-')[1] + (c.at ? ' (' + new Date(c.at).toLocaleString('en', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) + ')' : '') : c.k.indexOf('close-') === 0 ? 'Copy made when you closed ' + new Date(c.k.slice(6, 16) + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }) + (c.at ? ' (' + new Date(c.at).toLocaleString('en', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) + ')' : '') : 'Copy from the end of ' + new Date(c.k.slice(5) + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' })) + '</b><span class="muted small">Has ' + c.back.length + ' day' + (c.back.length > 1 ? 's' : '') + ' that ' + (c.back.length > 1 ? 'are' : 'is') + ' missing or less finished here: ' + c.back.map(fd).join(', ') + '</span><button type="button" class="btn jungle" data-rcc="' + i + '">Bring these days back</button></div>'; }).join('') : '<p class="muted small">No saved copy has days that are missing here.</p>';
     h += '<span class="cap" style="margin-top:6px">Sheet photos on this phone that belong to no day</span>';
-    h += R.groups.length ? R.groups.map(function (g, i) { return '<div class="card stack" style="gap:8px"><b>' + g.ids.length + ' photo' + (g.ids.length > 1 ? 's' : '') + ' taken ' + new Date(g.first).toLocaleString('en', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) + '</b><div class="row" style="gap:6px;overflow-x:auto">' + g.ids.slice(0, 4).map(function (id) { return '<img data-rcimg="' + id + '" alt="" style="height:70px;border-radius:8px;background:#eee">'; }).join('') + '</div><button type="button" class="btn line" data-rcg="' + i + '">Make a day from these photos…</button></div>'; }).join('') : '<p class="muted small">No loose sheet photos.</p>';
+    h += R.groups.length ? R.groups.map(function (g, i) { return '<div class="card stack" style="gap:8px"><b>' + g.ids.length + ' photo' + (g.ids.length > 1 ? 's' : '') + ' added ' + new Date(g.first).toLocaleString('en', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) + '</b><div class="row" style="gap:6px;overflow-x:auto">' + g.ids.slice(0, 4).map(function (id) { return '<img data-rcimg="' + id + '" alt="" style="height:70px;border-radius:8px;background:#eee">'; }).join('') + '</div><button type="button" class="btn line" data-rcg="' + i + '">Make a day from these photos…</button></div>'; }).join('') : '<p class="muted small">No loose sheet photos.</p>';
     h += '<p class="muted small">A copy is kept on the phone at the end of each day (the last 14 days). Bringing days back only adds what is missing here; nothing you have now is removed. Photos made into a day can be read again with the AI.</p>';
     return { title: 'Get lost days back', cap: '', html: '<div class="stack" style="gap:10px">' + h + '</div>', bind: function (r) {
       r.querySelectorAll('[data-rcimg]').forEach(function (im) { idbGet('shopimg-' + im.dataset.rcimg).then(function (u) { if (u) im.src = u; }); });
       r.querySelectorAll('[data-rcc]').forEach(function (b) { b.onclick = function () { var c = R.copies[+b.dataset.rcc]; if (!confirm('Bring back ' + c.back.map(fd).join(', ') + ' from this copy?')) return; var n = recoverMerge(c.v, c.back); recoverRes = null; toast(n + ' day' + (n > 1 ? 's' : '') + ' brought back'); render(); drawSheet(); }; });
-      r.querySelectorAll('[data-rcg]').forEach(function (b) { b.onclick = function () { var g = R.groups[+b.dataset.rcg], def = dkey(new Date(g.first - 864e5)); var v = prompt('Which day’s sheet are these photos? (DD-MM-YYYY)', def.split('-').reverse().join('-')); if (v == null) return; var dt = indDate(v); if (!dt) { toast('Couldn’t read that date'); return; } var s2 = shop(), d = s2.days[dt]; if (d && d.grid) { if (!confirm(fd(dt) + ' already has a sheet. Add these photos to it?')) return; } d = shopDay(dt, true); g.ids.forEach(function (id) { if (d.photos.indexOf(id) < 0) d.photos.push(id); }); save(); recoverRes = null; closeSheet(); openShopDay(dt); toast('Photos added to ' + fd(dt) + ': read them with the AI'); }; });
+      r.querySelectorAll('[data-rcg]').forEach(function (b) { b.onclick = function () { var g = R.groups[+b.dataset.rcg]; if (b.disabled) return; b.disabled = true; var lbl = b.textContent; b.textContent = 'Reading the date on the sheet…';
+        var ask = function (def, read) { b.disabled = false; b.textContent = lbl; var v = prompt((read ? 'The sheet says ' + def.split('-').reverse().join('-') + '. ' : '') + 'Which day’s sheet are these photos? (DD-MM-YYYY)', def.split('-').reverse().join('-')); if (v == null) return; var dt = indDate(v); if (!dt) { toast('Couldn’t read that date'); return; } var s2 = shop(), d = s2.days[dt]; if (d && d.grid) { if (!confirm(fd(dt) + ' already has a sheet. Add these photos to it?')) return; } d = shopDay(dt, true); g.ids.forEach(function (id) { if (d.photos.indexOf(id) < 0) d.photos.push(id); }); save(); recoverRes = null; closeSheet(); openShopDay(dt); toast('Photos added to ' + fd(dt) + ': read them with the AI'); };
+        var fallback = dkey(new Date(g.first - 864e5)), doneAsk = false, once = function (d, rd) { if (doneAsk) return; doneAsk = true; ask(d, rd); };
+        setTimeout(function () { once(fallback, false); }, 15000);
+        idbGet('shopimg-' + g.ids[0]).then(function (u) { if (!u) throw 0; return geminiImages('This is a photo of a handwritten daily "Statement of Sales" sheet from a shop in India. Find the date written at the top (day-month-year order). Today is ' + dkey(new Date()) + '; the sheet is from the last few months. Reply JSON: {"date": "YYYY-MM-DD" or null}', [u], 0); }).then(function (x) { var dt = x && x.date && /^\d{4}-\d{2}-\d{2}$/.test(x.date) && x.date <= dkey(new Date()) ? x.date : null; once(dt || fallback, !!dt); }).catch(function () { once(fallback, false); });
+      }; });
     } };
   }
   function shopItemSheet(key) {
@@ -6646,6 +6739,7 @@
     if (!pk) it(true, 'First sheet: nothing to compare the opening with', '');
     else if (!om.length && !Object.keys(swr).length) it(true, 'Opening = yesterday’s closing', left ? 'on the named rows' : 'every row');
     else om.forEach(function (m) { it(false, m.t.replace(/ Tap the row to fix the number\./, ''), 'tap to see yesterday’s row next to today’s', 'yday:' + m.r); });
+    ck.msgs.filter(function (m) { return m.c === 'dup'; }).forEach(function (m) { it(false, m.t, 'tap to see the rows and rename the wrong one', 'yday:' + m.r); });
     var cm = ck.msgs.filter(function (m) { return m.c === SC.close || m.c === SC.total; });
     if (!cm.length) it(true, 'Opening + received − sold = closing', 'every row'); else cm.forEach(function (m) { it(false, m.t, 'tap to fix', 'row:' + m.r); });
     var am = ck.msgs.filter(function (m) { return m.c === SC.amt; });
@@ -7128,9 +7222,9 @@
   }
   // ---- "yesterday closed 12, today opens 11": both rows side by side, cut from their photos ----
   function ydRow(d, r) {
-    var pk = prevDayKey(sp.k); if (!pk) return null; var pd = shop().days[pk], key = dayKeyOf(d, r), yr = null;
-    dataRows(pd.grid).forEach(function (x) { if (yr == null && String(pd.grid[x][SC.item] || '').trim() && dayKeyOf(pd, x) === key) yr = x; });
-    return { pk: pk, pd: pd, yr: yr };
+    var PP = prevPairs(d, sp.k); if (!PP.pk) return null; var pd = shop().days[PP.pk], b = PP.by[r], key = dayKeyOf(d, r);
+    var D = PP.dup.filter(function (x) { return x.key === key; })[0];
+    return { pk: PP.pk, pd: pd, yr: b ? b.yr : null, all: b ? b.all : [], dup: D || null };
   }
   function ydayHtml(d) {
     var r = sp.ydr, g = d.grid, Y = ydRow(d, r), fmtD = function (k) { return new Date(k + 'T00:00:00').toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' }); };
@@ -7140,7 +7234,13 @@
     var yc = cellVal(Y.pd.grid, Y.yr, SC.close), to = cellVal(g, r, SC.open), diff = num(yc) - num(to);
     h += '<div class="card stack ydc" style="gap:8px"><span class="cap">Yesterday · ' + fmtD(Y.pk) + ' · row ' + (dataRows(Y.pd.grid).indexOf(Y.yr) + 1) + '</span><div class="sqimg bw" id="ydImgY"><span class="muted small">Cutting the row…</span></div>' + nums(Y.pd.grid, Y.yr, SC.close) + '</div>';
     h += '<div class="card stack ydc" style="gap:8px"><span class="cap">Today · ' + fmtD(sp.k) + ' · row ' + (dataRows(g).indexOf(r) + 1) + '</span><div class="sqimg bw" id="ydImgT"><span class="muted small">Cutting the row…</span></div>' + nums(g, r, SC.open) + '</div>';
-    h += '<div class="notice' + (diff ? '' : ' ok') + '">' + (diff ? 'Yesterday closed <b>' + fmtN(num(yc)) + '</b>, today opens <b>' + fmtN(num(to)) + '</b>: ' + fmtN(Math.abs(diff)) + ' bottle' + (Math.abs(diff) === 1 ? '' : 's') + (diff > 0 ? ' not accounted for' : ' more than yesterday') + '.' : '✓ They match now.') + '</div>';
+    h += '<div class="notice' + (diff || Y.dup ? '' : ' ok') + '">' + (diff ? 'Yesterday closed <b>' + fmtN(num(yc)) + '</b>, today opens <b>' + fmtN(num(to)) + '</b>: ' + fmtN(Math.abs(diff)) + ' bottle' + (Math.abs(diff) === 1 ? '' : 's') + (diff > 0 ? ' not accounted for' : ' more than yesterday') + '.' : (Y.dup ? 'This row matches. But see below: yesterday has this name twice.' : '✓ They match now.')) + '</div>';
+    if (Y.dup) {
+      var yx = regItem(Y.dup.key), ynm = yx ? yx.item + ' ' + yx.size : '';
+      h += '<div class="card stack" style="gap:10px;box-shadow:inset 0 0 0 2px #FFC56B"><b>' + esc(ynm) + ' is on ' + fmtD(Y.pk) + '’s sheet ' + Y.dup.rows.length + ' times</b><span class="muted small">Today it is there ' + (Y.dup.today.length === 1 ? 'once' : Y.dup.today.length + ' times') + '. The row below that doesn’t match today is most likely another liquor that was given this name. Look at the photo and rename it to what he wrote.</span>';
+      Y.dup.left.forEach(function (y) { h += '<div class="stack" style="gap:6px"><span class="cap">' + fmtD(Y.pk) + ' · row ' + (dataRows(Y.pd.grid).indexOf(y.r) + 1) + ' · closed ' + (y.c == null ? '–' : fmtN(y.c)) + '</span><div class="sqimg bw" data-ydimg="' + y.r + '"><span class="muted small">Cutting the row…</span></div>' + nums(Y.pd.grid, y.r, SC.close) + '<button type="button" class="btn jungle" data-ydren="' + y.r + '">✎ Rename this row of ' + fmtD(Y.pk) + '</button></div>'; });
+      h += '</div>';
+    }
     h += '<div class="row" style="gap:8px"><button type="button" class="btn jungle" style="flex:1" id="ydFixT">Fix today’s opening</button><button type="button" class="btn line" style="flex:1" id="ydFixY">Fix yesterday’s closing</button></div><span class="cap" style="margin-top:4px">Or the name is wrong</span><div class="row" style="gap:8px"><button type="button" class="btn line" style="flex:1" id="ydNameT">✎ Rename today’s row</button><button type="button" class="btn line" style="flex:1" id="ydNameY">✎ Rename yesterday’s row</button></div><button type="button" class="btn ghost small" id="ydBack">‹ Back</button>';
     return h;
   }
@@ -7151,6 +7251,7 @@
     var paint = function (id, u) { var bx = o.querySelector(id); if (bx) bx.innerHTML = u ? '<img alt="Row on the photo" src="' + u + '">' : '<span class="muted small">No photo for this row</span>'; };
     rowCrop(Y.pd, Y.yr).then(function (u) { paint('#ydImgY', u); }).catch(function () { paint('#ydImgY', null); });
     rowCrop(d, r).then(function (u) { paint('#ydImgT', u); }).catch(function () { paint('#ydImgT', null); });
+    o.querySelectorAll('[data-ydimg]').forEach(function (bx) { var yr2 = +bx.dataset.ydimg; rowCrop(Y.pd, yr2).then(function (u) { bx.innerHTML = u ? '<img alt="Row on the photo" src="' + u + '">' : '<span class="muted small">No photo for this row</span>'; }).catch(function () { bx.innerHTML = '<span class="muted small">No photo for this row</span>'; }); });
     o.querySelectorAll('.sqimg').forEach(function (bx) { bx.onclick = function () { bx.classList.toggle('z'); }; });
     q('#ydFixT').onclick = function () { openRowEd(r, 'open', 'yday'); };
     q('#ydFixY').onclick = function () { var pk = Y.pk, yr = Y.yr; openShopDay(pk); openRowEd(yr, 'close'); };
@@ -7158,6 +7259,7 @@
     var ren = function (row) { if (shop().fresh) openNm(row); else openNamePick(row, 'sheet', 'one'); };
     q('#ydNameT').onclick = function () { ren(r); };
     q('#ydNameY').onclick = function () { var pk = Y.pk, yr = Y.yr; openShopDay(pk); ren(yr); };
+    o.querySelectorAll('[data-ydren]').forEach(function (b) { b.onclick = function () { var pk = Y.pk, yr2 = +b.dataset.ydren; openShopDay(pk); ren(yr2); }; });
   }
   function openYday(r, back) { sp.step = 'yday'; sp.ydr = r; sp.ydBack = back || 'sheet'; drawShopDay(); var ov = document.getElementById('overlay'); if (ov) ov.scrollTop = 0; }
   // ---------- v60: bills go into Past indents; expense heads, savings and totals ----------
@@ -8206,7 +8308,7 @@
   }
   // carry on after the app was in the background or reopened
   document.addEventListener('visibilitychange', function () { if (document.hidden) return; var t = state.shop && state.shop.teach; if (t && t.running) { teachWake(true); if (!TT.busy) teachRun(); } });
-  setTimeout(function () { var t = state.shop && state.shop.teach; if (t && t.running && !TT.busy) teachRun(); }, 2500);
+  setTimeout(function () { whenHydrated(function () { var t = state.shop && state.shop.teach; if (t && t.running && !TT.busy) teachRun(); }); }, 2500);
 
   // ---------- Morning breath: Bhastrika (bellows) + Kapalabhati (skull-shining) ----------
   var BRLV = {
@@ -8634,7 +8736,7 @@
   }
   // v101: every time a day is closed, a copy is kept on the phone, and (if Google Drive is connected) a full backup goes to Drive
   function closeBackup(k) {
-    var copy = JSON.parse(JSON.stringify(state)), key = 'close-' + k + '-' + Date.now().toString(36);
+    var copy = JSON.parse(JSON.stringify(slimOf(state))), key = 'close-' + k + '-' + Date.now().toString(36);
     idbPut(key, copy).then(idbKeys).then(function (keys) {
       var cl = keys.filter(function (x) { return String(x).indexOf('close-') === 0; }).sort(function (a, b) { return a < b ? -1 : 1; });
       // keep the newest copy for each of the last 30 closed days
@@ -9254,7 +9356,7 @@
     var d = shopDay(k), g = d && d.grid; if (!g || !d.ink || !INK) return;
     var thr = inkThr(); d.inkm = {};
     Object.keys(d.ink).forEach(function (r) {
-      if (!g[r]) return; var nm = String(g[r][SC.item] || '').trim(), mine = brandKey(nm), desc = d.ink[r].d;
+      if (!g[r] || !d.ink[r] || !d.ink[r].d) return; var nm = String(g[r][SC.item] || '').trim(), mine = brandKey(nm), desc = d.ink[r].d;
       var pa = nm ? inkBest(desc, mine) : null, best = null, bp = 0;
       Object.keys(INK).forEach(function (bk) { if (bk === mine) return; var v = inkBest(desc, bk); if (v != null && v > bp) { bp = v; best = bk; } });
       var st = pa == null ? 'new' : pa >= thr ? 'ok' : pa >= 60 ? 'likely' : 'low';
@@ -9469,6 +9571,7 @@
     render = w('render', render); drawSheet = w('drawSheet', drawSheet); drawShopDay = w('drawShopDay', drawShopDay); closeSheet = w('closeSheet', closeSheet); closeShopDay = w('closeShopDay', closeShopDay);
     if (typeof drawBill === 'function') drawBill = w('drawBill', drawBill); if (typeof closeBill === 'function') closeBill = w('closeBill', closeBill);
   })();
+  whenHydrated(function () {
   render();
   loadNotes().then(updateEye);
   syncGoal();
@@ -9485,4 +9588,6 @@
   else if (/[?&]checkin=1/.test(location.search)) openCheckin();
   else resumeApply();
   setTimeout(function () { NAV.hold = false; navNote(); }, 0);
+  });
+  hydrate();
 })();
